@@ -4,8 +4,8 @@
   "description": "Ultimate Trading Analysis Pro - Advanced Pattern Recognition & ML Predictions",
   "main": "app.py",
   "scripts": {
-    "start": "python3 app.py",
-    "dev": "python3 app.py"
+    "start": "python app.py",
+    "dev": "python app.py"
   },
   "keywords": ["trading", "analysis", "binance", "ml", "patterns"],
   "author": "Junivours",
