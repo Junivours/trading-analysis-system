@@ -16,6 +16,7 @@ import os
 import threading
 import time
 import warnings
+import random
 from flask import Flask, render_template, render_template_string, jsonify, request
 from datetime import datetime, timedelta
 from flask_cors import CORS
@@ -3150,7 +3151,6 @@ def analyze_symbol():
                 low_24h = ticker_data.get('low_24h', current_price * 0.98)
             else:
                 # Last resort fallback
-                import random
                 current_price = 35000 + random.uniform(-5000, 5000)
                 change_24h = random.uniform(-8, 8)
                 volume_24h = random.uniform(800000000, 2000000000)
@@ -3158,7 +3158,6 @@ def analyze_symbol():
                 low_24h = current_price * 0.95
         except:
             # Ultimate fallback
-            import random
             current_price = 35000 + random.uniform(-5000, 5000)
             change_24h = random.uniform(-8, 8)
             volume_24h = random.uniform(800000000, 2000000000)
@@ -3281,7 +3280,7 @@ def get_top_coins():
                     low_24h = ticker_data.get('low_24h', current_price)
                 else:
                     # Fallback to reasonable estimates
-                    import random
+
                     base_prices = {'BTCUSDT': 35000, 'ETHUSDT': 2500, 'SOLUSDT': 45, 'BNBUSDT': 300, 
                                   'XRPUSDT': 0.5, 'ADAUSDT': 0.35, 'DOGEUSDT': 0.08, 'AVAXUSDT': 25}
                     base_price = base_prices.get(symbol, 1)
@@ -3292,7 +3291,7 @@ def get_top_coins():
                     low_24h = current_price * random.uniform(0.92, 0.99)
                 
                 # Calculate additional metrics
-                import random
+
                 rsi = random.uniform(25, 75)
                 quality_score = random.randint(70, 95)
                 
@@ -3346,7 +3345,7 @@ def analyze_dna():
         req = request.get_json() or {}
         symbol = req.get('symbol', 'BTCUSDT')
         
-        import random
+
         
         dna_types = ['Aggressive Trader', 'Conservative Hodler', 'Volatile Swinger', 'Stable Accumulator']
         personalities = ['Risk-Loving', 'Risk-Averse', 'Momentum-Driven', 'Value-Oriented']
@@ -3380,7 +3379,7 @@ def analyze_fakeout():
         req = request.get_json() or {}
         symbol = req.get('symbol', 'BTCUSDT')
         
-        import random
+
         
         fake_out_prob = random.uniform(0.1, 0.8)
         strengths = ['WEAK', 'MODERATE', 'STRONG']
@@ -3461,7 +3460,7 @@ def api_liquiditymap():
             low_24h = current_price * 0.98
             volume_24h = 1000000
         
-        import random
+
         
         liquidity_zones = []
         for i in range(5):
@@ -3518,7 +3517,7 @@ def api_orderbook():
             # Fallback to default price
             current_price = 50000
         
-        import random
+
         
         # Generate orderbook data
         bids = []
@@ -4834,7 +4833,7 @@ def api_ml_train():
         logger.info(f"🧠 Starting ML training for {symbol} with {days} days")
         
         # Simulate successful training with demo data
-        import random
+
         import time
         
         # Simulate training time
