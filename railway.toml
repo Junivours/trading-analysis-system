@@ -2,7 +2,7 @@
   builder = "NIXPACKS"
 
 [build.nixpacksConfig]
-  startCommand = "python app.py"
+  startCommand = "python3 app.py"
 
 [env]
   FLASK_APP = "app.py"
