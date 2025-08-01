@@ -29,6 +29,7 @@ load_dotenv()
 class Config:
     BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', '')
     BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY', '')
+    LOG_LEVEL = logging.INFO
 
 config = Config()
 
