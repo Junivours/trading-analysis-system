@@ -1,8 +1,13 @@
-[phases.setup]
-nixpkgs = ['python311', 'pip']
+[build]
+  nixpkgs = ['python311', 'python311Packages.pip']
 
 [phases.install]
-cmds = ['pip install -r requirements.txt']
+  cmds = ['python -m pip install --upgrade pip', 'python -m pip install -r requirements.txt']
 
 [start]
-cmd = 'python app.py'
+  cmd = 'python app.py'
+  
+[env]
+  PYTHONPATH = '/app'
+  FLASK_APP = 'app.py'
+  PORT = '8080'

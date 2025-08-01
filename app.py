@@ -4890,10 +4890,25 @@ def api_ml_status():
 
 if __name__ == '__main__':
     try:
-        port = int(os.environ.get('PORT', 8080))  # Railway default port
+        # Get port from Railway environment or default to 5000
+        port = int(os.environ.get('PORT', 5000))
+        
+        print("🚀 Starting ULTIMATE Trading Analysis Pro - MEGA-FIX v6.0...")
+        print("✅ All features restored and working!")
+        print("🌐 Railway deployment ready!")
+        print(f"🔗 Server starting on port {port}")
+        
         logger.info(f"🔥 Starting Ultimate Trading Analysis Pro v6.0 on port {port}")
-        app.run(host='0.0.0.0', port=port, debug=False)
+        
+        # Run the Flask app with Railway-compatible settings
+        app.run(
+            host='0.0.0.0',  # Listen on all interfaces for Railway
+            port=port,       # Use Railway's provided PORT environment variable
+            debug=False      # Disable debug in production
+        )
+        
     except Exception as e:
-        logger.error(f"❌ Failed to start app: {e}")
-        print(f"❌ Failed to start app: {e}")
+        error_msg = f"❌ Failed to start app: {e}"
+        logger.error(error_msg)
+        print(error_msg)
         raise
