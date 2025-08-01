@@ -36,7 +36,7 @@ def validate_python_environment():
     return True
 
 def check_critical_packages():
-    """Check and report status of critical packages"""
+    """Check and report status of critical packages from Nix"""
     critical_packages = {
         'flask': 'Flask web framework',
         'requests': 'HTTP library', 
@@ -46,33 +46,25 @@ def check_critical_packages():
     
     missing_packages = []
     
-    logger.info("📦 Checking critical packages...")
+    logger.info("📦 Checking critical packages from Nix...")
     
     for package, description in critical_packages.items():
         try:
-            __import__(package)
-            logger.info(f"✅ {package} - {description}")
+            module = __import__(package)
+            version = getattr(module, '__version__', 'unknown')
+            logger.info(f"✅ {package} {version} - {description} (from Nix)")
         except ImportError as e:
             logger.error(f"❌ {package} - {description} - MISSING: {e}")
             missing_packages.append(package)
     
     if missing_packages:
-        logger.warning(f"⚠️  Missing packages: {', '.join(missing_packages)}")
-        logger.info("🔄 Attempting to install missing packages...")
-        
-        # Try to install missing packages
-        for package in missing_packages:
-            try:
-                logger.info(f"📦 Installing {package}...")
-                subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
-                             check=True, capture_output=True, text=True)
-                logger.info(f"✅ Successfully installed {package}")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"❌ Failed to install {package}: {e}")
-            except Exception as e:
-                logger.error(f"❌ Unexpected error installing {package}: {e}")
-    
-    return len(missing_packages) == 0
+        logger.error(f"❌ CRITICAL: Missing Nix packages: {', '.join(missing_packages)}")
+        logger.error("❌ This indicates a Nixpacks configuration issue")
+        logger.error("❌ Packages should be pre-installed via Nix, not pip")
+        return False
+    else:
+        logger.info("✅ All critical packages available from Nix environment!")
+        return True
 
 def setup_environment():
     """Set up environment variables for Railway deployment"""
@@ -173,8 +165,12 @@ def main():
             sys.exit(1)
         
         # Step 2: Check critical packages
-        if not check_critical_packages():
-            logger.warning("⚠️  Some critical packages are missing, but continuing...")
+        packages_available = check_critical_packages()
+        if not packages_available:
+            logger.error("❌ Critical packages missing from Nix environment")
+            logger.error("❌ This indicates nixpacks.toml configuration needs to be updated")
+            logger.error("❌ Deployment cannot continue without core packages")
+            sys.exit(1)
         
         # Step 3: Setup environment
         port = setup_environment()

@@ -1,22 +1,47 @@
 [build]
-  nixpkgs = ['python311', 'python311Packages.pip', 'python311Packages.setuptools', 'python311Packages.wheel', 'python311Packages.virtualenv', 'bash']
+  nixpkgs = [
+    'python311',
+    'python311Packages.pip',
+    'python311Packages.setuptools', 
+    'python311Packages.wheel',
+    'python311Packages.flask',
+    'python311Packages.flask-cors',
+    'python311Packages.requests',
+    'python311Packages.pandas',
+    'python311Packages.numpy',
+    'python311Packages.python-dotenv',
+    'python311Packages.markupsafe',
+    'python311Packages.jinja2',
+    'python311Packages.click',
+    'python311Packages.blinker',
+    'python311Packages.itsdangerous',
+    'python311Packages.python-dateutil',
+    'python311Packages.pytz',
+    'python311Packages.six',
+    'bash'
+  ]
 
 [phases.setup]
-  nixPkgs = ['python311', 'python311Packages.pip', 'python311Packages.setuptools', 'python311Packages.wheel']
+  nixPkgs = [
+    'python311',
+    'python311Packages.flask',
+    'python311Packages.requests',
+    'python311Packages.pandas', 
+    'python311Packages.numpy'
+  ]
   
 [phases.install]
   cmds = [
     'echo "🔧 Railway Nix Build Process Starting..."',
     'echo "🐍 Python location: $(which python3 || echo not found)"',
-    'echo "📦 Pip location: $(which pip || echo not found)"', 
     'python3 --version || echo "Python3 not available"',
-    'python3 -m pip --version || echo "pip module not available"',
-    'echo "📋 Installing requirements..."',
-    'python3 -m pip install --upgrade pip setuptools wheel --no-cache-dir --user || echo "Pip upgrade failed, continuing..."',
-    'python3 -m pip install -r requirements-nix.txt --no-cache-dir --user || python3 -m pip install flask flask-cors requests pandas numpy --no-cache-dir --user || echo "Package installation failed"',
-    'python3 -c "import flask; print(f\"✅ Flask {flask.__version__} installed\")" || echo "❌ Flask verification failed"',
-    'chmod +x nix-start.sh || echo "Failed to make nix-start.sh executable"',
-    'chmod +x start.py || echo "Failed to make start.py executable"'
+    'echo "📦 Verifying Nix packages are available..."',
+    'python3 -c "import flask; print(f\"✅ Flask {flask.__version__} available from Nix\")" || echo "❌ Flask not available"',
+    'python3 -c "import requests; print(f\"✅ Requests available from Nix\")" || echo "❌ Requests not available"',
+    'python3 -c "import pandas; print(f\"✅ Pandas {pandas.__version__} available from Nix\")" || echo "❌ Pandas not available"',
+    'python3 -c "import numpy; print(f\"✅ NumPy {numpy.__version__} available from Nix\")" || echo "❌ NumPy not available"',
+    'echo "🎯 All core packages verified - skipping pip installation"',
+    'echo "✅ Nix package verification complete"'
   ]
 
 [start]

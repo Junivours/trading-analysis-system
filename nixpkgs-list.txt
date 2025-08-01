@@ -1,0 +1,29 @@
+# Nix Package References for Railway Deployment
+# These packages should be installed via nixpkgs, not pip
+
+# Core Python packages available in Nix
+python311
+python311Packages.flask
+python311Packages.flask-cors
+python311Packages.requests
+python311Packages.pandas
+python311Packages.numpy
+
+# Additional Python packages
+python311Packages.python-dotenv
+python311Packages.markupsafe
+python311Packages.jinja2
+python311Packages.click
+python311Packages.blinker
+python311Packages.itsdangerous
+python311Packages.python-dateutil
+python311Packages.pytz
+python311Packages.six
+
+# Build tools
+python311Packages.pip
+python311Packages.setuptools
+python311Packages.wheel
+
+# System packages
+bash
