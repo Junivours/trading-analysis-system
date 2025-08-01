@@ -3061,24 +3061,29 @@ cleanup_thread.start()
 
 @app.route('/')
 def dashboard():
-    """Main dashboard route"""
+    """Main dashboard route with proper HTML template"""
     try:
         logger.info("Loading main dashboard")
-        # Always use the embedded HTML for Railway deployment
-        return render_template_string(get_ultimate_dashboard_html())
+        # Try to use the proper HTML template first
+        return render_template('trading_dashboard.html')
     except Exception as e:
-        logger.error(f"Error loading dashboard: {str(e)}")
-        # Simple fallback
-        return '''
-        <html>
-        <head><title>Trading Analysis</title></head>
-        <body>
-            <h1>🔥 Trading Analysis Loading...</h1>
-            <p>System starting up...</p>
-            <script>setTimeout(() => location.reload(), 3000);</script>
-        </body>
-        </html>
-        '''
+        logger.error(f"Error loading dashboard template: {str(e)}")
+        # Fallback to embedded HTML if template fails
+        try:
+            return render_template_string(get_ultimate_dashboard_html())
+        except Exception as e2:
+            logger.error(f"Error loading embedded HTML: {str(e2)}")
+            # Final fallback
+            return '''
+            <html>
+            <head><title>Trading Analysis</title></head>
+            <body>
+                <h1>🔥 Trading Analysis Loading...</h1>
+                <p>System starting up...</p>
+                <script>setTimeout(() => location.reload(), 3000);</script>
+            </body>
+            </html>
+            '''
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_symbol():
