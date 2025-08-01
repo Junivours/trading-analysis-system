@@ -1,61 +1,201 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Railway Deployment Starter für ULTIMATE Trading Analysis Pro
-Dieser Starter löst Railway-spezifische Probleme und startet die Hauptanwendung
+🚀 Railway Starter Script - Nix-Compatible Python Environment
+Advanced Flask Application Launcher with Environment Validation
 """
 
 import os
 import sys
 import subprocess
+import time
+import logging
 
-def main():
-    """Hauptstarter für Railway Deployment"""
-    print("🚀 ULTIMATE Trading Analysis Pro - Railway Starter")
-    print("✅ Checking Python environment...")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def validate_python_environment():
+    """Comprehensive Python environment validation for Nix systems"""
+    logger.info("🔍 Validating Python environment...")
     
-    # Python Version Check
-    print(f"Python Version: {sys.version}")
-    print(f"Python Path: {sys.executable}")
+    # Python version check
+    python_version = sys.version_info
+    logger.info(f"🐍 Python {python_version.major}.{python_version.minor}.{python_version.micro}")
+    logger.info(f"📍 Python executable: {sys.executable}")
     
-    # Environment Variables
-    port = os.environ.get('PORT', '5000')
-    print(f"PORT: {port}")
-    print(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}")
+    if python_version.major < 3 or (python_version.major == 3 and python_version.minor < 8):
+        logger.warning(f"⚠️  Python version {python_version.major}.{python_version.minor} may have compatibility issues")
     
-    # Überprüfe ob alle wichtigen Module verfügbar sind
+    # Check Python path
+    logger.info(f"📚 Python path: {sys.path[:3]}...")  # Show first 3 paths
+    
+    return True
+
+def check_critical_packages():
+    """Check and report status of critical packages"""
+    critical_packages = {
+        'flask': 'Flask web framework',
+        'requests': 'HTTP library', 
+        'pandas': 'Data manipulation library',
+        'numpy': 'Numerical computing library'
+    }
+    
+    missing_packages = []
+    
+    logger.info("📦 Checking critical packages...")
+    
+    for package, description in critical_packages.items():
+        try:
+            __import__(package)
+            logger.info(f"✅ {package} - {description}")
+        except ImportError as e:
+            logger.error(f"❌ {package} - {description} - MISSING: {e}")
+            missing_packages.append(package)
+    
+    if missing_packages:
+        logger.warning(f"⚠️  Missing packages: {', '.join(missing_packages)}")
+        logger.info("🔄 Attempting to install missing packages...")
+        
+        # Try to install missing packages
+        for package in missing_packages:
+            try:
+                logger.info(f"📦 Installing {package}...")
+                subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
+                             check=True, capture_output=True, text=True)
+                logger.info(f"✅ Successfully installed {package}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"❌ Failed to install {package}: {e}")
+            except Exception as e:
+                logger.error(f"❌ Unexpected error installing {package}: {e}")
+    
+    return len(missing_packages) == 0
+
+def setup_environment():
+    """Set up environment variables for Railway deployment"""
+    logger.info("🔧 Setting up environment...")
+    
+    # Railway PORT configuration  
+    port = os.environ.get('PORT', '8080')
+    logger.info(f"🌐 Port: {port}")
+    
+    # Flask configuration
+    os.environ['FLASK_APP'] = 'app.py'
+    os.environ['FLASK_ENV'] = 'production'
+    
+    # Python path
+    current_dir = os.getcwd()
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+        logger.info(f"📁 Added {current_dir} to Python path")
+    
+    # Disable Flask debug in production
+    os.environ['FLASK_DEBUG'] = '0'
+    
+    return port
+
+def verify_app_file():
+    """Verify that app.py exists and can be imported"""
+    logger.info("🔍 Verifying application file...")
+    
+    app_path = os.path.join(os.getcwd(), 'app.py')
+    if not os.path.exists(app_path):
+        logger.error(f"❌ app.py not found at {app_path}")
+        return False
+    
+    logger.info(f"✅ app.py found at {app_path}")
+    
+    # Try to import the app module
     try:
-        import flask
-        print(f"✅ Flask: {flask.__version__}")
+        logger.info("🔄 Testing app.py import...")
+        import app
+        logger.info("✅ app.py imported successfully")
+        
+        # Check if Flask app exists
+        if hasattr(app, 'app'):
+            logger.info("✅ Flask app instance found")
+            return True
+        else:
+            logger.error("❌ Flask app instance not found in app.py")
+            return False
+            
     except ImportError as e:
-        print(f"❌ Flask import failed: {e}")
-        return 1
+        logger.error(f"❌ Failed to import app.py: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Unexpected error importing app.py: {e}")
+        return False
+
+def start_flask_app(port):
+    """Start the Flask application with proper configuration"""
+    logger.info("� Starting Flask application...")
     
     try:
-        import pandas
-        print(f"✅ Pandas: {pandas.__version__}")
-    except ImportError as e:
-        print(f"⚠️ Pandas import failed: {e}")
-    
-    try:
-        import numpy
-        print(f"✅ NumPy: {numpy.__version__}")
-    except ImportError as e:
-        print(f"⚠️ NumPy import failed: {e}")
-    
-    # Starte die Hauptanwendung
-    print("🔥 Starting main application...")
-    try:
-        # Import und starte app.py
-        from app import app
-        app.run(
+        # Import and configure the Flask app
+        import app
+        flask_app = app.app
+        
+        # Configure Flask for Railway
+        flask_app.config['ENV'] = 'production'
+        flask_app.config['DEBUG'] = False
+        flask_app.config['TESTING'] = False
+        
+        logger.info(f"🌐 Starting server on 0.0.0.0:{port}")
+        
+        # Start the Flask application
+        flask_app.run(
             host='0.0.0.0',
             port=int(port),
-            debug=False
+            debug=False,
+            threaded=True,
+            use_reloader=False
         )
+        
+    except ImportError as e:
+        logger.error(f"❌ Failed to import Flask app: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ Failed to start application: {e}")
-        return 1
+        logger.error(f"❌ Failed to start Flask app: {e}")
+        sys.exit(1)
+
+def main():
+    """Main application launcher"""
+    logger.info("🎯 Railway Flask App Launcher Starting...")
+    logger.info("=" * 50)
+    
+    try:
+        # Step 1: Validate Python environment
+        if not validate_python_environment():
+            logger.error("❌ Python environment validation failed")
+            sys.exit(1)
+        
+        # Step 2: Check critical packages
+        if not check_critical_packages():
+            logger.warning("⚠️  Some critical packages are missing, but continuing...")
+        
+        # Step 3: Setup environment
+        port = setup_environment()
+        
+        # Step 4: Verify app file
+        if not verify_app_file():
+            logger.error("❌ Application file verification failed")
+            sys.exit(1)
+        
+        # Step 5: Start Flask application
+        logger.info("✅ All checks passed! Starting Flask application...")
+        logger.info("=" * 50)
+        
+        start_flask_app(port)
+        
+    except KeyboardInterrupt:
+        logger.info("🛑 Application stopped by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"❌ Unexpected error: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()

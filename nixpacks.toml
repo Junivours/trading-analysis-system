@@ -1,13 +1,29 @@
 [build]
-  nixpkgs = ['python311', 'python311Packages.pip', 'python311Packages.setuptools', 'python311Packages.wheel']
+  nixpkgs = ['python311', 'python311Packages.pip', 'python311Packages.setuptools', 'python311Packages.wheel', 'python311Packages.virtualenv', 'bash']
 
+[phases.setup]
+  nixPkgs = ['python311', 'python311Packages.pip', 'python311Packages.setuptools', 'python311Packages.wheel']
+  
 [phases.install]
-  cmds = ['pip install --upgrade pip setuptools wheel', 'pip install -r requirements.txt']
+  cmds = [
+    'echo "🔧 Railway Nix Build Process Starting..."',
+    'echo "🐍 Python location: $(which python3 || echo not found)"',
+    'echo "📦 Pip location: $(which pip || echo not found)"', 
+    'python3 --version || echo "Python3 not available"',
+    'python3 -m pip --version || echo "pip module not available"',
+    'echo "📋 Installing requirements..."',
+    'python3 -m pip install --upgrade pip setuptools wheel --no-cache-dir --user || echo "Pip upgrade failed, continuing..."',
+    'python3 -m pip install -r requirements-nix.txt --no-cache-dir --user || python3 -m pip install flask flask-cors requests pandas numpy --no-cache-dir --user || echo "Package installation failed"',
+    'python3 -c "import flask; print(f\"✅ Flask {flask.__version__} installed\")" || echo "❌ Flask verification failed"',
+    'chmod +x nix-start.sh || echo "Failed to make nix-start.sh executable"',
+    'chmod +x start.py || echo "Failed to make start.py executable"'
+  ]
 
 [start]
-  cmd = 'python start.py'
+  cmd = 'python3 start.py'
   
 [env]
   PYTHONPATH = '/app'
   FLASK_APP = 'app.py'
   PORT = '8080'
+  PYTHONUSERBASE = '/app/.local'
