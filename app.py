@@ -596,7 +596,7 @@ def setup_logging():
 
 logger = setup_logging()
 
-app = Flask(__name__, template_folder='frontend/templates')
+app = Flask(__name__)
 CORS(app)
 
 # === CONFIGURATION SECTION ===

@@ -1,0 +1,10 @@
+[build]
+  builder = "NIXPACKS"
+
+[build.nixpacksConfig]
+  startCommand = "python app.py"
+
+[env]
+  FLASK_APP = "app.py"
+  FLASK_ENV = "production"
+  PORT = "8080"
