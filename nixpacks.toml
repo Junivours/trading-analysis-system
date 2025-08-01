@@ -35,20 +35,24 @@
     'echo "🔧 Railway Nix Build Process Starting..."',
     'echo "🐍 Python location: $(which python3 || echo not found)"',
     'python3 --version || echo "Python3 not available"',
-    'echo "📦 Verifying Nix packages are available..."',
-    'python3 -c "import flask; print(f\"✅ Flask {flask.__version__} available from Nix\")" || echo "❌ Flask not available"',
-    'python3 -c "import requests; print(f\"✅ Requests available from Nix\")" || echo "❌ Requests not available"',
-    'python3 -c "import pandas; print(f\"✅ Pandas {pandas.__version__} available from Nix\")" || echo "❌ Pandas not available"',
-    'python3 -c "import numpy; print(f\"✅ NumPy {numpy.__version__} available from Nix\")" || echo "❌ NumPy not available"',
-    'echo "🎯 All core packages verified - skipping pip installation"',
-    'echo "✅ Nix package verification complete"'
+    'echo "📦 Checking Nix store for Python packages..."',
+    'find /nix/store -name "*.py" -path "*/flask/*" | head -3 || echo "Flask not found in Nix store"',
+    'find /nix/store -name "*.py" -path "*/requests/*" | head -3 || echo "Requests not found in Nix store"',
+    'echo "🔍 Attempting pip installation as fallback..."',
+    'python3 -m pip install --user --no-cache-dir flask flask-cors requests pandas numpy || echo "Pip installation failed"',
+    'echo "✅ Testing package imports..."',
+    'python3 -c "import flask; print(f\"✅ Flask {flask.__version__} available\")" || echo "❌ Flask not available"',
+    'python3 -c "import requests; print(f\"✅ Requests available\")" || echo "❌ Requests not available"',
+    'python3 -c "import pandas; print(f\"✅ Pandas {pandas.__version__} available\")" || echo "❌ Pandas not available"',
+    'python3 -c "import numpy; print(f\"✅ NumPy {numpy.__version__} available\")" || echo "❌ NumPy not available"',
+    'echo "🎯 Package verification complete"'
   ]
 
 [start]
   cmd = 'python3 start.py'
   
 [env]
-  PYTHONPATH = '/app'
+  PYTHONPATH = '/app:/app/.local/lib/python3.11/site-packages'
   FLASK_APP = 'app.py'
   PORT = '8080'
   PYTHONUSERBASE = '/app/.local'

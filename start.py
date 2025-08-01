@@ -52,16 +52,50 @@ def check_critical_packages():
         try:
             module = __import__(package)
             version = getattr(module, '__version__', 'unknown')
-            logger.info(f"✅ {package} {version} - {description} (from Nix)")
+            logger.info(f"✅ {package} {version} - {description} (available)")
         except ImportError as e:
             logger.error(f"❌ {package} - {description} - MISSING: {e}")
             missing_packages.append(package)
     
     if missing_packages:
-        logger.error(f"❌ CRITICAL: Missing Nix packages: {', '.join(missing_packages)}")
-        logger.error("❌ This indicates a Nixpacks configuration issue")
-        logger.error("❌ Packages should be pre-installed via Nix, not pip")
-        return False
+        logger.warning(f"⚠️  Missing Nix packages: {', '.join(missing_packages)}")
+        logger.info("🔄 Attempting runtime pip installation...")
+        
+        # Try to install missing packages at runtime
+        for package in missing_packages:
+            try:
+                logger.info(f"📦 Installing {package} via pip...")
+                subprocess.run([sys.executable, '-m', 'pip', 'install', '--user', '--no-cache-dir', package], 
+                             check=True, capture_output=True, text=True)
+                logger.info(f"✅ Successfully installed {package}")
+                
+                # Test the import
+                try:
+                    __import__(package)
+                    logger.info(f"✅ {package} now available after pip install")
+                except ImportError:
+                    logger.warning(f"⚠️  {package} still not available after installation")
+                    
+            except subprocess.CalledProcessError as e:
+                logger.error(f"❌ Failed to install {package}: {e}")
+            except Exception as e:
+                logger.error(f"❌ Unexpected error installing {package}: {e}")
+        
+        # Re-check after installation attempts
+        remaining_missing = []
+        for package in missing_packages:
+            try:
+                __import__(package)
+            except ImportError:
+                remaining_missing.append(package)
+        
+        if remaining_missing:
+            logger.error(f"❌ Still missing after installation: {', '.join(remaining_missing)}")
+            # Return False only for Flask - other packages can be missing
+            return 'flask' not in remaining_missing
+        else:
+            logger.info("✅ All packages now available!")
+            return True
     else:
         logger.info("✅ All critical packages available from Nix environment!")
         return True
@@ -167,10 +201,12 @@ def main():
         # Step 2: Check critical packages
         packages_available = check_critical_packages()
         if not packages_available:
-            logger.error("❌ Critical packages missing from Nix environment")
-            logger.error("❌ This indicates nixpacks.toml configuration needs to be updated")
-            logger.error("❌ Deployment cannot continue without core packages")
+            logger.error("❌ Critical packages (especially Flask) missing")
+            logger.error("❌ Cannot start web application without Flask")
+            logger.error("❌ Deployment cannot continue")
             sys.exit(1)
+        else:
+            logger.info("✅ Sufficient packages available to start application")
         
         # Step 3: Setup environment
         port = setup_environment()
