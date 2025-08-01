@@ -1,3 +1,16 @@
+# Environment variables and sensitive data
+.env
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+Key*.txt
+key*.txt
+api_keys.txt
+config.json
+secrets.json
+
 # Python
 __pycache__/
 *.py[cod]

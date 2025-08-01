@@ -27,8 +27,8 @@ load_dotenv()
 
 # Configuration class
 class Config:
-    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'B0Vw1obT3Cl62zr8ggQcBFfhlFHIclkjh9VOtUt1ZtfOIFWwaILA0TSDiZcdImhd')
-    BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY', 'uv8yHEvs3saZMIKNTTpiGso0JlOWLhWK5TNyvoc5LkFfsCmW61q4eszB07cqtSTH')
+    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', '')
+    BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY', '')
 
 config = Config()
 
@@ -608,8 +608,8 @@ class Config:
     LOG_LEVEL = logging.INFO
     
     # Binance API Credentials (from environment or direct)
-    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'B0Vw1obT3Cl62zr8ggQcBFfhlFHIclkjh9VOtUt1ZtfOIFWwaILA0TSDiZcdImhd')
-    BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY', 'uv8yHEvs3saZMIKNTTpiGso0JlOWLhWK5TNyvoc5LkFfsCmW61q4eszB07cqtSTH')
+    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', '')
+    BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY', '')
     
     # API Endpoints
     @property

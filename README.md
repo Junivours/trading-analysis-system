@@ -42,11 +42,15 @@ Requests
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ultimate-trading-analysis-pro.git
-cd ultimate-trading-analysis-pro
+git clone https://github.com/Junivours/trading-analysis-system.git
+cd trading-analysis-system
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env with your Binance API credentials
 
 # Set up environment variables
 cp .env.template .env
