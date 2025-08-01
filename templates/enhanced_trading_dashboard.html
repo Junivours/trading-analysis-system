@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 Elite Trading Analysis Pro - Real Market Intelligence</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-gradient: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            --danger-gradient: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+            --warning-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --dark-bg: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%);
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a3bd;
+            --accent-blue: #00d4ff;
+            --accent-purple: #b794f6;
+            --accent-green: #38ef7d;
+            --accent-red: #ff4b2b;
+            
+            /* Glass morphism effects */
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* Animated background particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.6;
+        }
+
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: var(--accent-blue);
+            border-radius: 50%;
+            animation: float 20s infinite linear;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(360deg); opacity: 0; }
+        }
+
+        /* Header */
+        .header {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-badges {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-badge.live {
+            background: var(--success-gradient);
+            animation: pulse 2s infinite;
+        }
+
+        .status-badge.api {
+            background: var(--glass-bg);
+            color: var(--accent-blue);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Main container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 2rem;
+            min-height: calc(100vh - 80px);
+        }
+
+        /* Left panel - Main analysis */
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* Control panel */
+        .control-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 2rem;
+            align-items: end;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .input-group label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .symbol-input {
+            background: var(--glass-bg);
+            border: 2px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1rem;
+            color: var(--text-primary);
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+        }
+
+        .symbol-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .select-input {
+            background: var(--glass-bg);
+            border: 2px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1rem;
+            color: var(--text-primary);
+            font-size: 1rem;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .select-input:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 3px rgba(183, 148, 246, 0.1);
+        }
+
+        /* Elite action buttons */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .elite-btn {
+            position: relative;
+            padding: 1.2rem 2rem;
+            border: none;
+            border-radius: 16px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(20px);
+            border: 2px solid transparent;
+            overflow: hidden;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .elite-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .elite-btn:hover::before {
+            left: 100%;
+        }
+
+        .elite-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-analyze {
+            background: var(--primary-gradient);
+            color: white;
+        }
+
+        .btn-dna {
+            background: var(--success-gradient);
+            color: white;
+        }
+
+        .btn-fakeout {
+            background: var(--warning-gradient);
+            color: white;
+        }
+
+        .btn-topcoins {
+            background: var(--danger-gradient);
+            color: white;
+        }
+
+        .btn-clear {
+            background: var(--glass-bg);
+            color: var(--text-primary);
+            border: 2px solid var(--glass-border);
+        }
+
+        /* Results area */
+        .results-area {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: var(--glass-shadow);
+            min-height: 500px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Right panel - Live data */
+        .live-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .live-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: var(--glass-shadow);
+            transition: transform 0.3s ease;
+        }
+
+        .live-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .live-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Price display */
+        .price-display {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .current-price {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .price-change {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .price-change.positive {
+            color: var(--accent-green);
+        }
+
+        .price-change.negative {
+            color: var(--accent-red);
+        }
+
+        /* Loading states */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--glass-border);
+            border-top: 3px solid var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Success/Error messages */
+        .message {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+        }
+
+        .message.success {
+            background: rgba(56, 239, 125, 0.1);
+            color: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .message.error {
+            background: rgba(255, 75, 43, 0.1);
+            color: var(--accent-red);
+            border-color: var(--accent-red);
+        }
+
+        /* Analysis results styling */
+        .analysis-result {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            backdrop-filter: blur(10px);
+        }
+
+        .analysis-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .confidence-score {
+            font-size: 1.2rem;
+            font-weight: 700;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            background: var(--primary-gradient);
+            color: white;
+        }
+
+        /* Responsive design */
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+            
+            .control-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+            
+            .action-buttons {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .header-content {
+                padding: 0 1rem;
+            }
+            
+            .logo {
+                font-size: 1.4rem;
+            }
+            
+            .current-price {
+                font-size: 2rem;
+            }
+        }
+
+        /* Market indicators */
+        .market-indicators {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .indicator {
+            text-align: center;
+            padding: 1rem;
+            background: var(--glass-bg);
+            border-radius: 10px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .indicator-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+
+        .indicator-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Elite animations */
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(0, 212, 255, 0.6); }
+        }
+
+        .glow-effect {
+            animation: glow 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated background particles -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">🚀 Elite Trading Analysis Pro</div>
+            <div class="status-badges">
+                <div class="status-badge live">
+                    <span>🔴</span> LIVE
+                </div>
+                <div class="status-badge api" id="api-status">
+                    <span>🌐</span> API Ready
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main container -->
+    <div class="container">
+        <!-- Left panel -->
+        <div class="main-panel">
+            <!-- Control panel -->
+            <div class="control-panel">
+                <div class="control-grid">
+                    <div class="input-group">
+                        <label for="symbol">💎 Trading Symbol</label>
+                        <input type="text" id="symbol" class="symbol-input" value="BTCUSDT" placeholder="z.B. BTCUSDT">
+                    </div>
+                    <div class="input-group">
+                        <label for="interval">⏱️ Zeitraum</label>
+                        <select id="interval" class="select-input">
+                            <option value="1m">1 Minute</option>
+                            <option value="5m">5 Minuten</option>
+                            <option value="15m">15 Minuten</option>
+                            <option value="1h" selected>1 Stunde</option>
+                            <option value="4h">4 Stunden</option>
+                            <option value="1d">1 Tag</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="mode">🎯 Analyse-Modus</label>
+                        <select id="mode" class="select-input">
+                            <option value="scalping">Scalping</option>
+                            <option value="swing" selected>Swing Trading</option>
+                            <option value="position">Position Trading</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Elite action buttons -->
+                <div class="action-buttons">
+                    <button class="elite-btn btn-analyze" onclick="performAnalysis()">
+                        📊 Elite Analyse
+                    </button>
+                    <button class="elite-btn btn-dna" onclick="performDNAAnalysis()">
+                        🧬 Market DNA
+                    </button>
+                    <button class="elite-btn btn-fakeout" onclick="performFakeoutAnalysis()">
+                        🛡️ Fakeout Killer
+                    </button>
+                    <button class="elite-btn btn-topcoins" onclick="loadTopCoins()">
+                        🏆 Top Coins
+                    </button>
+                    <button class="elite-btn btn-clear" onclick="clearResults()">
+                        🗑️ Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results area -->
+            <div class="results-area" id="results">
+                <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                    <h2>🎯 Bereit für Elite-Analyse</h2>
+                    <p>Wählen Sie ein Trading-Symbol und starten Sie Ihre professionelle Marktanalyse</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right panel -->
+        <div class="live-panel">
+            <!-- Live price -->
+            <div class="live-card">
+                <h3>💰 Live Preis</h3>
+                <div class="price-display">
+                    <div class="current-price" id="current-price">$0.00</div>
+                    <div class="price-change" id="price-change">+0.00%</div>
+                </div>
+            </div>
+
+            <!-- Market indicators -->
+            <div class="live-card">
+                <h3>📈 Market Indicators</h3>
+                <div class="market-indicators">
+                    <div class="indicator">
+                        <div class="indicator-value" id="rsi-value">--</div>
+                        <div class="indicator-label">RSI</div>
+                    </div>
+                    <div class="indicator">
+                        <div class="indicator-value" id="volume-value">--</div>
+                        <div class="indicator-label">Volume</div>
+                    </div>
+                    <div class="indicator">
+                        <div class="indicator-value" id="trend-value">--</div>
+                        <div class="indicator-label">Trend</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live analysis status -->
+            <div class="live-card">
+                <h3>⚡ Live Status</h3>
+                <div id="live-status">
+                    <div class="message success">
+                        ✅ System bereit für Analyse
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Create animated particles
+        function createParticles() {
+            const particles = document.getElementById('particles');
+            for (let i = 0; i < 50; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 20 + 's';
+                particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
+                particles.appendChild(particle);
+            }
+        }
+
+        // Initialize particles
+        createParticles();
+
+        // Live price updates
+        function updateLivePrice() {
+            const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+            
+            fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`)
+                .then(response => response.json())
+                .then(data => {
+                    const price = parseFloat(data.lastPrice);
+                    const change = parseFloat(data.priceChangePercent);
+                    
+                    document.getElementById('current-price').textContent = `$${price.toLocaleString()}`;
+                    
+                    const changeElement = document.getElementById('price-change');
+                    changeElement.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+                    changeElement.className = `price-change ${change >= 0 ? 'positive' : 'negative'}`;
+                })
+                .catch(error => {
+                    console.log('Price update error:', error);
+                });
+        }
+
+        // Elite analysis function
+        async function performAnalysis() {
+            const button = event.target;
+            const originalText = button.textContent;
+            
+            button.textContent = '🔄 Analysiere...';
+            button.disabled = true;
+            
+            showLoading('Starte Elite-Analyse...');
+            
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                const interval = document.getElementById('interval').value;
+                
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        interval: interval
+                    })
+                });
+                
+                const data = await response.json();
+                displayAnalysisResults(data);
+                
+            } catch (error) {
+                showError('Analyse fehlgeschlagen: ' + error.message);
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        // DNA Analysis
+        async function performDNAAnalysis() {
+            const button = event.target;
+            const originalText = button.textContent;
+            
+            button.textContent = '🧬 DNA-Scan...';
+            button.disabled = true;
+            
+            showLoading('Scanne Market DNA...');
+            
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                
+                const response = await fetch('/api/analyze-dna', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol
+                    })
+                });
+                
+                const data = await response.json();
+                displayDNAResults(data);
+                
+            } catch (error) {
+                showError('DNA-Analyse fehlgeschlagen: ' + error.message);
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        // Fakeout Analysis
+        async function performFakeoutAnalysis() {
+            const button = event.target;
+            const originalText = button.textContent;
+            
+            button.textContent = '🛡️ Scanning...';
+            button.disabled = true;
+            
+            showLoading('Aktiviere Fakeout-Killer...');
+            
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                
+                const response = await fetch('/api/analyze-fakeout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol
+                    })
+                });
+                
+                const data = await response.json();
+                displayFakeoutResults(data);
+                
+            } catch (error) {
+                showError('Fakeout-Analyse fehlgeschlagen: ' + error.message);
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        // Top Coins
+        async function loadTopCoins() {
+            const button = event.target;
+            const originalText = button.textContent;
+            
+            button.textContent = '🏆 Loading...';
+            button.disabled = true;
+            
+            showLoading('Lade Top Performers...');
+            
+            try {
+                const response = await fetch('/api/top-coins');
+                const data = await response.json();
+                displayTopCoins(data);
+                
+            } catch (error) {
+                showError('Top Coins laden fehlgeschlagen: ' + error.message);
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        // Display functions
+        function showLoading(message) {
+            document.getElementById('results').innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            document.getElementById('results').innerHTML = `
+                <div class="message error">
+                    ❌ ${message}
+                </div>
+            `;
+        }
+
+        function displayAnalysisResults(data) {
+            const resultsHtml = `
+                <div class="analysis-result glow-effect">
+                    <div class="analysis-header">
+                        <h2>📊 Elite Trading Analysis</h2>
+                        <div class="confidence-score">${data.overall_confidence || 0}% Confidence</div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin: 2rem 0;">
+                        <div>
+                            <h3 style="color: var(--accent-blue); margin-bottom: 1rem;">🎯 Trading Signals</h3>
+                            <div style="background: var(--glass-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--glass-border);">
+                                <p><strong>Empfehlung:</strong> <span style="color: var(--accent-green); font-weight: 600;">${data.trading_decision || 'HOLD'}</span></p>
+                                <p><strong>Signal Stärke:</strong> ${data.signal_strength || 'Medium'}</p>
+                                <p><strong>Zeitrahmen:</strong> ${data.timeframe || 'Medium-term'}</p>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3 style="color: var(--accent-purple); margin-bottom: 1rem;">📈 Technical Indicators</h3>
+                            <div style="background: var(--glass-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--glass-border);">
+                                <p><strong>RSI:</strong> ${data.current_rsi_14 || 0}</p>
+                                <p><strong>MACD:</strong> ${data.macd_signal || 'Neutral'}</p>
+                                <p><strong>Trend:</strong> ${data.trend_direction || 'Sideways'}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${data.recommendations ? `
+                        <div>
+                            <h3 style="color: var(--accent-green); margin-bottom: 1rem;">💡 Elite Empfehlungen</h3>
+                            <ul style="list-style: none; padding: 0;">
+                                ${data.recommendations.map(rec => `<li style="padding: 0.5rem 0; border-bottom: 1px solid var(--glass-border);">✅ ${rec}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('results').innerHTML = resultsHtml;
+            updateLiveIndicators(data);
+        }
+
+        function displayDNAResults(data) {
+            const resultsHtml = `
+                <div class="analysis-result glow-effect">
+                    <div class="analysis-header">
+                        <h2>🧬 Market DNA Analysis</h2>
+                        <div class="confidence-score">${data.confidence_score || 0}% DNA Match</div>
+                    </div>
+                    
+                    <div style="text-align: center; padding: 2rem; background: var(--glass-bg); border-radius: 12px; margin: 1rem 0;">
+                        <h3 style="font-size: 1.8rem; margin-bottom: 1rem;">${data.market_personality || '🤖 Standard DNA'}</h3>
+                        <p style="font-size: 1.1rem; color: var(--text-secondary);">${data.dna_type || 'UNKNOWN'}</p>
+                    </div>
+                    
+                    ${data.personalized_signals ? `
+                        <div style="margin: 2rem 0;">
+                            <h3 style="color: var(--accent-blue); margin-bottom: 1rem;">🎯 Personalized Signals</h3>
+                            ${data.personalized_signals.map(signal => `
+                                <div style="background: var(--glass-bg); padding: 1rem; margin: 0.5rem 0; border-radius: 8px; border-left: 4px solid var(--accent-green);">
+                                    <strong>${signal.type}</strong> (${signal.confidence}% Confidence)<br>
+                                    <span style="color: var(--text-secondary);">${signal.reason}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${data.recommendations ? `
+                        <div>
+                            <h3 style="color: var(--accent-purple); margin-bottom: 1rem;">🧠 DNA Insights</h3>
+                            <ul style="list-style: none; padding: 0;">
+                                ${data.recommendations.map(rec => `<li style="padding: 0.5rem 0; border-bottom: 1px solid var(--glass-border);">🧬 ${rec}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('results').innerHTML = resultsHtml;
+        }
+
+        function displayFakeoutResults(data) {
+            const probability = data.fakeout_probability || 0;
+            const protectionLevel = data.protection_level || 'MODERATE';
+            const killerActive = data.killer_active || false;
+            
+            const resultsHtml = `
+                <div class="analysis-result ${killerActive ? 'glow-effect' : ''}">
+                    <div class="analysis-header">
+                        <h2>🛡️ Fakeout Killer Analysis</h2>
+                        <div class="confidence-score" style="background: ${killerActive ? 'var(--danger-gradient)' : 'var(--success-gradient)'}">
+                            ${probability}% Risk
+                        </div>
+                    </div>
+                    
+                    <div style="text-align: center; padding: 2rem; background: var(--glass-bg); border-radius: 12px; margin: 1rem 0;">
+                        <h3 style="font-size: 1.8rem; margin-bottom: 1rem; color: ${killerActive ? 'var(--accent-red)' : 'var(--accent-green)'};">
+                            ${killerActive ? '⚠️ FAKEOUT RISK DETECTED' : '✅ BREAKOUT LOOKS VALID'}
+                        </h3>
+                        <p style="font-size: 1.1rem;">Protection Level: <strong>${protectionLevel}</strong></p>
+                    </div>
+                    
+                    ${data.protection_signals ? `
+                        <div style="margin: 2rem 0;">
+                            <h3 style="color: var(--accent-blue); margin-bottom: 1rem;">🛡️ Protection Signals</h3>
+                            ${data.protection_signals.map(signal => `
+                                <div style="background: var(--glass-bg); padding: 1rem; margin: 0.5rem 0; border-radius: 8px; border-left: 4px solid ${signal.status === 'ACTIVE' ? 'var(--accent-red)' : 'var(--glass-border)'};">
+                                    <strong>${signal.signal}</strong> - ${signal.strength}<br>
+                                    <span style="color: var(--text-secondary);">${signal.description || 'No description'}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${data.recommendations ? `
+                        <div>
+                            <h3 style="color: var(--accent-purple); margin-bottom: 1rem;">⚡ Fakeout Insights</h3>
+                            <ul style="list-style: none; padding: 0;">
+                                ${data.recommendations.map(rec => `<li style="padding: 0.5rem 0; border-bottom: 1px solid var(--glass-border);">🛡️ ${rec}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('results').innerHTML = resultsHtml;
+        }
+
+        function displayTopCoins(data) {
+            const coins = data.top_coins || [];
+            
+            const resultsHtml = `
+                <div class="analysis-result">
+                    <div class="analysis-header">
+                        <h2>🏆 Top Market Performers</h2>
+                        <div class="confidence-score">${coins.length} Coins</div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin: 2rem 0;">
+                        ${coins.map(coin => `
+                            <div style="background: var(--glass-bg); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--glass-border);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <h4 style="color: var(--accent-blue); font-size: 1.2rem;">${coin.symbol}</h4>
+                                    <span style="color: ${coin.change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;">
+                                        ${coin.change >= 0 ? '+' : ''}${coin.change}%
+                                    </span>
+                                </div>
+                                <p><strong>Preis:</strong> $${coin.price}</p>
+                                <p><strong>Volume:</strong> ${coin.volume}</p>
+                                <p><strong>Score:</strong> ${coin.score}/100</p>
+                                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">${coin.analysis}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('results').innerHTML = resultsHtml;
+        }
+
+        function updateLiveIndicators(data) {
+            if (data.current_rsi_14) {
+                document.getElementById('rsi-value').textContent = Math.round(data.current_rsi_14);
+            }
+            if (data.volume_score) {
+                document.getElementById('volume-value').textContent = data.volume_score;
+            }
+            if (data.trend_direction) {
+                document.getElementById('trend-value').textContent = data.trend_direction;
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = `
+                <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                    <h2>🎯 Bereit für Elite-Analyse</h2>
+                    <p>Wählen Sie ein Trading-Symbol und starten Sie Ihre professionelle Marktanalyse</p>
+                </div>
+            `;
+        }
+
+        // Auto-update price every 10 seconds
+        setInterval(updateLivePrice, 10000);
+        
+        // Initial price load
+        updateLivePrice();
+
+        // Symbol input auto-update
+        document.getElementById('symbol').addEventListener('input', function() {
+            updateLivePrice();
+        });
+
+        // Initialize status
+        document.getElementById('live-status').innerHTML = `
+            <div class="message success">
+                ✅ System bereit - Echte Binance API aktiv
+            </div>
+        `;
+    </script>
+</body>
+</html>
