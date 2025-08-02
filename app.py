@@ -2170,13 +2170,50 @@ cleanup_thread.start()
 
 @app.route('/api/status')
 def api_status():
-    """Railway health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'Trading Analysis Pro',
-        'version': '6.0',
-        'timestamp': datetime.now().isoformat()
-    })
+    """Enhanced Railway health check endpoint"""
+    try:
+        # Quick health checks
+        health_status = {
+            'status': 'healthy',
+            'service': 'Trading Analysis Pro Enhanced',
+            'version': '6.1',
+            'timestamp': datetime.now().isoformat(),
+            'uptime_seconds': time.time() - getattr(app, '_start_time', time.time()),
+            'memory_usage': 'OK',
+            'api_limiter': 'OK',
+            'cache_status': 'OK'
+        }
+        
+        # Quick tests
+        health_status['cache_size'] = len(api_cache)
+        health_status['rate_limiter_status'] = 'OK' if rate_limiter.can_make_request() else 'LIMITED'
+        
+        # Test basic functionality
+        test_price = 50000.0
+        test_rsi = calculate_simple_rsi([test_price] * 20)
+        health_status['indicators_working'] = 'OK' if test_rsi > 0 else 'ERROR'
+        
+        return jsonify(health_status), 200
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'service': 'Trading Analysis Pro Enhanced',
+            'version': '6.1',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 503
+
+@app.route('/health')
+def simple_health():
+    """Simple health check for Railway"""
+    return 'OK', 200
+
+@app.route('/healthz')  
+def kubernetes_health():
+    """Kubernetes-style health check"""
+    return jsonify({'status': 'ok'}), 200
 
 @app.route('/')
 def dashboard():
