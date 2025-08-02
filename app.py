@@ -2921,6 +2921,16 @@ def cleanup_cache_service():
 cleanup_thread = threading.Thread(target=cleanup_cache_service, daemon=True)
 cleanup_thread.start()
 
+@app.route('/api/status')
+def api_status():
+    """Railway health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'Trading Analysis Pro',
+        'version': '6.0',
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/')
 def dashboard():
     """Main dashboard route"""
