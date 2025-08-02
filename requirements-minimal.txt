@@ -1,6 +1,0 @@
-# Minimal requirements for Railway deployment
-Flask>=2.0.0
-Flask-CORS>=3.0.0
-pandas>=1.5.0
-numpy>=1.20.0
-requests>=2.25.0
