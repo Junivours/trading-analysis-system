@@ -1477,7 +1477,17 @@ class AdvancedMLPredictor:
         
         try:
             # === PREIS FEATURES ===
-            recent_prices = [p['close'] for p in price_data[-20:]] if price_data else [100]
+            # Sichere Extraktion der Preisdaten
+            if isinstance(price_data, list) and len(price_data) > 0:
+                # Überprüfe ob es Dictionaries mit 'close' Key sind
+                if isinstance(price_data[0], dict) and 'close' in price_data[0]:
+                    recent_prices = [float(p['close']) for p in price_data[-20:]]
+                else:
+                    # Falls es bereits eine Liste von Zahlen ist
+                    recent_prices = [float(p) for p in price_data[-20:]]
+            else:
+                recent_prices = [100]  # Fallback
+            
             if len(recent_prices) > 1:
                 features['price_trend'] = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
                 features['price_volatility'] = np.std(recent_prices) / np.mean(recent_prices)
@@ -1487,29 +1497,35 @@ class AdvancedMLPredictor:
                 features.update({'price_trend': 0, 'price_volatility': 0.01, 'price_momentum': 0, 'price_range': 0.01})
             
             # === VOLUMEN FEATURES ===
-            if len(volume_data) > 1:
-                features['volume_trend'] = (volume_data[-1] - volume_data[0]) / max(volume_data[0], 1)
-                features['volume_spike'] = volume_data[-1] / max(np.mean(volume_data[:-1]), 1) if len(volume_data) > 1 else 1
-                features['volume_consistency'] = 1 - (np.std(volume_data) / max(np.mean(volume_data), 1))
+            # Sichere Volumen-Extraktion
+            if isinstance(volume_data, list) and len(volume_data) > 0:
+                volume_values = [float(v) for v in volume_data[-20:]]
+            else:
+                volume_values = [1000]  # Fallback
+                
+            if len(volume_values) > 1:
+                features['volume_trend'] = (volume_values[-1] - volume_values[0]) / max(volume_values[0], 1)
+                features['volume_spike'] = volume_values[-1] / max(np.mean(volume_values[:-1]), 1) if len(volume_values) > 1 else 1
+                features['volume_consistency'] = 1 - (np.std(volume_values) / max(np.mean(volume_values), 1))
             else:
                 features.update({'volume_trend': 0, 'volume_spike': 1, 'volume_consistency': 0.5})
             
             # === TECHNISCHE INDIKATOR FEATURES ===
-            current_rsi = indicators.get('current_rsi_14', 50)
+            current_rsi = float(indicators.get('current_rsi_14', 50))
             features['rsi'] = current_rsi
             features['rsi_divergence'] = abs(current_rsi - 50) / 50
             features['rsi_signal'] = 'OVERSOLD' if current_rsi < 30 else 'OVERBOUGHT' if current_rsi > 70 else 'NEUTRAL'
             
-            current_macd = indicators.get('current_macd', 0)
-            macd_signal = indicators.get('current_macd_signal', 0)
+            current_macd = float(indicators.get('current_macd', 0))
+            macd_signal = float(indicators.get('current_macd_signal', 0))
             features['macd_signal'] = 1 if current_macd > macd_signal else -1
             features['macd_strength'] = abs(current_macd - macd_signal) / max(abs(macd_signal), 0.001)
             
             # Bollinger Bands Position
             current_price = recent_prices[-1] if recent_prices else 100
-            bb_upper = indicators.get('current_bb_upper', current_price * 1.02)
-            bb_lower = indicators.get('current_bb_lower', current_price * 0.98)
-            bb_middle = indicators.get('current_bb_middle', current_price)
+            bb_upper = float(indicators.get('current_bb_upper', current_price * 1.02))
+            bb_lower = float(indicators.get('current_bb_lower', current_price * 0.98))
+            bb_middle = float(indicators.get('current_bb_middle', current_price))
             
             if bb_upper > bb_lower:
                 features['bb_position'] = (current_price - bb_lower) / (bb_upper - bb_lower)
@@ -1519,9 +1535,9 @@ class AdvancedMLPredictor:
                 features['bb_squeeze'] = 0.02
             
             # Trend Stärke
-            ema_20 = indicators.get('current_ema_20', current_price)
-            ema_50 = indicators.get('current_ema_50', current_price)
-            sma_200 = indicators.get('current_sma_200', current_price)
+            ema_20 = float(indicators.get('current_ema_20', current_price))
+            ema_50 = float(indicators.get('current_ema_50', current_price))
+            sma_200 = float(indicators.get('current_sma_200', current_price))
             
             features['trend_strength'] = 1 if current_price > ema_20 > ema_50 > sma_200 else -1 if current_price < ema_20 < ema_50 < sma_200 else 0
             features['ema_convergence'] = abs(ema_20 - ema_50) / current_price
@@ -3852,11 +3868,12 @@ def get_top_coins():
                 # Fetch real market data
                 ticker_data = fetch_24hr_ticker(symbol)
                 if ticker_data:
-                    current_price = ticker_data.get('last_price', 0)
-                    change_24h = ticker_data.get('price_change_percent', 0)
-                    volume = ticker_data.get('volume', 0)
-                    high_24h = ticker_data.get('high_24h', current_price)
-                    low_24h = ticker_data.get('low_24h', current_price)
+                    # Sichere Schlüssel-Extraktion mit Fallback
+                    current_price = float(ticker_data.get('lastPrice', ticker_data.get('last_price', 0)))
+                    change_24h = float(ticker_data.get('priceChangePercent', ticker_data.get('price_change_percent', 0)))
+                    volume = float(ticker_data.get('volume', 0))
+                    high_24h = float(ticker_data.get('highPrice', ticker_data.get('high_24h', current_price)))
+                    low_24h = float(ticker_data.get('lowPrice', ticker_data.get('low_24h', current_price)))
                 else:
                     # Fallback to reasonable estimates
 
