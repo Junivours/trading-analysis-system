@@ -11,9 +11,11 @@ from flask import Flask, render_template, render_template_string, jsonify, reque
 from datetime import datetime, timedelta
 from flask_cors import CORS
 from collections import defaultdict
+from functools import lru_cache
+import hashlib
 
 # Import our modular components
-import random, hmac, hashlib
+import random, hmac
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -40,6 +42,84 @@ BINANCE_ORDER_ENDPOINT = 'https://api.binance.com/api/v3/order'
 BINANCE_OPEN_ORDERS = 'https://api.binance.com/api/v3/openOrders'
 BINANCE_EXCHANGE_INFO = 'https://api.binance.com/api/v3/exchangeInfo'
 
+# === ENHANCEMENT 1: API Rate Limiting & Monitoring ===
+class APIRateLimiter:
+    """Intelligente Rate Limiting für Binance API"""
+    def __init__(self):
+        self.request_count = 0
+        self.last_reset = time.time()
+        self.request_history = []
+    
+    def can_make_request(self):
+        """Check if we can make a request within Binance limits"""
+        current_time = time.time()
+        
+        # Reset counter every minute
+        if current_time - self.last_reset > 60:
+            self.request_count = 0
+            self.last_reset = current_time
+            self.request_history = []
+        
+        # 1200 requests per minute limit für Binance
+        return self.request_count < 1100  # Safety buffer
+    
+    def log_request(self):
+        """Log a successful request"""
+        self.request_count += 1
+        self.request_history.append(time.time())
+    
+    def get_stats(self):
+        """Get current API usage stats"""
+        return {
+            'requests_this_minute': self.request_count,
+            'time_to_reset': 60 - (time.time() - self.last_reset),
+            'total_requests': len(self.request_history)
+        }
+
+# Global rate limiter instance
+rate_limiter = APIRateLimiter()
+
+# === ENHANCEMENT 2: Robust Error Handling with Retry Logic ===
+def safe_api_call(func, retries=3, fallback=None):
+    """Robuste API Calls mit Retry-Logic und exponential backoff"""
+    for attempt in range(retries):
+        try:
+            # Check rate limiting before making request
+            if not rate_limiter.can_make_request():
+                logger.warning("API rate limit reached, waiting...")
+                time.sleep(1)
+                continue
+            
+            result = func()
+            rate_limiter.log_request()  # Log successful request
+            return result
+            
+        except requests.exceptions.Timeout as e:
+            logger.warning(f"API timeout on attempt {attempt + 1}: {e}")
+            if attempt == retries - 1:
+                logger.error(f"API call failed after {retries} timeout attempts")
+                return fallback
+            time.sleep(2 ** attempt)  # Exponential backoff
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:  # Rate limit exceeded
+                logger.warning(f"Rate limit hit, backing off...")
+                time.sleep(5 + (2 ** attempt))
+            else:
+                logger.error(f"HTTP error on attempt {attempt + 1}: {e}")
+                if attempt == retries - 1:
+                    return fallback
+                time.sleep(2 ** attempt)
+                
+        except Exception as e:
+            logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
+            if attempt == retries - 1:
+                logger.error(f"API call failed after {retries} attempts: {e}")
+                return fallback
+            time.sleep(2 ** attempt)
+    
+    return fallback
+
 # Helper functions
 def get_binance_signature(query_string):
     """Generate signature for Binance API"""
@@ -48,16 +128,18 @@ def get_binance_signature(query_string):
     return hmac.new(BINANCE_SECRET_KEY.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
 
 def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=1000, use_futures=False):
-    """Fetch OHLCV data from Binance with caching"""
+    """Enhanced fetch OHLCV data from Binance with robust error handling"""
     cache_key = f"{symbol}_{interval}_{limit}_{'futures' if use_futures else 'spot'}"
     
     # Check cache first
     if cache_key in api_cache:
         cache_time, cached_data = api_cache[cache_key]
         if time.time() - cache_time < CACHE_DURATION:
+            logger.info(f"Cache hit for {cache_key}")
             return cached_data
 
-    try:
+    def _fetch_data():
+        """Internal function for API call"""
         params = {
             'symbol': symbol,
             'interval': interval,
@@ -65,31 +147,45 @@ def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=1000, use_futures=
         }
         
         endpoint = BINANCE_FUTURES_KLINES if use_futures else BINANCE_KLINES
-        response = requests.get(endpoint, params=params, timeout=10)
+        response = requests.get(endpoint, params=params, timeout=15)
         response.raise_for_status()
-        data = response.json()
-        
-        # Clean cache if too large
-        if len(api_cache) > MAX_CACHE_SIZE:
-            oldest_key = min(api_cache.keys(), key=lambda k: api_cache[k][0])
-            del api_cache[oldest_key]
-        
-        # Store in cache
-        api_cache[cache_key] = (time.time(), data)
-        return data
-        
-    except Exception as e:
-        logger.error(f"Error fetching Binance data: {e}")
+        return response.json()
+    
+    # Use safe API call with retry logic
+    data = safe_api_call(_fetch_data, retries=3, fallback=None)
+    
+    if data is None:
+        logger.error(f"Failed to fetch data for {symbol} after all retries")
         return None
+    
+    # Clean cache if too large
+    if len(api_cache) > MAX_CACHE_SIZE:
+        oldest_key = min(api_cache.keys(), key=lambda k: api_cache[k][0])
+        del api_cache[oldest_key]
+        logger.info(f"Cache cleaned, removed oldest entry: {oldest_key}")
+    
+    # Store in cache
+    api_cache[cache_key] = (time.time(), data)
+    logger.info(f"Data cached for {cache_key}")
+    return data
 
 def fetch_24hr_ticker(symbol='BTCUSDT'):
-    """Fetch 24hr ticker data from Binance"""
-    try:
+    """Enhanced fetch 24hr ticker data from Binance with error handling"""
+    def _fetch_ticker():
+        """Internal function for API call"""
         params = {'symbol': symbol}
         response = requests.get(BINANCE_24HR, params=params, timeout=10)
         response.raise_for_status()
-        data = response.json()
-        
+        return response.json()
+    
+    # Use safe API call
+    data = safe_api_call(_fetch_ticker, retries=2, fallback=None)
+    
+    if data is None:
+        logger.error(f"Failed to fetch 24hr ticker for {symbol}")
+        return None
+    
+    try:
         return {
             'last_price': float(data['lastPrice']),
             'price_change_percent': float(data['priceChangePercent']),
@@ -97,7 +193,9 @@ def fetch_24hr_ticker(symbol='BTCUSDT'):
             'high_24h': float(data['highPrice']),
             'low_24h': float(data['lowPrice'])
         }
-    except Exception as e:
+    except (KeyError, ValueError) as e:
+        logger.error(f"Error parsing ticker data for {symbol}: {e}")
+        return None
         logger.error(f"Error fetching 24hr ticker: {e}")
         return None
 
@@ -2667,10 +2765,35 @@ def generate_detailed_market_analysis(rsi, macd_histogram, price_change_24h, vol
         'detailed_analysis': detailed_analysis
     }
 
+# === ENHANCEMENT 3: Performance Optimization for Technical Indicators ===
+def get_prices_hash(prices):
+    """Generate a hash for prices list to use as cache key"""
+    prices_str = ','.join([f"{p:.8f}" for p in prices[-50:]])  # Use last 50 prices for hash
+    return hashlib.md5(prices_str.encode()).hexdigest()
+
+@lru_cache(maxsize=200)
+def cached_rsi_calculation(prices_hash, period=14):
+    """Cached RSI calculation to avoid redundant computations"""
+    # This is a placeholder - actual calculation happens in calculate_simple_rsi
+    # The cache key ensures we don't recalculate for same data
+    return None
+
 def calculate_simple_rsi(prices, period=14):
-    """Calculate RSI indicator using exponential moving average (EMA)"""
+    """Enhanced RSI calculation with caching for better performance"""
     if len(prices) < period + 1:
         return 50
+    
+    # Generate cache key from recent prices
+    prices_hash = get_prices_hash(prices)
+    cache_key = f"{prices_hash}_{period}"
+    
+    # Check if we've calculated this recently
+    if hasattr(calculate_simple_rsi, '_cache') and cache_key in calculate_simple_rsi._cache:
+        return calculate_simple_rsi._cache[cache_key]
+    
+    # Initialize cache if it doesn't exist
+    if not hasattr(calculate_simple_rsi, '_cache'):
+        calculate_simple_rsi._cache = {}
     
     gains = []
     losses = []
@@ -2699,7 +2822,22 @@ def calculate_simple_rsi(prices, period=14):
         avg_loss = (losses[i] * alpha) + (avg_loss * (1 - alpha))
     
     if avg_loss == 0:
-        return 100
+        rsi = 100
+    else:
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+    
+    # Cache the result
+    calculate_simple_rsi._cache[cache_key] = rsi
+    
+    # Limit cache size
+    if len(calculate_simple_rsi._cache) > 100:
+        # Remove oldest entries
+        oldest_keys = list(calculate_simple_rsi._cache.keys())[:50]
+        for key in oldest_keys:
+            del calculate_simple_rsi._cache[key]
+    
+    return rsi
     
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
@@ -3331,6 +3469,367 @@ def api_orderbook():
 
 
 # ===========================
+# ENHANCED FEATURES API ENDPOINTS
+# ===========================
+
+# === ENHANCEMENT 4: Portfolio Management ===
+class PortfolioTracker:
+    """Portfolio-Tracking für bessere Risikomanagement"""
+    def __init__(self):
+        self.positions = {}
+        self.total_value = 0
+        self.trade_history = []
+    
+    def add_position(self, symbol, amount, entry_price):
+        """Add a new position to portfolio"""
+        self.positions[symbol] = {
+            'amount': amount,
+            'entry_price': entry_price,
+            'current_price': entry_price,
+            'timestamp': datetime.now(),
+            'pnl': 0.0
+        }
+    
+    def update_position_price(self, symbol, current_price):
+        """Update current price for a position"""
+        if symbol in self.positions:
+            position = self.positions[symbol]
+            position['current_price'] = current_price
+            position['pnl'] = (current_price - position['entry_price']) * position['amount']
+    
+    def calculate_portfolio_metrics(self):
+        """Calculate comprehensive portfolio metrics"""
+        total_value = sum(pos['amount'] * pos['current_price'] for pos in self.positions.values())
+        total_pnl = sum(pos['pnl'] for pos in self.positions.values())
+        
+        return {
+            'total_value': total_value,
+            'total_pnl': total_pnl,
+            'total_return_pct': (total_pnl / total_value * 100) if total_value > 0 else 0,
+            'position_count': len(self.positions),
+            'largest_position': max(self.positions.items(), key=lambda x: x[1]['amount'] * x[1]['current_price'])[0] if self.positions else None
+        }
+
+# Global portfolio instance
+portfolio = PortfolioTracker()
+
+@app.route('/api/portfolio/status', methods=['GET'])
+def api_portfolio_status():
+    """Get current portfolio status"""
+    try:
+        metrics = portfolio.calculate_portfolio_metrics()
+        
+        return jsonify({
+            'status': 'success',
+            'portfolio_metrics': metrics,
+            'positions': portfolio.positions,
+            'api_usage': rate_limiter.get_stats()
+        })
+    
+    except Exception as e:
+        logger.error(f"Portfolio status error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/portfolio/add-position', methods=['POST'])
+def api_add_position():
+    """Add a new position to portfolio"""
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol')
+        amount = float(data.get('amount', 0))
+        entry_price = float(data.get('entry_price', 0))
+        
+        if not symbol or amount <= 0 or entry_price <= 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid position data'
+            }), 400
+        
+        portfolio.add_position(symbol, amount, entry_price)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Position added for {symbol}',
+            'portfolio_metrics': portfolio.calculate_portfolio_metrics()
+        })
+    
+    except Exception as e:
+        logger.error(f"Add position error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+# === ENHANCEMENT 5: Advanced Chart Features ===
+@app.route('/api/chart/technical-overlays', methods=['POST'])
+def api_technical_overlays():
+    """Get technical analysis overlays for charts"""
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        
+        # Fetch price data
+        def _fetch_data():
+            return fetch_binance_data(symbol, interval, 100)
+        
+        klines = safe_api_call(_fetch_data, retries=2, fallback=[])
+        
+        if not klines:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to fetch price data'
+            }), 500
+        
+        # Calculate technical overlays
+        closes = [float(k[4]) for k in klines]
+        highs = [float(k[2]) for k in klines]
+        lows = [float(k[3]) for k in klines]
+        
+        # Calculate moving averages
+        sma_20 = []
+        sma_50 = []
+        ema_12 = []
+        ema_26 = []
+        
+        for i in range(len(closes)):
+            if i >= 19:
+                sma_20.append(sum(closes[i-19:i+1]) / 20)
+            else:
+                sma_20.append(None)
+            
+            if i >= 49:
+                sma_50.append(sum(closes[i-49:i+1]) / 50)
+            else:
+                sma_50.append(None)
+        
+        # Calculate Bollinger Bands
+        bollinger_bands = []
+        for i in range(len(closes)):
+            if i >= 19:
+                period_closes = closes[i-19:i+1]
+                sma = sum(period_closes) / 20
+                variance = sum((x - sma) ** 2 for x in period_closes) / 20
+                std_dev = variance ** 0.5
+                
+                bollinger_bands.append({
+                    'upper': sma + (2 * std_dev),
+                    'middle': sma,
+                    'lower': sma - (2 * std_dev)
+                })
+            else:
+                bollinger_bands.append(None)
+        
+        # Support and Resistance levels
+        support_resistance = []
+        window = 10
+        for i in range(window, len(closes) - window):
+            high_slice = highs[i-window:i+window+1]
+            low_slice = lows[i-window:i+window+1]
+            
+            if highs[i] == max(high_slice):
+                support_resistance.append({
+                    'type': 'resistance',
+                    'price': highs[i],
+                    'index': i,
+                    'strength': sum(1 for h in high_slice if abs(h - highs[i]) < highs[i] * 0.01)
+                })
+            
+            if lows[i] == min(low_slice):
+                support_resistance.append({
+                    'type': 'support',
+                    'price': lows[i],
+                    'index': i,
+                    'strength': sum(1 for l in low_slice if abs(l - lows[i]) < lows[i] * 0.01)
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'symbol': symbol,
+            'technical_overlays': {
+                'sma_20': sma_20,
+                'sma_50': sma_50,
+                'bollinger_bands': bollinger_bands,
+                'support_resistance': support_resistance[-10:],  # Last 10 levels
+                'timestamps': [int(k[0]) for k in klines]
+            }
+        })
+    
+    except Exception as e:
+        logger.error(f"Technical overlays error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+# === ENHANCEMENT 6: Enhanced Performance Monitoring ===
+@app.route('/api/system/performance', methods=['GET'])
+def api_system_performance():
+    """Get detailed system performance metrics"""
+    try:
+        # API Rate Limiting Stats
+        api_stats = rate_limiter.get_stats()
+        
+        # Cache Statistics
+        cache_stats = {
+            'cache_size': len(api_cache),
+            'max_cache_size': MAX_CACHE_SIZE,
+            'cache_hit_ratio': getattr(api_cache, 'hit_ratio', 0),
+            'oldest_cache_entry': min([v[0] for v in api_cache.values()]) if api_cache else None
+        }
+        
+        # Memory and processing stats (fallback if psutil not available)
+        try:
+            import psutil
+            process = psutil.Process()
+            system_stats = {
+                'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
+                'cpu_percent': process.cpu_percent(),
+                'uptime_seconds': time.time() - getattr(app, '_start_time', time.time()),
+                'active_threads': threading.active_count()
+            }
+        except ImportError:
+            system_stats = {
+                'memory_usage_mb': 'psutil not available',
+                'cpu_percent': 'psutil not available',
+                'uptime_seconds': time.time() - getattr(app, '_start_time', time.time()),
+                'active_threads': threading.active_count()
+            }
+        
+        return jsonify({
+            'status': 'success',
+            'api_stats': api_stats,
+            'cache_stats': cache_stats,
+            'system_stats': system_stats,
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    except Exception as e:
+        logger.error(f"Performance monitoring error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'basic_stats': {
+                'api_requests_this_minute': rate_limiter.request_count,
+                'cache_size': len(api_cache)
+            }
+        }), 200  # Return 200 even on partial failure
+
+# === ENHANCEMENT 7: Alert System ===
+class AlertSystem:
+    """Price Alert System für Custom Trigger Conditions"""
+    def __init__(self):
+        self.alerts = []
+        self.alert_history = []
+    
+    def add_price_alert(self, symbol, target_price, alert_type='above', message=None):
+        """Add a price alert"""
+        alert = {
+            'id': f"{symbol}_{int(time.time())}",
+            'symbol': symbol,
+            'target_price': target_price,
+            'alert_type': alert_type,  # 'above', 'below'
+            'message': message or f"{symbol} reached ${target_price}",
+            'created_at': datetime.now(),
+            'triggered': False
+        }
+        self.alerts.append(alert)
+        return alert['id']
+    
+    def check_alerts(self, symbol, current_price):
+        """Check if any alerts should be triggered"""
+        triggered_alerts = []
+        
+        for alert in self.alerts:
+            if alert['symbol'] == symbol and not alert['triggered']:
+                should_trigger = False
+                
+                if alert['alert_type'] == 'above' and current_price >= alert['target_price']:
+                    should_trigger = True
+                elif alert['alert_type'] == 'below' and current_price <= alert['target_price']:
+                    should_trigger = True
+                
+                if should_trigger:
+                    alert['triggered'] = True
+                    alert['triggered_at'] = datetime.now()
+                    alert['triggered_price'] = current_price
+                    triggered_alerts.append(alert)
+                    self.alert_history.append(alert)
+        
+        return triggered_alerts
+
+# Global alert system
+alert_system = AlertSystem()
+
+@app.route('/api/alerts/add', methods=['POST'])
+def api_add_alert():
+    """Add a new price alert"""
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol')
+        target_price = float(data.get('target_price'))
+        alert_type = data.get('alert_type', 'above')
+        message = data.get('message')
+        
+        alert_id = alert_system.add_price_alert(symbol, target_price, alert_type, message)
+        
+        return jsonify({
+            'status': 'success',
+            'alert_id': alert_id,
+            'message': f'Alert added for {symbol} at ${target_price}'
+        })
+    
+    except Exception as e:
+        logger.error(f"Add alert error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/alerts/check/<symbol>', methods=['GET'])
+def api_check_alerts(symbol):
+    """Check alerts for a specific symbol"""
+    try:
+        # Get current price
+        ticker_data = fetch_24hr_ticker(symbol)
+        if not ticker_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to fetch current price'
+            }), 500
+        
+        current_price = ticker_data['last_price']
+        triggered_alerts = alert_system.check_alerts(symbol, current_price)
+        
+        return jsonify({
+            'status': 'success',
+            'symbol': symbol,
+            'current_price': current_price,
+            'triggered_alerts': len(triggered_alerts),
+            'alerts': [
+                {
+                    'id': alert['id'],
+                    'message': alert['message'],
+                    'target_price': alert['target_price'],
+                    'triggered_price': alert.get('triggered_price'),
+                    'triggered_at': alert.get('triggered_at').isoformat() if alert.get('triggered_at') else None
+                }
+                for alert in triggered_alerts
+            ]
+        })
+    
+    except Exception as e:
+        logger.error(f"Check alerts error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+# ===========================
 # ML ENGINE API ENDPOINTS
 # ===========================
 
@@ -3351,8 +3850,12 @@ def api_orderbook():
 # ===========================
 
 if __name__ == '__main__':
-    logger.info("🚀 Starting ULTIMATE Trading Analysis Pro v6.0")
-    logger.info("🔥 Ready for Railway deployment")
+    # Track app start time for uptime calculation
+    app._start_time = time.time()
+    
+    logger.info("🚀 Starting ULTIMATE Trading Analysis Pro v6.1 - ENHANCED EDITION")
+    logger.info("✨ New Features: Advanced Error Handling, Performance Optimization, Portfolio Management")
+    logger.info("🔥 Ready for Railway deployment with enhanced monitoring")
     
     # Get port from environment or use default
     port = int(os.environ.get('PORT', 5000))

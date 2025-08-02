@@ -512,6 +512,7 @@
                     <option value="1d">1 Tag</option>
                 </select>
                 <button onclick="runCompleteAnalysis()" class="ai-btn" style="background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%); padding: 0.5rem 1.5rem;">📊 Vollständige Analyse</button>
+                <button onclick="toggleSystemStatus()" class="ai-btn" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); padding: 0.5rem 1.5rem;">🔧 System Status</button>
                 <select id="symbolSelect" class="symbol-selector" onchange="changeSymbol()">
                     <option value="BTCUSDT">Bitcoin (BTC/USDT)</option>
                     <option value="ETHUSDT">Ethereum (ETH/USDT)</option>
@@ -529,6 +530,57 @@
     </div>
 
     <div class="container">
+        <!-- System Status Panel (Hidden by default) -->
+        <div id="systemStatusPanel" class="card" style="display: none; margin-bottom: 2rem; background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%); border: 2px solid rgba(34, 197, 94, 0.3);">
+            <h3 class="section-title">🔧 System Performance & Monitoring</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                <!-- API Stats -->
+                <div style="background: rgba(34, 197, 94, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">
+                    <div style="font-size: 1.1rem; color: #22c55e; margin-bottom: 1rem; font-weight: 600;">📡 API Performance</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">
+                        <div>Requests/Min: <span id="apiRequestsPerMin" style="color: #22c55e; font-weight: 600;">0</span></div>
+                        <div>Rate Limit: <span id="rateLimitStatus" style="color: #22c55e; font-weight: 600;">OK</span></div>
+                        <div>Reset In: <span id="resetTime" style="color: #22c55e; font-weight: 600;">--s</span></div>
+                    </div>
+                </div>
+                
+                <!-- Cache Stats -->
+                <div style="background: rgba(59, 130, 246, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                    <div style="font-size: 1.1rem; color: #3b82f6; margin-bottom: 1rem; font-weight: 600;">💾 Cache Performance</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">
+                        <div>Cache Size: <span id="cacheSize" style="color: #3b82f6; font-weight: 600;">0</span></div>
+                        <div>Hit Ratio: <span id="cacheHitRatio" style="color: #3b82f6; font-weight: 600;">0%</span></div>
+                        <div>Max Size: <span id="maxCacheSize" style="color: #3b82f6; font-weight: 600;">1000</span></div>
+                    </div>
+                </div>
+                
+                <!-- System Stats -->
+                <div style="background: rgba(168, 85, 247, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">
+                    <div style="font-size: 1.1rem; color: #a855f7; margin-bottom: 1rem; font-weight: 600;">⚡ System Stats</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">
+                        <div>Memory: <span id="memoryUsage" style="color: #a855f7; font-weight: 600;">-- MB</span></div>
+                        <div>CPU: <span id="cpuUsage" style="color: #a855f7; font-weight: 600;">--%</span></div>
+                        <div>Uptime: <span id="systemUptime" style="color: #a855f7; font-weight: 600;">--s</span></div>
+                    </div>
+                </div>
+                
+                <!-- Alert System -->
+                <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div style="font-size: 1.1rem; color: #f59e0b; margin-bottom: 1rem; font-weight: 600;">🔔 Alert System</div>
+                    <div style="color: #94a3b8; font-size: 0.9rem;">
+                        <div>Active Alerts: <span id="activeAlerts" style="color: #f59e0b; font-weight: 600;">0</span></div>
+                        <div>Last Triggered: <span id="lastAlert" style="color: #f59e0b; font-weight: 600;">None</span></div>
+                        <button onclick="addPriceAlert()" style="margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #f59e0b; color: white; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">Add Alert</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Performance Chart -->
+            <div style="margin-top: 1.5rem; height: 200px; background: rgba(0,0,0,0.3); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                <div>📈 Real-time Performance Chart (Coming Soon)</div>
+            </div>
+        </div>
+
         <!-- Price Display -->
         <div class="price-display">
             <div class="current-price" id="currentPrice">Loading...</div>
@@ -667,7 +719,15 @@
         // Auto-refresh every 30 seconds
         setInterval(loadAllData, 30000);
         
-        console.log('🚀 Dashboard initialized');
+        // Load system status every 10 seconds when panel is visible
+        setInterval(() => {
+            const panel = document.getElementById('systemStatusPanel');
+            if (panel && panel.style.display !== 'none') {
+                loadSystemStatus();
+            }
+        }, 10000);
+        
+        console.log('🚀 Dashboard initialized with enhanced features');
 
         function initializeCharts() {
             try {
@@ -1872,6 +1932,131 @@
                 console.error('Error updating risk assessment:', error);
             }
         }
+
+        // === ENHANCEMENT FUNCTIONS: System Status & Monitoring ===
+        
+        function toggleSystemStatus() {
+            const panel = document.getElementById('systemStatusPanel');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'block';
+                loadSystemStatus();  // Load immediately when opened
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        async function loadSystemStatus() {
+            try {
+                const response = await fetch('/api/system/performance');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update API stats
+                    document.getElementById('apiRequestsPerMin').textContent = data.api_stats.requests_this_minute || '0';
+                    document.getElementById('rateLimitStatus').textContent = data.api_stats.requests_this_minute > 1000 ? 'WARN' : 'OK';
+                    document.getElementById('resetTime').textContent = Math.round(data.api_stats.time_to_reset || 0) + 's';
+                    
+                    // Update cache stats
+                    document.getElementById('cacheSize').textContent = data.cache_stats.cache_size || '0';
+                    document.getElementById('cacheHitRatio').textContent = (data.cache_stats.cache_hit_ratio * 100 || 0).toFixed(1) + '%';
+                    document.getElementById('maxCacheSize').textContent = data.cache_stats.max_cache_size || '1000';
+                    
+                    // Update system stats
+                    const memUsage = typeof data.system_stats.memory_usage_mb === 'number' 
+                        ? data.system_stats.memory_usage_mb.toFixed(1) + ' MB'
+                        : data.system_stats.memory_usage_mb;
+                    document.getElementById('memoryUsage').textContent = memUsage;
+                    
+                    const cpuUsage = typeof data.system_stats.cpu_percent === 'number'
+                        ? data.system_stats.cpu_percent.toFixed(1) + '%'
+                        : data.system_stats.cpu_percent;
+                    document.getElementById('cpuUsage').textContent = cpuUsage;
+                    
+                    const uptime = Math.round(data.system_stats.uptime_seconds || 0);
+                    const hours = Math.floor(uptime / 3600);
+                    const minutes = Math.floor((uptime % 3600) / 60);
+                    document.getElementById('systemUptime').textContent = `${hours}h ${minutes}m`;
+                    
+                    // Color coding for rate limit status
+                    const rateLimitElement = document.getElementById('rateLimitStatus');
+                    if (data.api_stats.requests_this_minute > 1000) {
+                        rateLimitElement.style.color = '#ef4444';
+                    } else if (data.api_stats.requests_this_minute > 800) {
+                        rateLimitElement.style.color = '#f59e0b';
+                    } else {
+                        rateLimitElement.style.color = '#22c55e';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading system status:', error);
+                // Show basic fallback data
+                document.getElementById('apiRequestsPerMin').textContent = 'Error';
+                document.getElementById('rateLimitStatus').textContent = 'Error';
+                document.getElementById('cacheSize').textContent = 'Error';
+            }
+        }
+
+        async function addPriceAlert() {
+            const symbol = currentSymbol;
+            const targetPrice = prompt(`Preis-Alert für ${symbol} hinzufügen.\nZielpreis eingeben:`);
+            
+            if (!targetPrice || isNaN(targetPrice)) {
+                alert('Ungültiger Preis eingegeben');
+                return;
+            }
+            
+            const alertType = confirm('Alert auslösen wenn Preis ÜBER dem Zielpreis liegt?\n\nOK = Über dem Preis\nAbbrechen = Unter dem Preis') ? 'above' : 'below';
+            
+            try {
+                const response = await fetch('/api/alerts/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        target_price: parseFloat(targetPrice),
+                        alert_type: alertType,
+                        message: `${symbol} ${alertType === 'above' ? 'über' : 'unter'} $${targetPrice}`
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`✅ Alert erfolgreich hinzugefügt!\n${data.message}`);
+                    // Update alert count
+                    const alertCount = parseInt(document.getElementById('activeAlerts').textContent) + 1;
+                    document.getElementById('activeAlerts').textContent = alertCount;
+                } else {
+                    alert(`❌ Fehler beim Hinzufügen des Alerts: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error adding alert:', error);
+                alert('❌ Netzwerkfehler beim Hinzufügen des Alerts');
+            }
+        }
+
+        async function checkPriceAlerts() {
+            try {
+                const response = await fetch(`/api/alerts/check/${currentSymbol}`);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.triggered_alerts > 0) {
+                    // Show triggered alerts
+                    let alertMessage = `🔔 ${data.triggered_alerts} Alert(s) ausgelöst für ${data.symbol}!\n\n`;
+                    data.alerts.forEach(alert => {
+                        alertMessage += `• ${alert.message} (bei $${alert.triggered_price})\n`;
+                    });
+                    
+                    alert(alertMessage);
+                    document.getElementById('lastAlert').textContent = new Date().toLocaleTimeString();
+                }
+            } catch (error) {
+                console.error('Error checking alerts:', error);
+            }
+        }
+
+        // Auto-check alerts every 30 seconds
+        setInterval(checkPriceAlerts, 30000);
     </script>
 </body>
 </html>
