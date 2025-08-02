@@ -13,2160 +13,50 @@ from flask_cors import CORS
 from collections import defaultdict
 
 # Import our modular components
-try:
-    from modules.technical_analyzer import AdvancedTechnicalAnalyzer
-    from modules.pattern_detector import AdvancedPatternDetector
-    from modules.ml_predictor import AdvancedMLPredictor
-    from modules.data_fetcher import fetch_binance_data, fetch_24hr_ticker
-    from modules.utils import convert_to_py
-    modules_available = True
-    print("✅ Modular components loaded successfully!")
-except ImportError as e:
-    print(f"⚠️ WARNING: Modular components not available ({e}) - using monolithic app")
-    modules_available = False
+import random, hmac, hashlib
 
-# pandas-ta import optional
-try:
-    import pandas_ta as ta
-    ta_available = True
-except ImportError:
-    print("WARNING: pandas-ta not available - using basic technical indicators")
-    ta_available = False
-
-# ML Imports hinzufügen
-try:
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-    from sklearn.preprocessing import StandardScaler
-    sklearn_available = True
-except ImportError:
-    print("WARNING: scikit-learn not available - using simplified ML predictions")
-    sklearn_available = False
-
-# Engine Imports mit Fallback
-try:
-    from signal_booster import SignalBoosterEngine
-except ImportError:
-    # Fallback SignalBoosterEngine wenn Import fehlschlägt
-    class SignalBoosterEngine:
-        def __init__(self):
-            self.enabled = True
-        
-        def boost_signal_detection(self, indicators, patterns, price_data, volume_data):
-            return {
-                'boosted_signals': [],
-                'booster_metrics': {
-                    'boost_applied': False,
-                    'confidence_increase': 0,
-                    'signal_count': 0
-                }
-            }
-
-try:
-    from enhanced_decision import EnhancedTradingDecision  
-except ImportError:
-    # Fallback EnhancedTradingDecision wenn Import fehlschlägt
-    class EnhancedTradingDecision:
-        @staticmethod
-        def _enhanced_trading_decision_with_booster(signals, boosted_signals, kpis, price_data):
-            return {
-                'enhanced_action': 'HOLD',
-                'enhanced_confidence': 60,
-                'enhancement_applied': False
-            }
-
-
-# Mock DNA and Fakeout engines (backup implementations)
-def create_mock_dna_analysis(symbol, price_data, volume_data, indicators):
-    """Mock DNA analysis when MarketDNAEngine fails"""
-    try:
-        current_price = price_data[-1]['close'] if price_data else 0
-        rsi = indicators.get('current_rsi_14', 50)
-        volume_trend = sum(volume_data[-5:]) / 5 if len(volume_data) >= 5 else 0
-        
-        # DNA Personality Detection (Realistic Conservative Values)
-        if rsi < 30:
-            personality = "🐻 Bearish DNA - Oversold Territory"
-            signals = [{"type": "BUY_DIP", "confidence": 65, "reason": "DNA shows potential oversold bounce"}]
-        elif rsi > 70:
-            personality = "🐂 Bullish DNA - Overbought Territory" 
-            signals = [{"type": "SELL_PEAK", "confidence": 62, "reason": "DNA suggests possible overbought correction"}]
-        else:
-            personality = "⚖️ Neutral DNA - Balanced Market"
-            signals = [{"type": "WAIT", "confidence": 55, "reason": "DNA analysis suggests patience"}]
-        
-        return {
-            'market_personality': personality,
-            'dna_type': 'ADAPTIVE' if 30 <= rsi <= 70 else 'EXTREME',
-            'confidence_score': min(75, max(50, int(65 - abs(rsi - 50) / 2))),  # More realistic confidence
-            'personalized_signals': signals,
-            'dna_patterns': {
-                'trend_dna': 'BULLISH' if rsi > 55 else 'BEARISH' if rsi < 45 else 'NEUTRAL',
-                'volume_dna': 'HIGH' if volume_trend > 0 else 'LOW',
-                'volatility_dna': 'STABLE'
-            },
-            'recommendations': [
-                f"Market DNA suggests {'accumulation' if rsi < 40 else 'distribution' if rsi > 60 else 'waiting'} phase",
-                f"Current DNA confidence: {min(75, max(50, int(65 - abs(rsi - 50) / 2)))}%"
-            ]
-        }
-    except Exception as e:
-        return {'error': f'DNA analysis failed: {e}', 'market_personality': 'Unknown', 'personalized_signals': []}
-
-def create_mock_fakeout_analysis(price_data, volume_data, indicators):
-    """Mock Fakeout analysis when FakeoutKillerEngine fails"""
-    try:
-        if len(price_data) < 10:
-            return {'warnings': [], 'fake_out_probability': 0}
-        
-        recent_highs = [p['high'] for p in price_data[-10:]]
-        recent_lows = [p['low'] for p in price_data[-10:]]
-        recent_volumes = volume_data[-10:] if len(volume_data) >= 10 else volume_data
-        
-        current_price = price_data[-1]['close']
-        max_high = max(recent_highs)
-        min_low = min(recent_lows)
-        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 0
-        current_volume = recent_volumes[-1] if recent_volumes else 0
-        
-        # Fakeout Detection Logic
-        fake_out_prob = 0
-        warnings = []
-        
-        # Breakout with low volume = higher fake-out risk
-        if current_price >= max_high * 0.999:  # Near resistance break
-            if current_volume < avg_volume * 0.8:  # Low volume
-                fake_out_prob += 0.4
-                warnings.append("⚠️ Resistance breakout on low volume - potential fake-out")
-        
-        if current_price <= min_low * 1.001:  # Near support break
-            if current_volume < avg_volume * 0.8:  # Low volume
-                fake_out_prob += 0.4  
-                warnings.append("⚠️ Support breakdown on low volume - potential fake-out")
-        
-        # RSI divergence check
-        rsi = indicators.get('current_rsi_14', 50)
-        if rsi > 75 and current_price >= max_high * 0.998:
-            fake_out_prob += 0.3
-            warnings.append("⚠️ Overbought breakout - high fake-out risk")
-        elif rsi < 25 and current_price <= min_low * 1.002:
-            fake_out_prob += 0.3
-            warnings.append("⚠️ Oversold breakdown - high fake-out risk")
-        
-        fake_out_prob = min(0.95, fake_out_prob)
-        
-        return {
-            'fake_out_probability': fake_out_prob,
-            'warnings': warnings,
-            'breakout_strength': 'WEAK' if fake_out_prob > 0.6 else 'STRONG' if fake_out_prob < 0.3 else 'MODERATE',
-            'volume_confirmation': current_volume > avg_volume * 1.2,
-            'recommendations': [
-                f"Fake-out probability: {fake_out_prob*100:.1f}%",
-                "Wait for volume confirmation" if fake_out_prob > 0.5 else "Breakout looks valid"
-            ]
-        }
-    except Exception as e:
-        return {'error': f'Fakeout analysis failed: {e}', 'warnings': [], 'fake_out_probability': 0}
-
-# Try to import real engines, fall back to mocks
-try:
-    from market_dna import MarketDNAEngine
-    DNA_ENGINE_AVAILABLE = True
-except ImportError:
-    DNA_ENGINE_AVAILABLE = False
-    print("WARNING: MarketDNAEngine not available - using mock implementation")
-
-try:
-    from fakeout_killer import FakeoutKillerEngine  
-    FAKEOUT_ENGINE_AVAILABLE = True
-except ImportError:
-    FAKEOUT_ENGINE_AVAILABLE = False
-    print("WARNING: FakeoutKillerEngine not available - using mock implementation")
-
-warnings.filterwarnings('ignore')
-
-def convert_to_py(obj):
-    if isinstance(obj, np.ndarray):
-        # Handle NaN values in arrays
-        clean_array = np.nan_to_num(obj, nan=0.0, posinf=0.0, neginf=0.0)
-        return clean_array.tolist()
-    if isinstance(obj, (np.generic, np.float32, np.float64)):
-        if np.isnan(obj) or np.isinf(obj):
-            return 0.0
-        return float(obj)
-    if isinstance(obj, (np.int_, np.int32, np.int64)):
-        return int(obj)
-    if isinstance(obj, dict):
-        return {k: convert_to_py(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [convert_to_py(i) for i in obj]
-    return obj
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('trading_analysis.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__, template_folder='frontend/templates')
+# Initialize Flask app
+app = Flask(__name__)
 CORS(app)
 
 # Configuration
-BINANCE_BASE = "https://api.binance.com/api/v3"
-BINANCE_KLINES = f"{BINANCE_BASE}/klines"
-BINANCE_24HR = f"{BINANCE_BASE}/ticker/24hr"
-BINANCE_TICKER = f"{BINANCE_BASE}/ticker/price"
+warnings.filterwarnings('ignore')
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Advanced Cache System
+# Global variables and constants
 api_cache = {}
-performance_cache = {}
-CACHE_DURATION = 30  # 30 seconds for real-time feel
+CACHE_DURATION = 300  # 5 minutes
 MAX_CACHE_SIZE = 1000
 
-# Advanced Technical Analysis Engine
-class AdvancedTechnicalAnalyzer:
-    @staticmethod
-    def calculate_all_indicators(ohlc_data):
-        try:
-            if not ta_available:
-                # Return basic indicators without pandas-ta
-                return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
-                
-            df = pd.DataFrame(ohlc_data)
-            # Binance returns: [timestamp, open, high, low, close, volume, close_time, quote_volume, trades, taker_buy_base, taker_buy_quote] = 11 elements
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote']
-            df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
-            
-            # === CORE INDICATORS ONLY - Fokus auf höchste Qualität ===
-            indicators = {}
+# Binance API configuration
+BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
+BINANCE_SECRET_KEY = os.environ.get('BINANCE_SECRET_KEY', '')
+BINANCE_KLINES = 'https://api.binance.com/api/v3/klines'
+BINANCE_FUTURES_KLINES = 'https://fapi.binance.com/fapi/v1/klines'
+BINANCE_24HR = 'https://api.binance.com/api/v3/ticker/24hr'
+BINANCE_ACCOUNT_INFO = 'https://api.binance.com/api/v3/account'
+BINANCE_ORDER_ENDPOINT = 'https://api.binance.com/api/v3/order'
+BINANCE_OPEN_ORDERS = 'https://api.binance.com/api/v3/openOrders'
+BINANCE_EXCHANGE_INFO = 'https://api.binance.com/api/v3/exchangeInfo'
 
-            # Trend Indicators - Nur die wichtigsten 3
-            # indicators['sma_5'] = ta.sma(df['close'], length=5).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            # indicators['sma_10'] = ta.sma(df['close'], length=10).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            indicators['sma_20'] = ta.sma(df['close'], length=20).fillna(0).values
-            indicators['sma_50'] = ta.sma(df['close'], length=50).fillna(0).values
-            indicators['sma_200'] = ta.sma(df['close'], length=200).fillna(0).values
+# Helper functions
+def get_binance_signature(query_string):
+    """Generate signature for Binance API"""
+    if not BINANCE_SECRET_KEY:
+        return ""
+    return hmac.new(BINANCE_SECRET_KEY.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
 
-            # indicators['ema_5'] = ta.ema(df['close'], length=5).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            # indicators['ema_10'] = ta.ema(df['close'], length=10).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            indicators['ema_20'] = ta.ema(df['close'], length=20).fillna(0).values
-            indicators['ema_50'] = ta.ema(df['close'], length=50).fillna(0).values
-            # indicators['ema_200'] = ta.ema(df['close'], length=200).fillna(0).values  # ENTFERNT - SMA200 reicht
-
-            # MACD using pandas-ta
-            macd_data = ta.macd(df['close']).fillna(0)
-            indicators['macd'] = macd_data.iloc[:, 0].values if len(macd_data.columns) > 0 else np.zeros(len(df))
-            indicators['macd_signal'] = macd_data.iloc[:, 2].values if len(macd_data.columns) > 2 else np.zeros(len(df))
-            indicators['macd_histogram'] = macd_data.iloc[:, 1].values if len(macd_data.columns) > 1 else np.zeros(len(df))
-
-            # Oscillators - Nur RSI (wichtigster und zuverlässigster)
-            indicators['rsi_14'] = ta.rsi(df['close'], length=14).fillna(50).values
-            # indicators['rsi_7'] = ta.rsi(df['close'], length=7).fillna(50).values  # ENTFERNT - zu volatil
-            # indicators['rsi_21'] = ta.rsi(df['close'], length=21).fillna(50).values  # ENTFERNT - RSI14 reicht
-
-            # Stochastic - ENTFERNT - oft zu viele Fake-Signale
-            # stoch_data = ta.stoch(df['high'], df['low'], df['close']).fillna(50)
-            # indicators['stoch_k'] = stoch_data.iloc[:, 0].values if len(stoch_data.columns) > 0 else np.full(len(df), 50)
-            # indicators['stoch_d'] = stoch_data.iloc[:, 1].values if len(stoch_data.columns) > 1 else np.full(len(df), 50)
-
-            # Williams %R - ENTFERNT - ähnlich wie RSI, aber weniger zuverlässig
-            # indicators['williams_r'] = ta.willr(df['high'], df['low'], df['close']).fillna(-50).values
-
-            # CCI - ENTFERNT - zu volatil
-            # indicators['cci'] = ta.cci(df['high'], df['low'], df['close']).fillna(0).values
-
-            # Bollinger Bands using pandas-ta
-            bb_data = ta.bbands(df['close']).fillna(method='bfill').fillna(method='ffill')
-            if len(bb_data.columns) >= 3:
-                indicators['bb_upper'] = bb_data.iloc[:, 0].values
-                indicators['bb_middle'] = bb_data.iloc[:, 1].values 
-                indicators['bb_lower'] = bb_data.iloc[:, 2].values
-            else:
-                indicators['bb_upper'] = df['close'].values
-                indicators['bb_middle'] = df['close'].values
-                indicators['bb_lower'] = df['close'].values
-
-            # Volume Indicators - Nur OBV (bester Volume-Indikator)
-            indicators['obv'] = ta.obv(df['close'], df['volume']).fillna(0).values
-            # indicators['ad'] = ta.ad(df['high'], df['low'], df['close'], df['volume']).fillna(0).values  # ENTFERNT - OBV reicht
-            # indicators['adosc'] = ta.adosc(df['high'], df['low'], df['close'], df['volume']).fillna(0).values  # ENTFERNT - zu komplex
-
-            # ATR - Volatilität (wichtig für Risk Management)
-            indicators['atr'] = ta.atr(df['high'], df['low'], df['close']).fillna(0).values
-
-            # SAR und ADX - ENTFERNT - oft zu viele False Signals
-            # indicators['sar'] = ta.psar(df['high'], df['low'], df['close']).iloc[:, 0].fillna(df['close']).values
-
-            # ADX (Average Directional Index) using pandas-ta
-            adx_data = ta.adx(df['high'], df['low'], df['close']).fillna(20)
-            if len(adx_data.columns) >= 3:
-                indicators['adx'] = adx_data.iloc[:, 0].values
-                indicators['adx_plus'] = adx_data.iloc[:, 1].values
-                indicators['adx_minus'] = adx_data.iloc[:, 2].values
-            else:
-                indicators['adx'] = np.full(len(df), 20)
-                indicators['adx_plus'] = np.full(len(df), 20)
-                indicators['adx_minus'] = np.full(len(df), 20)
-
-            # Current values for easy access
-            current_values = {}
-            for key, values in indicators.items():
-                if values is not None and len(values) > 0 and not np.isnan(values[-1]):
-                    current_values[f'current_{key}'] = float(values[-1])
-                else:
-                    current_values[f'current_{key}'] = 0.0
-
-            indicators.update(current_values)
-            return indicators
-
-        except Exception as e:
-            logger.error(f"Error calculating indicators: {str(e)}")
-            return {}
-    
-    @staticmethod
-    def _calculate_basic_indicators(ohlc_data):
-        """Basic indicators without pandas-ta dependency"""
-        try:
-            df = pd.DataFrame(ohlc_data)
-            # Binance returns: [timestamp, open, high, low, close, volume, close_time, quote_volume, trades, taker_buy_base, taker_buy_quote] = 11 elements
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote']
-            df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
-            
-            indicators = {}
-            close_prices = df['close'].values
-            
-            # Simple Moving Averages
-            if len(close_prices) >= 20:
-                indicators['sma_20'] = pd.Series(close_prices).rolling(20).mean().fillna(0).values
-            else:
-                indicators['sma_20'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
-                
-            if len(close_prices) >= 50:
-                indicators['sma_50'] = pd.Series(close_prices).rolling(50).mean().fillna(0).values
-            else:
-                indicators['sma_50'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
-                
-            if len(close_prices) >= 200:
-                indicators['sma_200'] = pd.Series(close_prices).rolling(200).mean().fillna(0).values
-            else:
-                indicators['sma_200'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
-            
-            # Simple EMA (approximation)
-            indicators['ema_20'] = pd.Series(close_prices).ewm(span=20).mean().fillna(0).values
-            indicators['ema_50'] = pd.Series(close_prices).ewm(span=50).mean().fillna(0).values
-            
-            # Basic RSI (simplified)
-            delta = pd.Series(close_prices).diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            indicators['rsi_14'] = (100 - (100 / (1 + rs))).fillna(50).values
-            
-            # Basic Bollinger Bands
-            sma_20 = pd.Series(close_prices).rolling(20).mean()
-            std_20 = pd.Series(close_prices).rolling(20).std()
-            indicators['bb_upper'] = (sma_20 + (std_20 * 2)).fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
-            indicators['bb_middle'] = sma_20.fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
-            indicators['bb_lower'] = (sma_20 - (std_20 * 2)).fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
-            
-            # Placeholder values for other indicators
-            indicators['macd'] = np.zeros(len(close_prices))
-            indicators['macd_signal'] = np.zeros(len(close_prices))
-            indicators['macd_histogram'] = np.zeros(len(close_prices))
-            indicators['obv'] = np.zeros(len(close_prices))
-            indicators['atr'] = np.full(len(close_prices), 0.01)
-            indicators['adx'] = np.full(len(close_prices), 25)
-            indicators['adx_plus'] = np.full(len(close_prices), 25)
-            indicators['adx_minus'] = np.full(len(close_prices), 25)
-            
-            # Current values
-            current_values = {}
-            for key, values in indicators.items():
-                if values is not None and len(values) > 0:
-                    current_values[f'current_{key}'] = float(values[-1])
-                else:
-                    current_values[f'current_{key}'] = 0.0
-            
-            indicators.update(current_values)
-            return indicators
-            
-        except Exception as e:
-            logger.error(f"Error calculating basic indicators: {str(e)}")
-            return {}
-
-# Advanced Pattern Detection Engine
-class AdvancedPatternDetector:
-    @staticmethod
-    def detect_all_patterns(ohlc_data):
-        try:
-            if len(ohlc_data) < 10:
-                return {}
-
-            df = pd.DataFrame(ohlc_data)
-            # Binance returns: [timestamp, open, high, low, close, volume, close_time, quote_volume, trades, taker_buy_base, taker_buy_quote] = 11 elements
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote']
-
-            open_prices = df['open'].astype(float).values
-            high_prices = df['high'].astype(float).values
-            low_prices = df['low'].astype(float).values
-            close_prices = df['close'].astype(float).values
-            volume_data = df['volume'].astype(float).values
-
-            patterns = {}
-
-            # === ULTRA-FOCUSED ESSENTIAL PATTERNS (Only 8 Core Patterns) ===
-            
-            # Simple Pattern Detection (Railway-compatible)
-            patterns['doji'] = AdvancedPatternDetector._detect_doji(open_prices, high_prices, low_prices, close_prices)
-            patterns['hammer'] = AdvancedPatternDetector._detect_hammer(open_prices, high_prices, low_prices, close_prices)
-            patterns['shooting_star'] = AdvancedPatternDetector._detect_shooting_star(open_prices, high_prices, low_prices, close_prices)
-            
-            # Engulfing Patterns
-            patterns['engulfing_bullish'] = AdvancedPatternDetector._detect_bullish_engulfing(open_prices, high_prices, low_prices, close_prices)
-            patterns['engulfing_bearish'] = AdvancedPatternDetector._detect_bearish_engulfing(open_prices, high_prices, low_prices, close_prices)
-            
-            # === VERBESSERTE SMART MONEY PATTERNS ===
-            patterns['bullish_fvg'] = AdvancedPatternDetector._detect_simple_fvg(high_prices, low_prices, 'bullish')
-            patterns['bearish_fvg'] = AdvancedPatternDetector._detect_simple_fvg(high_prices, low_prices, 'bearish')
-            patterns['liquidity_sweep'] = AdvancedPatternDetector._detect_liquidity_sweep(high_prices, low_prices, close_prices)
-            
-            # === NEUE HIGH-PRECISION PATTERNS ===
-            order_blocks = AdvancedPatternDetector._detect_order_blocks(open_prices, high_prices, low_prices, close_prices, volume_data)
-            patterns.update(order_blocks)
-            
-            structure_breaks = AdvancedPatternDetector._detect_bos_choch(high_prices, low_prices, close_prices)
-            patterns.update(structure_breaks)
-            
-            # === LIQUIDITY MAPPING (LiqMap) - Essential Features ===
-            liq_zones = AdvancedPatternDetector._detect_essential_liquidity(high_prices, low_prices, close_prices, volume_data)
-            patterns.update(liq_zones)
-            
-            return patterns
-
-        except Exception as e:
-            logger.error(f"Error detecting patterns: {str(e)}")
-            return {}
-    
-    @staticmethod
-    def _detect_doji(opens, highs, lows, closes):
-        """Simple Doji Pattern Detection"""
-        if len(closes) < 2:
-            return False
-        try:
-            last_open = opens[-1]
-            last_close = closes[-1]
-            last_high = highs[-1]
-            last_low = lows[-1]
-            
-            body_size = abs(last_close - last_open)
-            total_range = last_high - last_low
-            
-            return body_size <= (total_range * 0.1) if total_range > 0 else False
-        except:
-            return False
-    
-    @staticmethod
-    def _detect_hammer(opens, highs, lows, closes):
-        """Simple Hammer Pattern Detection"""
-        if len(closes) < 2:
-            return False
-        try:
-            last_open = opens[-1]
-            last_close = closes[-1]
-            last_high = highs[-1]
-            last_low = lows[-1]
-            
-            body_top = max(last_open, last_close)
-            body_bottom = min(last_open, last_close)
-            lower_shadow = body_bottom - last_low
-            upper_shadow = last_high - body_top
-            body_size = abs(last_close - last_open)
-            
-            return (lower_shadow > body_size * 2 and 
-                   upper_shadow < body_size * 0.5) if body_size > 0 else False
-        except:
-            return False
-    
-    @staticmethod
-    def _detect_shooting_star(opens, highs, lows, closes):
-        """Simple Shooting Star Pattern Detection"""
-        if len(closes) < 2:
-            return False
-        try:
-            last_open = opens[-1]
-            last_close = closes[-1]
-            last_high = highs[-1]
-            last_low = lows[-1]
-            
-            body_top = max(last_open, last_close)
-            body_bottom = min(last_open, last_close)
-            lower_shadow = body_bottom - last_low
-            upper_shadow = last_high - body_top
-            body_size = abs(last_close - last_open)
-            
-            return (upper_shadow > body_size * 2 and 
-                   lower_shadow < body_size * 0.5) if body_size > 0 else False
-        except:
-            return False
-    
-    @staticmethod
-    def _detect_bullish_engulfing(opens, highs, lows, closes):
-        """Simple Bullish Engulfing Pattern Detection"""
-        if len(closes) < 2:
-            return False
-        try:
-            prev_open, prev_close = opens[-2], closes[-2]
-            last_open, last_close = opens[-1], closes[-1]
-            
-            return (prev_close < prev_open and  # Previous candle bearish
-                   last_close > last_open and   # Current candle bullish
-                   last_open < prev_close and   # Current opens below prev close
-                   last_close > prev_open)      # Current closes above prev open
-        except:
-            return False
-    
-    @staticmethod
-    def _detect_bearish_engulfing(opens, highs, lows, closes):
-        """Simple Bearish Engulfing Pattern Detection"""
-        if len(closes) < 2:
-            return False
-        try:
-            prev_open, prev_close = opens[-2], closes[-2]
-            last_open, last_close = opens[-1], closes[-1]
-            
-            return (prev_close > prev_open and  # Previous candle bullish
-                   last_close < last_open and   # Current candle bearish
-                   last_open > prev_close and   # Current opens above prev close
-                   last_close < prev_open)      # Current closes below prev open
-        except:
-            return False
-
-    @staticmethod
-    def _detect_simple_fvg(highs, lows, direction):
-        """VERBESSERTE FVG Detection - High-Precision Smart Money Patterns"""
-        if len(highs) < 5:
-            return False
-            
-        try:
-            # Check last 5 candles for more reliable FVG patterns
-            for i in range(len(highs) - 5, len(highs) - 1):
-                if i < 2:
-                    continue
-                    
-                if direction == 'bullish':
-                    # Bullish FVG: gap between low[i-1] and high[i+1] with volume confirmation
-                    gap_size = lows[i-1] - highs[i+1]
-                    gap_percentage = gap_size / highs[i+1] if highs[i+1] > 0 else 0
-                    
-                    # Stricter criteria for higher accuracy
-                    if (lows[i-1] > highs[i+1] and 
-                        gap_percentage > 0.002 and  # Minimum 0.2% gap
-                        gap_percentage < 0.05):     # Maximum 5% gap (avoid fake breakouts)
-                        return True
-                        
-                elif direction == 'bearish':
-                    # Bearish FVG: gap between high[i-1] and low[i+1] with validation
-                    gap_size = lows[i+1] - highs[i-1]
-                    gap_percentage = gap_size / highs[i-1] if highs[i-1] > 0 else 0
-                    
-                    if (highs[i-1] < lows[i+1] and 
-                        gap_percentage > 0.002 and  # Minimum 0.2% gap
-                        gap_percentage < 0.05):     # Maximum 5% gap
-                        return True
-            
-            return False
-        except Exception:
-            return False
-    
-    @staticmethod
-    def _detect_order_blocks(opens, highs, lows, closes, volumes):
-        """ORDER BLOCK DETECTION - Smart Money Footprints"""
-        if len(closes) < 20:
-            return {'bullish_ob': False, 'bearish_ob': False}
-            
-        try:
-            order_blocks = {'bullish_ob': False, 'bearish_ob': False}
-            
-            # Look for order blocks in last 15 candles
-            for i in range(len(closes) - 15, len(closes) - 3):
-                if i < 5:
-                    continue
-                
-                # Bullish Order Block: Strong green candle followed by pullback
-                if (closes[i] > opens[i] and  # Green candle
-                    (closes[i] - opens[i]) / opens[i] > 0.015 and  # Min 1.5% body
-                    volumes[i] > np.mean(volumes[max(0, i-10):i+1]) * 1.5):  # High volume
-                    
-                    # Check for pullback and respect of order block
-                    pullback_found = False
-                    for j in range(i+1, min(i+8, len(closes))):
-                        if lows[j] <= highs[i] and closes[j] > opens[i]:
-                            pullback_found = True
-                            break
-                    
-                    if pullback_found:
-                        order_blocks['bullish_ob'] = True
-                
-                # Bearish Order Block: Strong red candle followed by pullback
-                if (closes[i] < opens[i] and  # Red candle
-                    (opens[i] - closes[i]) / opens[i] > 0.015 and  # Min 1.5% body
-                    volumes[i] > np.mean(volumes[max(0, i-10):i+1]) * 1.5):  # High volume
-                    
-                    # Check for pullback and respect of order block
-                    pullback_found = False
-                    for j in range(i+1, min(i+8, len(closes))):
-                        if highs[j] >= lows[i] and closes[j] < opens[i]:
-                            pullback_found = True
-                            break
-                    
-                    if pullback_found:
-                        order_blocks['bearish_ob'] = True
-            
-            return order_blocks
-            
-        except Exception:
-            return {'bullish_ob': False, 'bearish_ob': False}
-    
-    @staticmethod
-    def _detect_bos_choch(highs, lows, closes):
-        """BOS (Break of Structure) & CHoCH (Change of Character) Detection"""
-        if len(closes) < 30:
-            return {'bos_bullish': False, 'bos_bearish': False, 'choch': False}
-            
-        try:
-            patterns = {'bos_bullish': False, 'bos_bearish': False, 'choch': False}
-            
-            # Identify recent swing highs and lows
-            swing_highs = []
-            swing_lows = []
-            
-            for i in range(5, len(highs) - 5):
-                # Swing high: higher than 5 candles on each side
-                if all(highs[i] >= highs[j] for j in range(i-5, i+6) if j != i):
-                    swing_highs.append((i, highs[i]))
-                
-                # Swing low: lower than 5 candles on each side  
-                if all(lows[i] <= lows[j] for j in range(i-5, i+6) if j != i):
-                    swing_lows.append((i, lows[i]))
-            
-            if len(swing_highs) >= 2 and len(swing_lows) >= 2:
-                last_high = swing_highs[-1][1]
-                last_low = swing_lows[-1][1]
-                
-                # BOS Bullish: Break above recent swing high with strength
-                recent_high_broken = any(closes[i] > last_high * 1.002 for i in range(len(closes)-10, len(closes)))
-                if recent_high_broken:
-                    patterns['bos_bullish'] = True
-                
-                # BOS Bearish: Break below recent swing low with strength
-                recent_low_broken = any(closes[i] < last_low * 0.998 for i in range(len(closes)-10, len(closes)))
-                if recent_low_broken:
-                    patterns['bos_bearish'] = True
-                
-                # CHoCH: Change of character (trend reversal)
-                if len(swing_highs) >= 3 and len(swing_lows) >= 3:
-                    trend_change = (
-                        (swing_highs[-1][1] < swing_highs[-2][1] and swing_lows[-1][1] < swing_lows[-2][1]) or
-                        (swing_highs[-1][1] > swing_highs[-2][1] and swing_lows[-1][1] > swing_lows[-2][1])
-                    )
-                    patterns['choch'] = trend_change
-            
-            return patterns
-            
-        except Exception:
-            return {'bos_bullish': False, 'bos_bearish': False, 'choch': False}
-    
-    @staticmethod
-    def _detect_liquidity_sweep(highs, lows, closes):
-        """Simplified Liquidity Sweep - Only High-Probability Setups"""
-        if len(highs) < 15:
-            return False
-            
-        try:
-            # Look for recent liquidity sweep patterns (last 10 candles)
-            for i in range(len(highs) - 10, len(highs) - 2):
-                if i < 10:
-                    continue
-                
-                # Find recent high/low that got swept
-                recent_high = max(highs[i-10:i])
-                recent_low = min(lows[i-10:i])
-                
-                # Bullish sweep: Price breaks below recent low then recovers strongly
-                if lows[i] < recent_low * 0.999:  # Breaks below support
-                    if closes[i+1] > recent_low and closes[-1] > closes[i] * 1.005:  # 0.5% recovery
-                        return True
-                
-                # Bearish sweep: Price breaks above recent high then falls strongly  
-                if highs[i] > recent_high * 1.001:  # Breaks above resistance
-                    if closes[i+1] < recent_high and closes[-1] < closes[i] * 0.995:  # 0.5% decline
-                        return True
-            
-            return False
-        except Exception:
-            return False
-    
-    @staticmethod
-    def _detect_essential_liquidity(highs, lows, closes, volume):
-        """Essential Liquidity Mapping - High-Impact Zones Only"""
-        liq_features = {
-            'equal_highs': False,
-            'equal_lows': False, 
-            'stop_hunt_high': False,
-            'stop_hunt_low': False,
-            'volume_cluster': False
-        }
-        
-        if len(highs) < 20:
-            return liq_features
-            
-        try:
-            # Equal Highs Detection (Resistance Levels)
-            recent_highs = highs[-15:]
-            for i in range(len(recent_highs) - 3):
-                for j in range(i + 2, len(recent_highs)):
-                    price_diff = abs(recent_highs[i] - recent_highs[j]) / recent_highs[i]
-                    if price_diff < 0.002:  # 0.2% tolerance
-                        liq_features['equal_highs'] = True
-                        break
-                if liq_features['equal_highs']:
-                    break
-            
-            # Equal Lows Detection (Support Levels)
-            recent_lows = lows[-15:]
-            for i in range(len(recent_lows) - 3):
-                for j in range(i + 2, len(recent_lows)):
-                    price_diff = abs(recent_lows[i] - recent_lows[j]) / recent_lows[i]
-                    if price_diff < 0.002:  # 0.2% tolerance
-                        liq_features['equal_lows'] = True
-                        break
-                if liq_features['equal_lows']:
-                    break
-            
-            # Stop Hunt Detection (Liquidity Grabs)
-            for i in range(len(highs) - 5, len(highs) - 1):
-                if i < 10:
-                    continue
-                    
-                # High stop hunt: spike above recent high then quick reversal
-                recent_high = max(highs[i-8:i])
-                if highs[i] > recent_high * 1.003:  # 0.3% above
-                    if closes[i] < highs[i] * 0.997:  # Quick reversal
-                        liq_features['stop_hunt_high'] = True
-                
-                # Low stop hunt: spike below recent low then quick reversal
-                recent_low = min(lows[i-8:i])
-                if lows[i] < recent_low * 0.997:  # 0.3% below
-                    if closes[i] > lows[i] * 1.003:  # Quick reversal
-                        liq_features['stop_hunt_low'] = True
-            
-            # Volume Cluster Detection (High-Volume Liquidity Zones)
-            if len(volume) >= 15:
-                avg_volume = np.mean(volume[-15:])
-                volume_threshold = avg_volume * 1.8  # 80% above average
-                
-                high_volume_count = sum(1 for v in volume[-10:] if v > volume_threshold)
-                if high_volume_count >= 3:  # 3+ high volume candles in last 10
-                    liq_features['volume_cluster'] = True
-            
-        except Exception as e:
-            logger.error(f"Error detecting liquidity zones: {str(e)}")
-        
-        return liq_features
-
-# Advanced ML Prediction Engine - ECHTE ML MODELLE
-class AdvancedMLPredictor:
-    def __init__(self):
-        self.models = {}
-        self.scalers = {}
-        self.model_trained = False
-        self._initialize_models()
-    
-    def _initialize_models(self):
-        """Initialize simple prediction models"""
-        try:
-            if not sklearn_available:
-                logger.info("ℹ️  Using simplified ML models - sklearn not available")
-                # Use simple rule-based models instead
-                self.models = {
-                    'simple_trend': 'rule_based',
-                    'simple_momentum': 'rule_based', 
-                    'simple_reversal': 'rule_based'
-                }
-                self.scalers = {}
-                return
-                
-            # Random Forest for stable predictions
-            self.models['rf_scalping'] = RandomForestClassifier(
-                n_estimators=50, max_depth=10, random_state=42, 
-                min_samples_split=5, min_samples_leaf=3
-            )
-            
-            # Gradient Boosting for trend following
-            self.models['gb_swing'] = GradientBoostingClassifier(
-                n_estimators=30, max_depth=6, random_state=42,
-                learning_rate=0.1, subsample=0.8
-            )
-            
-            # Ensemble for short-term predictions
-            self.models['ensemble_short'] = RandomForestClassifier(
-                n_estimators=40, max_depth=8, random_state=42,
-                criterion='gini', bootstrap=False
-            )
-            
-            # Scalers for feature normalization
-            for model_name in self.models.keys():
-                self.scalers[model_name] = StandardScaler()
-                
-            logger.info("✅ Real ML Models initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"❌ ML Model initialization failed: {e}")
-    
-    def train_models_with_historical_data(self, symbol='BTCUSDT', days_back=30):
-        """Train ML models with historical market data"""
-        try:
-            logger.info(f"🧠 Starting ML training for {symbol} with {days_back} days of data...")
-            
-            # Fetch historical data for training
-            training_data = self._fetch_training_data(symbol, days_back)
-            if not training_data:
-                logger.warning("❌ No training data available")
-                return False
-            
-            # Prepare features and labels
-            features, labels = self._prepare_training_data(training_data)
-            if len(features) < 50:  # Minimum data requirement
-                logger.warning(f"❌ Insufficient training data: {len(features)} samples")
-                return False
-            
-            # Train each model
-            trained_count = 0
-            for model_name, model in self.models.items():
-                try:
-                    # Scale features
-                    X_scaled = self.scalers[model_name].fit_transform(features)
-                    
-                    # Train model
-                    model.fit(X_scaled, labels[model_name])
-                    trained_count += 1
-                    
-                    # Log training metrics
-                    score = model.score(X_scaled, labels[model_name])
-                    logger.info(f"✅ {model_name}: Training accuracy = {score:.3f}")
-                    
-                except Exception as e:
-                    logger.error(f"❌ Training failed for {model_name}: {e}")
-            
-            if trained_count > 0:
-                self.model_trained = True
-                logger.info(f"🎯 ML Training completed: {trained_count}/{len(self.models)} models trained")
-                return True
-            else:
-                logger.error("❌ No models were successfully trained")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ ML Training failed: {e}")
-            return False
-    
-    def _fetch_training_data(self, symbol, days_back):
-        """Fetch historical data for training"""
-        try:
-            # Calculate how many data points we need (24h * days_back for hourly data)
-            limit = min(1000, days_back * 24)  # Binance limit is 1000
-            
-            # Fetch historical data
-            historical_data = fetch_binance_data(symbol, interval='1h', limit=limit)
-            
-            training_samples = []
-            for i in range(20, len(historical_data) - 1):  # Need 20 for features, -1 for prediction
-                try:
-                    # Get data slice for this sample
-                    data_slice = historical_data[i-20:i+1]
-                    
-                    # Calculate indicators and patterns
-                    indicators = AdvancedTechnicalAnalyzer.calculate_all_indicators(data_slice)
-                    patterns = AdvancedPatternDetector.detect_all_patterns(data_slice)
-                    
-                    # Price data
-                    price_data = []
-                    volume_data = []
-                    for candle in data_slice:
-                        price_data.append({
-                            'open': float(candle[1]),
-                            'high': float(candle[2]),
-                            'low': float(candle[3]),
-                            'close': float(candle[4]),
-                            'volume': float(candle[5])
-                        })
-                        volume_data.append(float(candle[5]))
-                    
-                    # Future price for label (next candle)
-                    future_candle = historical_data[i+1]
-                    current_price = float(data_slice[-1][4])  # close price
-                    future_price = float(future_candle[4])   # close price
-                    price_change = (future_price - current_price) / current_price
-                    
-                    training_samples.append({
-                        'indicators': indicators,
-                        'patterns': patterns,
-                        'price_data': price_data,
-                        'volume_data': volume_data,
-                        'price_change': price_change
-                    })
-                    
-                except Exception as e:
-                    continue  # Skip problematic samples
-            
-            logger.info(f"📊 Prepared {len(training_samples)} training samples")
-            return training_samples
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch training data: {e}")
-            return None
-    
-    def _prepare_training_data(self, training_samples):
-        """Prepare features and labels from training samples"""
-        try:
-            features = []
-            labels = {
-                'rf_scalping': [],
-                'gb_swing': [],
-                'ensemble_short': []
-            }
-            
-            for sample in training_samples:
-                # Extract features
-                feature_vector = self._extract_comprehensive_features(
-                    sample['indicators'],
-                    sample['patterns'],
-                    sample['price_data'],
-                    sample['volume_data']
-                )
-                
-                # Convert to numerical array
-                feature_array = []
-                for key in sorted(feature_vector.keys()):
-                    val = feature_vector[key]
-                    if isinstance(val, (int, float)) and not np.isnan(val):
-                        feature_array.append(val)
-                    else:
-                        feature_array.append(0.0)
-                
-                if len(feature_array) > 0:
-                    features.append(feature_array)
-                    
-                    # Create labels based on price change
-                    price_change = sample['price_change']
-                    
-                    # Scalping (short-term, sensitive)
-                    if price_change > 0.005:  # +0.5%
-                        labels['rf_scalping'].append(1)  # BUY
-                    elif price_change < -0.005:  # -0.5%
-                        labels['rf_scalping'].append(0)  # SELL
-                    else:
-                        labels['rf_scalping'].append(2)  # HOLD
-                    
-                    # Swing trading (medium-term, less sensitive)
-                    if price_change > 0.02:  # +2%
-                        labels['gb_swing'].append(1)  # BUY
-                    elif price_change < -0.02:  # -2%
-                        labels['gb_swing'].append(0)  # SELL
-                    else:
-                        labels['gb_swing'].append(2)  # HOLD
-                    
-                    # Short-term ensemble
-                    if price_change > 0.01:  # +1%
-                        labels['ensemble_short'].append(1)  # BUY
-                    elif price_change < -0.01:  # -1%
-                        labels['ensemble_short'].append(0)  # SELL
-                    else:
-                        labels['ensemble_short'].append(2)  # HOLD
-            
-            return np.array(features), labels
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to prepare training data: {e}")
-            return np.array([]), {}
-    
-    @staticmethod
-    def calculate_predictions(indicators, patterns, price_data, volume_data):
-        try:
-            predictor = AdvancedMLPredictor()
-            features = predictor._extract_comprehensive_features(indicators, patterns, price_data, volume_data)
-            predictions = {
-                'scalping': predictor._predict_scalping(features),
-                'short_term': predictor._predict_short_term(features),
-                'medium_term': predictor._predict_medium_term(features),
-                'long_term': predictor._predict_long_term(features),
-                'swing_trade': predictor._predict_swing_trade(features)
-            }
-            return predictions
-        except Exception as e:
-            logger.error(f"Error in ML predictions: {str(e)}")
-            return {}
-
-    @staticmethod
-    def _extract_comprehensive_features(indicators, patterns, price_data, volume_data):
-        """Extract comprehensive features for ML models"""
-        features = {}
-        
-        # Price features
-        recent_prices = [p['close'] for p in price_data[-20:]]
-        if len(recent_prices) > 0:
-            features['price_trend'] = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
-            features['price_volatility'] = np.std(recent_prices) / np.mean(recent_prices)
-            features['price_momentum'] = (recent_prices[-1] - recent_prices[-5]) / recent_prices[-5] if len(recent_prices) >= 5 else 0
-        
-        # Volume features
-        recent_volumes = volume_data[-10:] if len(volume_data) >= 10 else volume_data
-        if len(recent_volumes) > 1:
-            features['volume_trend'] = (recent_volumes[-1] - recent_volumes[0]) / recent_volumes[0]
-            features['volume_spike'] = recent_volumes[-1] / np.mean(recent_volumes[:-1]) if len(recent_volumes) > 1 else 1
-        
-        # Technical indicator features
-        features['rsi'] = indicators.get('current_rsi_14', 50)
-        features['rsi_divergence'] = abs(features['rsi'] - 50) / 50
-        features['macd_signal'] = 1 if indicators.get('current_macd', 0) > indicators.get('current_macd_signal', 0) else -1
-        features['bb_position'] = AdvancedMLPredictor._calculate_bb_position(indicators, recent_prices[-1] if recent_prices else 0)
-        features['trend_strength'] = AdvancedMLPredictor._calculate_trend_strength(indicators)
-        
-        # Pattern features (ULTRA-SIMPLIFIED - Only 8 Core Patterns)
-        bullish_patterns = ['hammer', 'engulfing_bullish', 'bullish_fvg']
-        bearish_patterns = ['shooting_star', 'engulfing_bearish', 'bearish_fvg']
-        
-        features['bullish_pattern_count'] = sum(1 for p in bullish_patterns if patterns.get(p, False))
-        features['bearish_pattern_count'] = sum(1 for p in bearish_patterns if patterns.get(p, False))
-        features['pattern_strength'] = features['bullish_pattern_count'] - features['bearish_pattern_count']
-        
-        # Smart Money Features (Simplified)
-        features['fvg_signal'] = 1 if patterns.get('bullish_fvg', False) else (-1 if patterns.get('bearish_fvg', False) else 0)
-        features['liquidity_sweep'] = 1 if patterns.get('liquidity_sweep', False) else 0
-        features['doji_reversal'] = 1 if patterns.get('doji', False) else 0
-        
-        # Essential LiqMap Features
-        features['equal_highs'] = 1 if patterns.get('equal_highs', False) else 0
-        features['equal_lows'] = 1 if patterns.get('equal_lows', False) else 0
-        features['stop_hunt'] = 1 if (patterns.get('stop_hunt_high', False) or patterns.get('stop_hunt_low', False)) else 0
-        features['volume_cluster'] = 1 if patterns.get('volume_cluster', False) else 0
-        
-        return features
-    
-    @staticmethod
-    def _calculate_bb_position(indicators, current_price):
-        """Calculate position within Bollinger Bands"""
-        bb_upper = indicators.get('current_bb_upper', current_price)
-        bb_lower = indicators.get('current_bb_lower', current_price)
-        if bb_upper == bb_lower:
-            return 0.5
-        return (current_price - bb_lower) / (bb_upper - bb_lower)
-    
-    @staticmethod
-    def _calculate_trend_strength(indicators):
-        """Calculate overall trend strength"""
-        ema_20 = indicators.get('current_ema_20', 0)
-        ema_50 = indicators.get('current_ema_50', 0)
-        sma_200 = indicators.get('current_sma_200', 0)
-        
-        if ema_50 == 0 or sma_200 == 0:
-            return 0
-        
-        trend_score = 0
-        if ema_20 > ema_50:
-            trend_score += 1
-        if ema_50 > sma_200:
-            trend_score += 1
-        if ema_20 > sma_200:
-            trend_score += 1
-            
-        return trend_score / 3
-    
-    @staticmethod
-    def _predict_scalping(features):
-        """Scalping predictions (1-15 minutes)"""
-        score = 0
-        confidence_factors = []
-        
-        # RSI for quick reversals
-        rsi = features.get('rsi', 50)
-        if rsi < 20:
-            score += 4
-            confidence_factors.append(0.9)
-        elif rsi < 30:
-            score += 2
-            confidence_factors.append(0.7)
-        elif rsi > 80:
-            score -= 4
-            confidence_factors.append(0.9)
-        elif rsi > 70:
-            score -= 2
-            confidence_factors.append(0.7)
-        else:
-            confidence_factors.append(0.3)
-        
-        # Volume spike for momentum
-        volume_spike = features.get('volume_spike', 1)
-        if volume_spike > 2:
-            score += 2
-            confidence_factors.append(0.8)
-        elif volume_spike > 1.5:
-            score += 1
-            confidence_factors.append(0.6)
-        
-        # Pattern strength with FVG
-        pattern_strength = features.get('pattern_strength', 0)
-        score += pattern_strength * 2
-        
-        # FVG Signal (combined bullish/bearish)
-        fvg_signal = features.get('fvg_signal', 0)
-        if fvg_signal > 0:  # Bullish FVG
-            score += 3
-            confidence_factors.append(0.85)
-        elif fvg_signal < 0:  # Bearish FVG
-            score -= 3
-            confidence_factors.append(0.85)
-        
-        # Liquidity Sweep (High-Probability Reversal)
-        if features.get('liquidity_sweep', 0):
-            score += 2  # Strong reversal signal
-            confidence_factors.append(0.8)
-        
-        # Doji Reversal (Indecision at extremes)
-        if features.get('doji_reversal', 0):
-            if rsi < 30 or rsi > 70:  # Only valuable at extremes
-                score += 1 if rsi < 30 else -1
-                confidence_factors.append(0.6)
-        
-        # LiqMap Features (High-Impact for Scalping)
-        if features.get('stop_hunt', 0):
-            score += 2  # Stop hunts = excellent reversal signals
-            confidence_factors.append(0.85)
-        
-        if features.get('equal_highs', 0) and rsi > 60:
-            score -= 1.5  # Resistance level + overbought
-            confidence_factors.append(0.75)
-        elif features.get('equal_lows', 0) and rsi < 40:
-            score += 1.5  # Support level + oversold  
-            confidence_factors.append(0.75)
-        
-        if features.get('volume_cluster', 0):
-            score += 1  # High volume zones = liquidity
-            confidence_factors.append(0.7)
-        
-        # Pattern confirmation
-        if pattern_strength != 0 or fvg_signal != 0:
-            confidence_factors.append(0.7)
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        
-        # PREMIUM SIGNAL FILTERING - Multi-Layer Validation
-        premium_confidence = AdvancedMLPredictor._calculate_premium_confidence(
-            features, confidence_factors, score, pattern_strength, fvg_signal
-        )
-        
-        # SIGNAL QUALITY ASSESSMENT
-        signal_quality = AdvancedMLPredictor._assess_signal_quality(premium_confidence, score, features)
-        
-        return {
-            'direction': direction,
-            'confidence': premium_confidence,
-            'score': score,
-            'timeframe': '1-15 minutes',
-            'strategy': 'Scalping',
-            'risk_level': 'HIGH',
-            'signal_quality': signal_quality,  # NEW: Premium Quality Rating
-            'reliability_score': premium_confidence  # NEW: Reliability Index
-        }
-    
-    @staticmethod
-    def _calculate_premium_confidence(features, confidence_factors, score, pattern_strength, fvg_signal):
-        """PREMIUM Multi-Layer Signal Confidence Calculation"""
-        try:
-            base_confidence = np.mean(confidence_factors) * 100 if confidence_factors else 30
-            
-            # LAYER 1: Pattern Confluence (Multiple confirmations)
-            confluence_bonus = 0
-            active_patterns = 0
-            
-            if abs(pattern_strength) >= 2:  # Multiple patterns aligned
-                confluence_bonus += 25
-                active_patterns += 2
-            elif abs(pattern_strength) == 1:
-                confluence_bonus += 10
-                active_patterns += 1
-            
-            if abs(fvg_signal) > 0:  # FVG confirmation
-                confluence_bonus += 15
-                active_patterns += 1
-            
-            # LAYER 2: Volume Confirmation
-            volume_spike = features.get('volume_spike', 1)
-            volume_bonus = 0
-            if volume_spike > 2.5:  # Exceptional volume
-                volume_bonus = 20
-            elif volume_spike > 2.0:  # Strong volume
-                volume_bonus = 15
-            elif volume_spike > 1.5:  # Above average volume
-                volume_bonus = 10
-            
-            # LAYER 3: Technical Alignment
-            rsi = features.get('rsi', 50)
-            trend_strength = features.get('trend_strength', 0)
-            tech_bonus = 0
-            
-            # RSI at extremes + trend alignment
-            if (rsi < 25 and score > 0) or (rsi > 75 and score < 0):
-                tech_bonus += 15  # Strong reversal setup
-            elif (rsi < 35 and score > 0) or (rsi > 65 and score < 0):
-                tech_bonus += 10
-            
-            # Trend confirmation
-            if trend_strength > 0.6:
-                tech_bonus += 10
-            
-            # LAYER 4: LiqMap Premium Features
-            liq_bonus = 0
-            stop_hunt = features.get('stop_hunt', 0)
-            equal_levels = features.get('equal_highs', 0) or features.get('equal_lows', 0)
-            volume_cluster = features.get('volume_cluster', 0)
-            
-            if stop_hunt:  # High-probability reversal
-                liq_bonus += 20
-            if equal_levels:  # Key levels
-                liq_bonus += 10
-            if volume_cluster:  # Institutional interest
-                liq_bonus += 10
-            
-            # LAYER 5: Signal Strength Assessment
-            strength_multiplier = 1.0
-            if abs(score) >= 4:  # Very strong signal
-                strength_multiplier = 1.3
-            elif abs(score) >= 3:  # Strong signal
-                strength_multiplier = 1.2
-            elif abs(score) >= 2:  # Moderate signal
-                strength_multiplier = 1.1
-            elif abs(score) < 1:  # Weak signal
-                strength_multiplier = 0.8
-            
-            # FINAL CALCULATION with strict limits
-            total_confidence = (base_confidence + confluence_bonus + volume_bonus + tech_bonus + liq_bonus) * strength_multiplier
-            
-            # CONSERVATIVE FILTER: Realistic confidence bounds
-            return min(82, max(35, int(total_confidence)))  # Maximum 82% confidence
-            
-        except Exception as e:
-            print(f"❌ Premium confidence calculation error: {e}")
-            return 40
-    
-    @staticmethod
-    def _assess_signal_quality(confidence, score, features):
-        """Assess overall signal quality for premium filtering"""
-        try:
-            if confidence >= 78 and abs(score) >= 3:
-                return "PREMIUM"  # Highest quality (reduced threshold)
-            elif confidence >= 68 and abs(score) >= 2:
-                return "HIGH"     # High quality (reduced threshold)
-            elif confidence >= 58 and abs(score) >= 1.5:
-                return "GOOD"     # Good quality (reduced threshold)
-            elif confidence >= 45:
-                return "MEDIUM"   # Medium quality
-            else:
-                return "LOW"      # Low quality - consider filtering out
-        except:
-            return "UNKNOWN"
-    
-    @staticmethod
-    def _predict_short_term(features):
-        """Short term predictions (15 minutes - 4 hours)"""
-        score = 0
-        confidence_factors = []
-        
-        # RSI with different thresholds
-        rsi = features.get('rsi', 50)
-        if rsi < 25:
-            score += 3
-            confidence_factors.append(0.85)
-        elif rsi < 35:
-            score += 2
-            confidence_factors.append(0.7)
-        elif rsi > 75:
-            score -= 3
-            confidence_factors.append(0.85)
-        elif rsi > 65:
-            score -= 2
-            confidence_factors.append(0.7)
-        else:
-            confidence_factors.append(0.4)
-        
-        # MACD signal
-        macd_signal = features.get('macd_signal', 0)
-        score += macd_signal * 2
-        confidence_factors.append(0.6)
-        
-        # Trend strength
-        trend_strength = features.get('trend_strength', 0)
-        if trend_strength > 0.7:
-            score += 2
-        elif trend_strength < 0.3:
-            score -= 2
-        confidence_factors.append(0.5)
-        
-        # BB position
-        bb_position = features.get('bb_position', 0.5)
-        if bb_position < 0.1:
-            score += 2
-        elif bb_position > 0.9:
-            score -= 2
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        confidence = min(92, max(45, np.mean(confidence_factors) * 90 + abs(score) * 6))
-        
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'score': score,
-            'timeframe': '15min - 4 hours',
-            'strategy': 'Short Term',
-            'risk_level': 'MEDIUM'
-        }
-    
-    @staticmethod
-    def _predict_medium_term(features):
-        """Medium term predictions (4 hours - 3 days)"""
-        score = 0
-        confidence_factors = []
-        
-        # Price trend
-        price_trend = features.get('price_trend', 0)
-        if price_trend > 0.05:
-            score += 3
-            confidence_factors.append(0.8)
-        elif price_trend < -0.05:
-            score -= 3
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.4)
-        
-        # Trend strength is more important for medium term
-        trend_strength = features.get('trend_strength', 0)
-        score += (trend_strength - 0.5) * 4
-        confidence_factors.append(0.7)
-        
-        # Pattern strength
-        pattern_strength = features.get('pattern_strength', 0)
-        score += pattern_strength * 1.5
-        if pattern_strength != 0:
-            confidence_factors.append(0.6)
-        
-        # Volume trend
-        volume_trend = features.get('volume_trend', 0)
-        if volume_trend > 0.2:
-            score += 1
-        elif volume_trend < -0.2:
-            score -= 1
-        confidence_factors.append(0.5)
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        confidence = min(88, max(40, np.mean(confidence_factors) * 85 + abs(score) * 4))
-        
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'score': score,
-            'timeframe': '4 hours - 3 days',
-            'strategy': 'Medium Term',
-            'risk_level': 'MEDIUM'
-        }
-    
-    @staticmethod
-    def _predict_long_term(features):
-        """Long term predictions (3 days - 4 weeks)"""
-        score = 0
-        confidence_factors = []
-        
-        # Long term price trend is most important
-        price_trend = features.get('price_trend', 0)
-        if price_trend > 0.1:
-            score += 4
-            confidence_factors.append(0.9)
-        elif price_trend < -0.1:
-            score -= 4
-            confidence_factors.append(0.9)
-        else:
-            confidence_factors.append(0.5)
-        
-        # Trend strength
-        trend_strength = features.get('trend_strength', 0)
-        score += (trend_strength - 0.5) * 3
-        confidence_factors.append(0.8)
-        
-        # Volume commitment
-        volume_trend = features.get('volume_trend', 0)
-        if volume_trend > 0.3:
-            score += 2
-        elif volume_trend < -0.3:
-            score -= 1
-        confidence_factors.append(0.6)
-        
-        # Volatility (lower is better for long term)
-        volatility = features.get('price_volatility', 0)
-        if volatility < 0.02:
-            score += 1
-        elif volatility > 0.08:
-            score -= 1
-        confidence_factors.append(0.4)
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        confidence = min(82, max(30, np.mean(confidence_factors) * 75 + abs(score) * 3))
-        
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'score': score,
-            'timeframe': '3 days - 4 weeks',
-            'strategy': 'Long Term',
-            'risk_level': 'LOW'
-        }
-        confidence_factors.append(0.4)
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        confidence = min(85, max(35, np.mean(confidence_factors) * 80 + abs(score) * 3))
-        
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'score': score,
-            'timeframe': '3 days - 4 weeks',
-            'strategy': 'Long Term',
-            'risk_level': 'LOW'
-        }
-    
-    @staticmethod
-    def _predict_swing_trade(features):
-        """Swing trading predictions (1-10 days)"""
-        score = 0
-        confidence_factors = []
-        
-        # RSI for swing levels
-        rsi = features.get('rsi', 50)
-        if 25 <= rsi <= 35:
-            score += 3
-            confidence_factors.append(0.8)
-        elif 65 <= rsi <= 75:
-            score -= 3
-            confidence_factors.append(0.8)
-        elif rsi < 20 or rsi > 80:
-            # Extreme levels, wait for reversal
-            score += 0
-            confidence_factors.append(0.4)
-        else:
-            confidence_factors.append(0.5)
-        
-        # Pattern strength for swing trades
-        pattern_strength = features.get('pattern_strength', 0)
-        score += pattern_strength * 2
-        if pattern_strength != 0:
-            confidence_factors.append(0.6)
-        
-        # Trend for swing trades
-        trend_strength = features.get('trend_strength', 0)
-        if trend_strength > 0.6:
-            score += 2
-            confidence_factors.append(0.7)
-        elif trend_strength < 0.4:
-            score -= 2
-            confidence_factors.append(0.7)
-        
-        direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
-        confidence = min(85, max(35, np.mean(confidence_factors) * 80 + abs(score) * 3))
-        
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'score': score,
-            'timeframe': '1-10 days',
-            'strategy': 'Swing Trading',
-            'risk_level': 'MEDIUM'
-        }
-
-class AdvancedMarketAnalyzer:
-    @staticmethod
-    def analyze_comprehensive_market(indicators, patterns, ml_predictions, price_data, volume_data):
-        try:
-            # Initialisiere alle Engines mit Fallback
-            booster = SignalBoosterEngine()
-            
-            analysis = {
-                'overall_sentiment': 'NEUTRAL',
-                'confidence': 50,
-                'strength': 5,
-                'risk_level': 'MEDIUM',
-                'recommended_action': 'HOLD',
-                'signals': [],
-                'kpis': {},
-                'trading_score': 0,
-                'market_state': 'CONSOLIDATION',
-                'boosted_signals': [],
-                'signal_boost_metrics': {},
-                'dna_analysis': {},
-                'fakeout_warnings': []
-            }
-            
-            # Original Signale
-            signals = AdvancedMarketAnalyzer._generate_trading_signals(indicators, patterns, ml_predictions, price_data)
-            analysis['signals'] = signals
-            
-            # SIGNAL BOOSTER - 200% mehr Signale!
-            try:
-                boost_results = booster.boost_signal_detection(indicators, patterns, price_data, volume_data)
-                analysis['boosted_signals'] = boost_results.get('boosted_signals', [])
-                analysis['signal_boost_metrics'] = boost_results.get('booster_metrics', {})
-            except Exception as e:
-                logger.error(f"Signal Booster error: {e}")
-                analysis['boosted_signals'] = []
-                analysis['signal_boost_metrics'] = {}
-            
-            # MARKET DNA ANALYZER - mit Mock-Fallback!
-            try:
-                symbol = 'BTCUSDT'  # Default - sollte von aktueller Analyse kommen
-                if DNA_ENGINE_AVAILABLE:
-                    dna_analyzer = MarketDNAEngine()
-                    dna_results = dna_analyzer.analyze_market_dna(symbol, price_data, volume_data, indicators)
-                else:
-                    dna_results = create_mock_dna_analysis(symbol, price_data, volume_data, indicators)
-                
-                analysis['dna_analysis'] = dna_results
-                
-                # Füge DNA-Signale zu Haupt-Signalen hinzu
-                dna_signals = dna_results.get('personalized_signals', [])
-                analysis['signals'].extend(dna_signals)
-                
-            except Exception as e:
-                logger.error(f"DNA Analyzer error: {e}")
-                # Fallback zu Mock-Implementation
-                analysis['dna_analysis'] = create_mock_dna_analysis('BTCUSDT', price_data, volume_data, indicators)
-            
-            # FAKE-OUT KILLER - mit Mock-Fallback!
-            try:
-                if FAKEOUT_ENGINE_AVAILABLE:
-                    fakeout_killer = FakeoutKillerEngine()
-                    fakeout_analysis = fakeout_killer.analyze_breakout_validity(price_data, volume_data, indicators)
-                else:
-                    fakeout_analysis = create_mock_fakeout_analysis(price_data, volume_data, indicators)
-                
-                analysis['fakeout_warnings'] = fakeout_analysis.get('warnings', [])
-                
-                # Füge Fake-Out Warnungen zu Signalen hinzu
-                if fakeout_analysis.get('fake_out_probability', 0) > 0.6:
-                    analysis['signals'].append({
-                        'type': 'FAKE_OUT_WARNING',
-                        'strength': 'HIGH',
-                        'confidence': int(fakeout_analysis.get('fake_out_probability', 0) * 100),
-                        'message': f"⚠️ High fake-out risk detected: {fakeout_analysis.get('fake_out_probability', 0)*100:.1f}%",
-                        'recommendation': 'WAIT'
-                    })
-                    
-            except Exception as e:
-                logger.error(f"Fakeout Killer error: {e}")
-                # Fallback zu Mock-Implementation
-                analysis['fakeout_warnings'] = create_mock_fakeout_analysis(price_data, volume_data, indicators)
-            
-            # Berechne Gesamt-Signale
-            total_signals = len(analysis['signals']) + len(analysis.get('boosted_signals', []))
-            analysis['total_signals'] = total_signals
-            
-            # Berechne KPIs
-            kpis = AdvancedMarketAnalyzer._calculate_trading_kpis(indicators, patterns, price_data, volume_data)
-            analysis['kpis'] = kpis
-            
-            # Berechne Sentiment
-            sentiment_data = AdvancedMarketAnalyzer._calculate_sentiment_score(signals, kpis, ml_predictions)
-            analysis.update(sentiment_data)
-            market_state = AdvancedMarketAnalyzer._detect_market_state(indicators, price_data, volume_data)
-            analysis['market_state'] = market_state
-            
-            # Enhanced Trading Decision mit Booster Signalen
-            enhanced_decision = EnhancedTradingDecision._enhanced_trading_decision_with_booster(
-                signals, boost_results.get('boosted_signals', []), kpis, price_data
-            )
-            analysis.update(enhanced_decision)
-            
-            return analysis
-        except Exception as e:
-            logger.error(f"Error in comprehensive market analysis: {str(e)}")
-            return {}
-    
-    @staticmethod
-    def _generate_trading_signals(indicators, patterns, ml_predictions, price_data):
-        """100% VALIDE SIGNALE - Multi-Confluence System"""
-        signals = []
-        current_price = price_data[-1]['close'] if price_data else 0
-        
-        # === CONFLUENCE FACTORS SAMMLUNG ===
-        bullish_factors = []
-        bearish_factors = []
-        
-        # 1. RSI CONFLUENCE mit Volume
-        rsi = indicators.get('current_rsi_14', 50)
-        current_volume = price_data[-1]['volume'] if price_data else 0
-        avg_volume = np.mean([p['volume'] for p in price_data[-10:]]) if len(price_data) >= 10 else current_volume
-        volume_spike = current_volume / avg_volume if avg_volume > 0 else 1
-        
-        if rsi < 20 and volume_spike > 1.5:  # Strenger: RSI < 20 (statt 25) und Volume > 1.5 (statt 1.3)
-            bullish_factors.append({'factor': 'RSI_OVERSOLD_VOLUME', 'weight': 4, 'confidence': 92})  # Erhöht weight und confidence
-        elif rsi > 80 and volume_spike > 1.5:  # Strenger: RSI > 80 (statt 75) und Volume > 1.5 (statt 1.3)
-            bearish_factors.append({'factor': 'RSI_OVERBOUGHT_VOLUME', 'weight': 4, 'confidence': 92})  # Erhöht weight und confidence
-        
-        # 2. MACD CONFLUENCE mit Histogram Divergence
-        macd = indicators.get('current_macd', 0)
-        macd_signal = indicators.get('current_macd_signal', 0)
-        macd_hist = indicators.get('current_macd_histogram', 0)
-        
-        if macd > macd_signal and macd_hist > 0 and macd > 0:  # Triple bullish
-            bullish_factors.append({'factor': 'MACD_TRIPLE_BULL', 'weight': 2, 'confidence': 85})
-        elif macd < macd_signal and macd_hist < 0 and macd < 0:  # Triple bearish
-            bearish_factors.append({'factor': 'MACD_TRIPLE_BEAR', 'weight': 2, 'confidence': 85})
-        
-        # 3. SMART MONEY CONFLUENCE (FVG + Order Blocks + BOS)
-        smart_money_bull = 0
-        smart_money_bear = 0
-        
-        if patterns.get('bullish_fvg', False):
-            smart_money_bull += 1
-        if patterns.get('bullish_ob', False):
-            smart_money_bull += 1
-        if patterns.get('bos_bullish', False):
-            smart_money_bull += 1
-            
-        if patterns.get('bearish_fvg', False):
-            smart_money_bear += 1
-        if patterns.get('bearish_ob', False):
-            smart_money_bear += 1
-        if patterns.get('bos_bearish', False):
-            smart_money_bear += 1
-        
-        if smart_money_bull >= 2:  # Mind. 2 Smart Money Signale
-            # Zusätzliche Qualitätsprüfung für Smart Money
-            if volume_spike > 1.2:  # Volume-Bestätigung erforderlich
-                bullish_factors.append({'factor': 'SMART_MONEY_CONFLUENCE', 'weight': 5, 'confidence': 96})  # Erhöht weight
-        if smart_money_bear >= 2:
-            if volume_spike > 1.2:  # Volume-Bestätigung erforderlich
-                bearish_factors.append({'factor': 'SMART_MONEY_CONFLUENCE', 'weight': 5, 'confidence': 96})  # Erhöht weight
-        
-        # 4. LIQUIDITY SWEEP CONFLUENCE
-        if patterns.get('liquidity_sweep', False):
-            # Liquidity Sweep ist oft Reversal-Signal
-            if rsi > 50:  # In uptrend = potential reversal down
-                bearish_factors.append({'factor': 'LIQUIDITY_SWEEP_REVERSAL', 'weight': 3, 'confidence': 80})
-            else:  # In downtrend = potential reversal up
-                bullish_factors.append({'factor': 'LIQUIDITY_SWEEP_REVERSAL', 'weight': 3, 'confidence': 80})
-        
-        # 5. TREND CONFLUENCE (Multi-EMA + ADX)
-        ema_20 = indicators.get('current_ema_20', current_price)
-        ema_50 = indicators.get('current_ema_50', current_price)
-        sma_200 = indicators.get('current_sma_200', current_price)
-        adx = indicators.get('current_adx', 0)
-        
-        if current_price > ema_20 > ema_50 > sma_200 and adx > 25:
-            bullish_factors.append({'factor': 'STRONG_UPTREND', 'weight': 2, 'confidence': 80})
-        elif current_price < ema_20 < ema_50 < sma_200 and adx > 25:
-            bearish_factors.append({'factor': 'STRONG_DOWNTREND', 'weight': 2, 'confidence': 80})
-        
-        # 6. ML PREDICTIONS CONFLUENCE
-        ml_bullish = 0
-        ml_bearish = 0
-        ml_confidence_sum = 0
-        
-        for timeframe, prediction in ml_predictions.items():
-            if prediction.get('confidence', 0) > 75:  # Erhöht von 70 auf 75 für höhere Qualität
-                if prediction.get('direction') == 'BUY':
-                    ml_bullish += 1
-                elif prediction.get('direction') == 'SELL':
-                    ml_bearish += 1
-                ml_confidence_sum += prediction.get('confidence', 0)
-        
-        if ml_bullish >= 3:  # Erhöht von 2 auf 3 - mehr ML-Modelle müssen zustimmen
-            avg_ml_conf = ml_confidence_sum / max(ml_bullish + ml_bearish, 1)
-            if avg_ml_conf > 78:  # Zusätzliche Confidence-Prüfung
-                bullish_factors.append({'factor': 'ML_CONSENSUS', 'weight': 4, 'confidence': avg_ml_conf})  # Erhöht von 3 auf 4
-        if ml_bearish >= 3:  # Erhöht von 2 auf 3 - mehr ML-Modelle müssen zustimmen
-            avg_ml_conf = ml_confidence_sum / max(ml_bullish + ml_bearish, 1)
-            if avg_ml_conf > 78:  # Zusätzliche Confidence-Prüfung
-                bearish_factors.append({'factor': 'ML_CONSENSUS', 'weight': 4, 'confidence': avg_ml_conf})  # Erhöht von 3 auf 4
-        
-        # === SIGNAL GENERATION - NUR BEI CONFLUENCE ===
-        
-        # Berechne Confluence Score
-        bull_score = sum(f['weight'] for f in bullish_factors)
-        bear_score = sum(f['weight'] for f in bearish_factors)
-        bull_confidence = np.mean([f['confidence'] for f in bullish_factors]) if bullish_factors else 0
-        bear_confidence = np.mean([f['confidence'] for f in bearish_factors]) if bearish_factors else 0
-        
-        # STRENGE KRITERIEN - Nur bei starker Confluence
-        MIN_CONFLUENCE_SCORE = 7  # Erhöht von 5 auf 7 für höhere Qualität
-        MIN_FACTOR_COUNT = 3      # Erhöht von 2 auf 3 für mehr Bestätigung
-        MIN_CONFIDENCE = 75       # Neue Mindest-Confidence für Signale
-        
-        if bull_score >= MIN_CONFLUENCE_SCORE and len(bullish_factors) >= MIN_FACTOR_COUNT and bull_confidence >= MIN_CONFIDENCE:
-            strength = 'VERY_STRONG' if bull_score >= 10 else 'STRONG'
-            final_confidence = min(95, bull_confidence + (bull_score * 1.5))  # Reduziert von 2 auf 1.5
-            
-            signals.append({
-                'type': 'BUY',
-                'strength': strength,
-                'reason': f'Multi-Confluence ({len(bullish_factors)} factors)',
-                'confidence': final_confidence,
-                'confluence_score': bull_score,
-                'factors': [f['factor'] for f in bullish_factors],
-                'entry_price': current_price,
-                'stop_loss': current_price * 0.97,  # 3% Stop Loss
-                'take_profit': current_price * 1.06  # 2:1 Risk/Reward
-            })
-        
-        if bear_score >= MIN_CONFLUENCE_SCORE and len(bearish_factors) >= MIN_FACTOR_COUNT and bear_confidence >= MIN_CONFIDENCE:
-            strength = 'VERY_STRONG' if bear_score >= 10 else 'STRONG'
-            final_confidence = min(95, bear_confidence + (bear_score * 1.5))  # Reduziert von 2 auf 1.5
-            
-            signals.append({
-                'type': 'SELL',
-                'strength': strength,
-                'reason': f'Multi-Confluence ({len(bearish_factors)} factors)',
-                'confidence': final_confidence,
-                'confluence_score': bear_score,
-                'factors': [f['factor'] for f in bearish_factors],
-                'entry_price': current_price,
-                'stop_loss': current_price * 1.03,  # 3% Stop Loss
-                'take_profit': current_price * 0.94  # 2:1 Risk/Reward
-            })
-        
-        # WAIT SIGNAL - Wenn keine klare Confluence
-        if not signals:
-            wait_reasons = []
-            if bull_score > 0 and bull_score < MIN_CONFLUENCE_SCORE:
-                wait_reasons.append(f'Insufficient bullish confluence ({bull_score}/5)')
-            if bear_score > 0 and bear_score < MIN_CONFLUENCE_SCORE:
-                wait_reasons.append(f'Insufficient bearish confluence ({bear_score}/5)')
-            if not bullish_factors and not bearish_factors:
-                wait_reasons.append('No clear directional factors')
-            
-            signals.append({
-                'type': 'WAIT',
-                'strength': 'NEUTRAL',
-                'reason': '; '.join(wait_reasons) if wait_reasons else 'Market unclear',
-                'confidence': 60,
-                'message': 'Waiting for clearer confluence signals'
-            })
-        
-        return signals
-    
-    @staticmethod
-    def _generate_smart_decision(signals, ml_predictions, indicators, patterns, price_data, kpis):
-        """ADVANCED DECISION ENGINE - Smart Long/Short/Wait mit Begründung"""
-        current_price = price_data[-1]['close'] if price_data else 0
-        
-        # Confluence-Score aus Signalen berechnen
-        bullish_confluence = 0
-        bearish_confluence = 0
-        confluence_factors = []
-        
-        # Signal-Analyse
-        for signal in signals:
-            if signal.get('type') == 'BUY':
-                weight = signal.get('confluence_score', 1)
-                bullish_confluence += weight
-                confluence_factors.extend(signal.get('factors', []))
-            elif signal.get('type') == 'SELL':
-                weight = signal.get('confluence_score', 1)
-                bearish_confluence += weight
-                confluence_factors.extend(signal.get('factors', []))
-        
-        # ML Predictions Gewichtung
-        ml_bullish = sum(1 for _, pred in ml_predictions.items() 
-                        if pred.get('direction') == 'BUY' and pred.get('confidence', 0) > 70)
-        ml_bearish = sum(1 for _, pred in ml_predictions.items() 
-                        if pred.get('direction') == 'SELL' and pred.get('confidence', 0) > 70)
-        
-        if ml_bullish > ml_bearish:
-            bullish_confluence += 2
-            confluence_factors.append('ML_CONSENSUS_BULLISH')
-        elif ml_bearish > ml_bullish:
-            bearish_confluence += 2
-            confluence_factors.append('ML_CONSENSUS_BEARISH')
-        
-        # Smart Money Patterns Bonus
-        smart_money_score = 0
-        if patterns.get('bullish_fvg', False):
-            smart_money_score += 3
-            confluence_factors.append('BULLISH_FVG')
-        if patterns.get('bearish_fvg', False):
-            smart_money_score -= 3
-            confluence_factors.append('BEARISH_FVG')
-        if patterns.get('bullish_ob', False):
-            smart_money_score += 2
-            confluence_factors.append('BULLISH_ORDER_BLOCK')
-        if patterns.get('bearish_ob', False):
-            smart_money_score -= 2
-            confluence_factors.append('BEARISH_ORDER_BLOCK')
-        
-        bullish_confluence += max(0, smart_money_score)
-        bearish_confluence += max(0, -smart_money_score)
-        
-        # Risk-Management
-        volatility = kpis.get('volatility', 0)
-        risk_level = 'LOW' if volatility < 30 else 'MEDIUM' if volatility < 60 else 'HIGH'
-        
-        # === DECISION LOGIC ===
-        total_bull = bullish_confluence
-        total_bear = bearish_confluence
-        net_score = total_bull - total_bear
-        confidence = min(95, max(20, abs(net_score) * 10 + 30))
-        
-        # LONG DECISION - Noch schärfere Kriterien
-        if net_score >= 7 and total_bull >= 10:  # Erhöht von 5/7 auf 7/10
-            return {
-                'action': 'LONG',
-                'sentiment': 'BULLISH',
-                'confidence': confidence,
-                'trading_score': min(100, total_bull * 8),
-                'reasoning': [
-                    f"🟢 LONG Signal mit {total_bull} Confluence-Punkten",
-                    f"📊 {len([f for f in confluence_factors if 'BULLISH' in f or 'BUY' in f])} bullische Faktoren bestätigt",
-                    f"🤖 ML-Modelle: {ml_bullish} bullish vs {ml_bearish} bearish",
-                    f"⚡ Smart Money Patterns unterstützen Aufwärtsbewegung",
-                    f"🎯 Risiko-Level: {risk_level} - Position angemessen skalieren"
-                ],
-                'entry_price': current_price,
-                'stop_loss': current_price * 0.97,  # 3% Stop Loss
-                'take_profit': current_price * 1.06,  # 6% Take Profit (2:1 RR)
-                'risk_reward_ratio': 2.0,
-                'position_size': 0.02 if risk_level == 'LOW' else 0.015 if risk_level == 'MEDIUM' else 0.01,
-                'time_horizon': '1-7 Tage',
-                'confluence_factors': list(set(confluence_factors))
-            }
-        
-        # SHORT DECISION - Noch schärfere Kriterien
-        elif net_score <= -7 and total_bear >= 10:  # Erhöht von -5/7 auf -7/10
-            return {
-                'action': 'SHORT',
-                'sentiment': 'BEARISH', 
-                'confidence': confidence,
-                'trading_score': min(100, total_bear * 8),
-                'reasoning': [
-                    f"🔴 SHORT Signal mit {total_bear} Confluence-Punkten",
-                    f"📊 {len([f for f in confluence_factors if 'BEARISH' in f or 'SELL' in f])} bärische Faktoren bestätigt",
-                    f"🤖 ML-Modelle: {ml_bearish} bearish vs {ml_bullish} bullish",
-                    f"⚡ Smart Money Patterns unterstützen Abwärtsbewegung",
-                    f"🎯 Risiko-Level: {risk_level} - Position angemessen skalieren"
-                ],
-                'entry_price': current_price,
-                'stop_loss': current_price * 1.03,  # 3% Stop Loss
-                'take_profit': current_price * 0.94,  # 6% Take Profit (2:1 RR) 
-                'risk_reward_ratio': 2.0,
-                'position_size': 0.02 if risk_level == 'LOW' else 0.015 if risk_level == 'MEDIUM' else 0.01,
-                'time_horizon': '1-7 Tage',
-                'confluence_factors': list(set(confluence_factors))
-            }
-        
-        # WAIT DECISION
-        elif abs(net_score) < 3 or volatility > 70:
-            wait_reasons = []
-            if abs(net_score) < 3:
-                wait_reasons.append(f"⚖️ Unklare Marktrichtung (Net Score: {net_score:.1f})")
-                wait_reasons.append(f"📊 Bullish: {total_bull} vs Bearish: {total_bear} - zu ausgeglichen")
-            if volatility > 70:
-                wait_reasons.append(f"⚠️ Extreme Volatilität ({volatility:.1f}%) - zu riskant")
-            if len(confluence_factors) < 2:
-                wait_reasons.append(f"❌ Unzureichende Bestätigung ({len(confluence_factors)} Faktoren)")
-            
-            wait_reasons.extend([
-                f"⏰ Warten auf klarere Marktrichtung",
-                f"🔍 Beobachte: {', '.join(confluence_factors[:3]) if confluence_factors else 'Neue Setups'}"
-            ])
-            
-            return {
-                'action': 'WAIT',
-                'sentiment': 'NEUTRAL',
-                'confidence': 70,
-                'trading_score': 50,
-                'reasoning': wait_reasons,
-                'confluence_factors': list(set(confluence_factors)),
-                'time_horizon': 'Warten',
-                'message': 'Markt bietet derzeit keine klaren Chancen - Geduld ist gefragt'
-            }
-        
-        # HOLD DECISION (Default)
-        else:
-            return {
-                'action': 'HOLD',
-                'sentiment': 'NEUTRAL',
-                'confidence': 60,
-                'trading_score': 50,
-                'reasoning': [
-                    f"⚪ HOLD - Moderate Signallage",
-                    f"📊 Confluence Score: {net_score:.1f} (nicht ausreichend für Trade)",
-                    f"🔄 Markt in Konsolidierung - bestehende Positionen halten",
-                    f"👀 Überwache Entwicklung für bessere Gelegenheiten"
-                ],
-                'confluence_factors': list(set(confluence_factors)),
-                'time_horizon': 'Halten'
-            }
-    
-    @staticmethod
-    def _calculate_trading_kpis(indicators, patterns, price_data, volume_data):
-        """Calculate comprehensive key performance indicators"""
-        if not price_data or len(price_data) < 5:
-            return {
-                'volatility': 0.0,
-                'trend_strength': 0.0,
-                'volume_trend': 0.0,
-                'momentum_score': 0.0,
-                'risk_score': 50.0,
-                'market_efficiency': 50.0,
-                'liquidity_score': 50.0
-            }
-        
-        # Price analysis
-        recent_prices = [p['close'] for p in price_data[-20:]]
-        very_recent_prices = [p['close'] for p in price_data[-5:]]
-        
-        # Volatility calculation (normalized)
-        volatility = np.std(recent_prices) / np.mean(recent_prices) if recent_prices else 0
-        volatility_normalized = min(100, volatility * 1000)  # Scale to 0-100
-        
-        # Trend strength from multiple indicators
-        adx = indicators.get('current_adx', 0)
-        ema_20 = indicators.get('current_ema_20', 0)
-        ema_50 = indicators.get('current_ema_50', 0)
-        sma_200 = indicators.get('current_sma_200', 0)
-        
-        trend_strength = 0
-        if ema_20 > ema_50 > sma_200:
-            trend_strength = 100  # Strong uptrend
-        elif ema_20 < ema_50 < sma_200:
-            trend_strength = -100  # Strong downtrend
-        elif ema_20 > ema_50:
-            trend_strength = 50   # Weak uptrend
-        elif ema_20 < ema_50:
-            trend_strength = -50  # Weak downtrend
-        
-        # Volume trend analysis
-        if len(volume_data) >= 10:
-            recent_volume = np.mean(volume_data[-5:])
-            historical_volume = np.mean(volume_data[-20:-5])
-            volume_trend = ((recent_volume - historical_volume) / historical_volume * 100) if historical_volume > 0 else 0
-        else:
-            volume_trend = 0.0
-        
-        # Momentum score
-        momentum_score = 0
-        if len(very_recent_prices) >= 5:
-            price_change = (very_recent_prices[-1] - very_recent_prices[0]) / very_recent_prices[0] * 100
-            momentum_score = max(-100, min(100, price_change * 10))  # Scale to -100 to 100
-        
-        # Risk score (lower is better)
-        rsi = indicators.get('current_rsi_14', 50)
-        atr = indicators.get('current_atr', 0)
-        
-        risk_score = 50  # Base risk
-        if rsi > 80 or rsi < 20:
-            risk_score += 30  # High risk in extreme RSI
-        if volatility > 0.05:
-            risk_score += 20  # High volatility = high risk
-        if adx < 15:
-            risk_score += 15  # Low trend strength = higher risk
-        
-        risk_score = min(100, max(0, risk_score))
-        
-        # Market efficiency (how predictable the market is)
-        efficiency_score = 50
-        if 30 <= rsi <= 70:
-            efficiency_score += 20  # Normal RSI range
-        if 15 <= adx <= 40:
-            efficiency_score += 20  # Good trend strength
-        if 0.01 <= volatility <= 0.03:
-            efficiency_score += 10  # Reasonable volatility
-        
-        efficiency_score = min(100, max(0, efficiency_score))
-        
-        # Liquidity score (based on volume and spread indicators)
-        liquidity_score = 50
-        if volume_trend > 10:
-            liquidity_score += 25  # Increasing volume
-        elif volume_trend < -10:
-            liquidity_score -= 25  # Decreasing volume
-        
-        # ATR affects liquidity (lower ATR = better liquidity)
-        if atr < 0.01:
-            liquidity_score += 20
-        elif atr > 0.05:
-            liquidity_score -= 20
-        
-        liquidity_score = min(100, max(0, liquidity_score))
-        
-        return {
-            'volatility': float(volatility_normalized),
-            'trend_strength': float(trend_strength),
-            'volume_trend': float(volume_trend),
-            'momentum_score': float(momentum_score),
-            'risk_score': float(risk_score),
-            'market_efficiency': float(efficiency_score),
-            'liquidity_score': float(liquidity_score)
-        }
-    
-    @staticmethod
-    def _calculate_sentiment_score(signals, kpis, ml_predictions):
-        """Calculate comprehensive market sentiment with advanced scoring"""
-        # Signal-based sentiment
-        buy_signals = [s for s in signals if s['type'] == 'BUY']
-        sell_signals = [s for s in signals if s['type'] == 'SELL']
-        
-        # Weight signals by strength and confidence
-        strength_weights = {
-            'VERY_STRONG': 4,
-            'STRONG': 3,
-            'MEDIUM': 2,
-            'WEAK': 1,
-            'AI_CONSENSUS': 3
-        }
-        
-        buy_score = sum(strength_weights.get(s.get('strength', 'MEDIUM'), 2) * (s.get('confidence', 60) / 100) 
-                       for s in buy_signals)
-        sell_score = sum(strength_weights.get(s.get('strength', 'MEDIUM'), 2) * (s.get('confidence', 60) / 100) 
-                        for s in sell_signals)
-        
-        # ML predictions sentiment
-        ml_buy_score = 0
-        ml_sell_score = 0
-        ml_confidence_sum = 0
-        
-        for strategy, pred in ml_predictions.items():
-            direction = pred.get('direction', 'NEUTRAL')
-            confidence = pred.get('confidence', 0) / 100
-            ml_confidence_sum += confidence
-
-            if direction == 'BUY':
-                ml_buy_score += confidence
-            elif direction == 'SELL':
-                ml_sell_score += confidence
-        
-        # Combined sentiment calculation
-        total_buy = buy_score + ml_buy_score
-        total_sell = sell_score + ml_sell_score
-        net_sentiment = total_buy - total_sell
-        
-        # Normalize to -100 to 100 scale
-        max_possible = max(10, abs(net_sentiment) * 1.5)
-        sentiment_score = max(-100, min(100, (net_sentiment / max_possible) * 100))
-        
-        # Overall sentiment classification
-        if sentiment_score > 60:
-            overall_sentiment = 'VERY_BULLISH'
-            confidence = min(95, 70 + abs(sentiment_score) * 0.3)
-        elif sentiment_score > 30:
-            overall_sentiment = 'BULLISH'
-            confidence = min(90, 60 + abs(sentiment_score) * 0.4)
-        elif sentiment_score > 10:
-            overall_sentiment = 'SLIGHTLY_BULLISH'
-            confidence = min(80, 50 + abs(sentiment_score) * 0.5)
-        elif sentiment_score < -60:
-            overall_sentiment = 'VERY_BEARISH'
-            confidence = min(95, 70 + abs(sentiment_score) * 0.3)
-        elif sentiment_score < -30:
-            overall_sentiment = 'BEARISH'
-            confidence = min(90, 60 + abs(sentiment_score) * 0.4)
-        elif sentiment_score < -10:
-            overall_sentiment = 'SLIGHTLY_BEARISH'
-            confidence = min(80, 50 + abs(sentiment_score) * 0.5)
-        else:
-            overall_sentiment = 'NEUTRAL'
-            confidence = 55
-        
-        # Risk adjustment
-        risk_score = kpis.get('risk_score', 50)
-        if risk_score > 70:
-            confidence *= 0.8  # Reduce confidence in high-risk environments
-        
-        # Trading score calculation
-        trading_score = max(0, min(100, (
-            sentiment_score + 100  # Convert -100/100 to 0/200
-        ) / 2))
-        
-        # Adjust trading score by market efficiency
-        efficiency = kpis.get('market_efficiency', 50)
-        trading_score = trading_score * (efficiency / 100)
-        
-        return {
-            'overall_sentiment': overall_sentiment,
-            'confidence': int(confidence),
-            'sentiment_score': sentiment_score,
-            'trading_score': int(trading_score),
-            'buy_pressure': total_buy,
-            'sell_pressure': total_sell
-        }
-    
-    @staticmethod
-    def _detect_market_state(indicators, price_data, volume_data):
-        """Detect current market state (trending, ranging, volatile, etc.)"""
-        if not price_data or len(price_data) < 20:
-            return 'UNKNOWN'
-        
-        # Price movement analysis
-        recent_prices = [p['close'] for p in price_data[-20:]]
-        price_range = (max(recent_prices) - min(recent_prices)) / min(recent_prices) * 100
-        
-        # Trend analysis
-        adx = indicators.get('current_adx', 0)
-        rsi = indicators.get('current_rsi_14', 50)
-        
-        # EMA comparison
-        ema_20 = indicators.get('current_ema_20', 0)
-        ema_50 = indicators.get('current_ema_50', 0)
-        sma_200 = indicators.get('current_sma_200', 0)
-        
-        # Volume analysis
-        if len(volume_data) >= 20:
-            recent_volume = np.mean(volume_data[-10:])
-            historical_volume = np.mean(volume_data[-20:-10])
-            volume_ratio = recent_volume / historical_volume if historical_volume > 0 else 1
-        else:
-            volume_ratio = 1
-        
-        # Market state detection
-        if adx > 40 and price_range > 5:
-            if ema_20 > ema_50 > sma_200:
-                return 'STRONG_UPTREND'
-            elif ema_20 < ema_50 < sma_200:
-                return 'STRONG_DOWNTREND'
-            else:
-                return 'TRENDING'
-        elif adx > 25:
-            return 'WEAK_TREND'
-        elif price_range < 2 and adx < 20:
-            return 'CONSOLIDATION'
-        elif rsi > 70 or rsi < 30:
-            return 'VOLATILE'
-        elif volume_ratio > 1.5:
-            return 'HIGH_VOLUME'
-        elif volume_ratio < 0.7:
-            return 'LOW_VOLUME'
-        else:
-            return 'RANGING'
-
-# Fetching und Data Processing Funktionen
-def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=500):
+def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=1000, use_futures=False):
     """Fetch OHLCV data from Binance with caching"""
-    cache_key = f"{symbol}_{interval}_{limit}"
+    cache_key = f"{symbol}_{interval}_{limit}_{'futures' if use_futures else 'spot'}"
     
     # Check cache first
     if cache_key in api_cache:
         cache_time, cached_data = api_cache[cache_key]
         if time.time() - cache_time < CACHE_DURATION:
             return cached_data
-    
+
     try:
         params = {
             'symbol': symbol,
@@ -2174,7 +64,8 @@ def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=500):
             'limit': limit
         }
         
-        response = requests.get(BINANCE_KLINES, params=params, timeout=10)
+        endpoint = BINANCE_FUTURES_KLINES if use_futures else BINANCE_KLINES
+        response = requests.get(endpoint, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
@@ -2187,352 +78,1460 @@ def fetch_binance_data(symbol='BTCUSDT', interval='1h', limit=500):
         api_cache[cache_key] = (time.time(), data)
         return data
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Binance API Request failed: {str(e)}")
-        return []
-    except requests.exceptions.Timeout as e:
-        logger.error(f"Binance API Timeout: {str(e)}")
-        return []
     except Exception as e:
-        logger.error(f"Unexpected error fetching Binance data: {str(e)}")
-        return []
+        logger.error(f"Error fetching Binance data: {e}")
+        return None
 
-def get_market_overview():
-    """Get market overview with top gainers/losers"""
+def fetch_24hr_ticker(symbol='BTCUSDT'):
+    """Fetch 24hr ticker data from Binance"""
     try:
-        response = requests.get(BINANCE_24HR, timeout=10)
+        params = {'symbol': symbol}
+        response = requests.get(BINANCE_24HR, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        # Filter relevant trading pairs and sort
-        crypto_pairs = [item for item in data if item['symbol'].endswith('USDT') and 
-                       float(item['quoteVolume']) > 1000000]  # Min 1M volume
-        
-        # Top gainers
-        gainers = sorted(crypto_pairs, key=lambda x: float(x['priceChangePercent']), reverse=True)[:5]
-        
-        # Top losers  
-        losers = sorted(crypto_pairs, key=lambda x: float(x['priceChangePercent']))[:5]
-        
-        # High volume
-        high_volume = sorted(crypto_pairs, key=lambda x: float(x['quoteVolume']), reverse=True)[:5]
-        
         return {
-            'gainers': gainers,
-            'losers': losers,
-            'high_volume': high_volume,
-            'total_pairs': len(crypto_pairs)
+            'last_price': float(data['lastPrice']),
+            'price_change_percent': float(data['priceChangePercent']),
+            'volume': float(data['volume']),
+            'high_24h': float(data['highPrice']),
+            'low_24h': float(data['lowPrice'])
         }
-        
     except Exception as e:
-        logger.error(f"Error fetching market overview: {str(e)}")
-        return {'gainers': [], 'losers': [], 'high_volume': [], 'total_pairs': 0}
+        logger.error(f"Error fetching 24hr ticker: {e}")
+        return None
 
 def process_market_data(symbol='BTCUSDT'):
     """Process market data and generate comprehensive analysis"""
-    try:
-        # Fetch OHLCV data
-        ohlc_data = fetch_binance_data(symbol, '1h', 500)
-        if not ohlc_data or len(ohlc_data) < 50:
-            logger.warning(f"Insufficient data for {symbol}")
-            return None
-        
-        # Convert to required format
-        price_data = []
-        volume_data = []
-        
-        for candle in ohlc_data:
-            price_data.append({
-                'timestamp': int(candle[0]),
-                'open': float(candle[1]),
-                'high': float(candle[2]),
-                'low': float(candle[3]),
-                'close': float(candle[4]),
-                'volume': float(candle[5])
-            })
-            volume_data.append(float(candle[5]))
-        
-        # Calculate technical indicators
-        indicators = AdvancedTechnicalAnalyzer.calculate_all_indicators(ohlc_data)
-        
-        # Detect patterns
-        patterns = AdvancedPatternDetector.detect_all_patterns(ohlc_data)
-        
-        # ML predictions
-        ml_predictions = AdvancedMLPredictor.calculate_predictions(
-            indicators, patterns, price_data, volume_data
-        )
-        
-        # Comprehensive analysis
-        analysis = AdvancedMarketAnalyzer.analyze_comprehensive_market(
-            indicators, patterns, ml_predictions, price_data, volume_data
-        )
-        
-        # Add current price info
-        current_candle = price_data[-1]
-        analysis['current_price'] = current_candle['close']
-        analysis['price_change'] = current_candle['close'] - price_data[-2]['close'] if len(price_data) > 1 else 0
-        analysis['price_change_percent'] = (analysis['price_change'] / price_data[-2]['close'] * 100) if len(price_data) > 1 and price_data[-2]['close'] > 0 else 0
-        analysis['volume'] = current_candle['volume']
-        analysis['timestamp'] = current_candle['timestamp']
-        
-        # Convert numpy types for JSON serialization
-        analysis = convert_to_py(analysis)
-        
-        return analysis
-        
-    except Exception as e:
-        logger.error(f"Error processing market data for {symbol}: {str(e)}")
+    # Fetch OHLCV data
+    ohlc_data = fetch_binance_data(symbol, '1h', 500)
+    if not ohlc_data or len(ohlc_data) < 50:
+        logger.warning(f"Insufficient data for {symbol}")
         return None
+    
+    # Convert to required format
+    price_data = []
+    volume_data = []
+    for candle in ohlc_data:
+        price_data.append({
+            'timestamp': int(candle[0]),
+            'open': float(candle[1]),
+            'high': float(candle[2]),
+            'low': float(candle[3]),
+            'close': float(candle[4]),
+            'volume': float(candle[5])
+        })
+        volume_data.append(float(candle[5]))
+    
+    # Return processed data
+    return {
+        'status': 'success',
+        'price_data': price_data,
+        'volume_data': volume_data
+    }
+
+def get_ultimate_dashboard_html():
+    """Get the embedded HTML dashboard"""
+    return '''
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>🔥 ULTIMATE Trading Analysis Pro Dashboard</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+                background: #000000;
+                color: #e2e8f0;
+                overflow-x: hidden;
+                line-height: 1.6;
+            }
+
+            .container {
+                max-width: 1600px;
+                margin: 0 auto;
+                padding: 24px;
+            }
+
+            .header {
+                text-align: center;
+                margin-bottom: 32px;
+                padding: 32px;
+                background: #000000;
+                border-radius: 16px;
+                border: 1px solid #333333;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            }
+
+            .header h1 {
+                font-size: 2.8em;
+                margin-bottom: 12px;
+                color: #f8fafc;
+                font-weight: 600;
+                letter-spacing: -0.02em;
+            }
+
+            .header p {
+                color: #94a3b8;
+                font-size: 1.1em;
+                font-weight: 400;
+            }
+
+            .status-bar {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 16px;
+                margin-bottom: 32px;
+            }
+
+            .status-card {
+                background: #000000;
+                padding: 20px;
+                border-radius: 12px;
+                border: 1px solid #333333;
+                text-align: center;
+                transition: all 0.3s ease;
+            }
+
+            .status-card:hover {
+                border-color: #475569;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            }
+
+            .status-value {
+                font-size: 1.8em;
+                font-weight: 700;
+                color: #60a5fa;
+                margin-bottom: 4px;
+            }
+
+            .status-label {
+                color: #94a3b8;
+                font-size: 0.85em;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                font-weight: 500;
+            }
+
+            .dashboard-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 24px;
+                margin-bottom: 32px;
+            }
+
+            .widget {
+                background: #000000;
+                border-radius: 16px;
+                padding: 24px;
+                border: 1px solid #333333;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+            }
+
+            .widget h3 {
+                color: #f8fafc;
+                margin-bottom: 20px;
+                font-size: 1.4em;
+                font-weight: 600;
+                border-bottom: 1px solid #334155;
+                padding-bottom: 12px;
+            }
+
+            .analysis-panel {
+                grid-column: 1 / -1;
+                background: #000000;
+                border-radius: 16px;
+                padding: 24px;
+                margin-top: 24px;
+                border: 1px solid #333333;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+            }
+
+            .controls {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 24px;
+                flex-wrap: wrap;
+            }
+
+            .btn {
+                background: #222222;
+                color: #e2e8f0;
+                border: 1px solid #444444;
+                padding: 12px 20px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: all 0.2s ease;
+                font-size: 0.9em;
+            }
+
+            .btn:hover {
+                background: #444444;
+                border-color: #60a5fa;
+                transform: translateY(-1px);
+            }
+
+            .ai-panel {
+                background: #000000;
+                border: 2px solid #60a5fa;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .ai-panel::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(90deg, #60a5fa, #3b82f6, #60a5fa);
+                animation: shimmer 2s linear infinite;
+            }
+
+            @keyframes shimmer {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+            }
+
+            .ai-badge {
+                background: #60a5fa;
+                color: white;
+                font-size: 0.7em;
+                padding: 4px 8px;
+                border-radius: 12px;
+                margin-left: 8px;
+                font-weight: 600;
+                animation: pulse 2s infinite;
+            }
+
+            .ai-btn {
+                background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+                border: none;
+                color: white;
+                font-weight: 600;
+            }
+
+            .ai-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+            }
+
+            .ai-models {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 12px;
+                margin: 16px 0;
+            }
+
+            .ai-model {
+                background: rgba(15, 23, 42, 0.7);
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 12px;
+                text-align: center;
+                transition: all 0.3s ease;
+            }
+
+            .ai-model.bullish { border-color: #60a5fa; }
+            .ai-model.bearish { border-color: #ef4444; }
+            .ai-model.sideways { border-color: #fbbf24; }
+
+            .model-name {
+                font-size: 0.8em;
+                color: #94a3b8;
+                margin-bottom: 4px;
+            }
+
+            .model-prediction {
+                font-size: 1em;
+                font-weight: 600;
+                margin-bottom: 4px;
+            }
+
+            .model-confidence {
+                font-size: 0.7em;
+                opacity: 0.8;
+            }
+
+            .ensemble-result {
+                background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+                border-radius: 12px;
+                padding: 16px;
+                text-align: center;
+                margin: 16px 0;
+                color: white;
+            }
+
+            .price-targets {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+                margin: 16px 0;
+            }
+
+            .price-target {
+                background: rgba(51, 65, 85, 0.5);
+                padding: 12px;
+                border-radius: 8px;
+                text-align: center;
+                border: 1px solid #475569;
+            }
+
+            .price-target.target { border-color: #60a5fa; }
+            .price-target.stop { border-color: #ef4444; }
+            .price-target.resistance { border-color: #fbbf24; }
+                color: #60a5fa;
+                transform: translateY(-1px);
+            }
+
+            .btn:active {
+                transform: translateY(0);
+            }
+
+            .input-group {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .input-group input {
+                background: #222222;
+                border: 1px solid #444444;
+                border-radius: 8px;
+                padding: 12px 16px;
+                color: #e2e8f0;
+                font-size: 0.9em;
+                min-width: 160px;
+            }
+
+            .input-group input:focus {
+                outline: none;
+                border-color: #60a5fa;
+                box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+            }
+
+            .input-group input::placeholder {
+                color: #64748b;
+            }
+
+            .chart-container {
+                position: relative;
+                height: 440px;
+                margin-top: 24px;
+                background: #0f172a;
+                border-radius: 12px;
+                padding: 16px;
+                border: 1px solid #334155;
+            }
+
+            .loading {
+                text-align: center;
+                color: #64748b;
+                font-size: 1.1em;
+                margin: 24px 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+            }
+
+            .pulse {
+                animation: pulse 2s infinite;
+            }
+
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 16px;
+                margin-top: 24px;
+            }
+
+            .metric-card {
+                background: #222222;
+                padding: 16px;
+                border-radius: 12px;
+                text-align: center;
+                border: 1px solid #444444;
+                transition: all 0.2s ease;
+            }
+
+            .metric-card:hover {
+                border-color: #60a5fa;
+                transform: translateY(-2px);
+            }
+
+            .metric-value {
+                font-size: 1.6em;
+                font-weight: 700;
+                color: #60a5fa;
+                margin-bottom: 4px;
+            }
+
+            .metric-label {
+                color: #94a3b8;
+                font-size: 0.8em;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                font-weight: 500;
+            }
+
+            .analysis-result {
+                background: #0f172a;
+                border-radius: 12px;
+                padding: 20px;
+                border: 1px solid #334155;
+            }
+
+            .price-info {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 16px;
+                margin-bottom: 16px;
+            }
+
+            .price-card {
+                background: #222222;
+                padding: 16px;
+                border-radius: 10px;
+                text-align: center;
+                border: 1px solid #444444;
+            }
+
+            .price-value {
+                font-size: 1.4em;
+                font-weight: 700;
+                color: #f8fafc;
+                margin-bottom: 4px;
+            }
+
+            .price-change {
+                font-size: 0.9em;
+                margin-top: 4px;
+                font-weight: 600;
+            }
+
+            .positive {
+                color: #60a5fa;
+            }
+
+            .negative {
+                color: #ef4444;
+            }
+
+            .neutral {
+                color: #f59e0b;
+            }
+
+            .liquidity-map {
+                margin-top: 20px;
+                background: #0f172a;
+                border-radius: 12px;
+                padding: 16px;
+                border: 1px solid #334155;
+            }
+
+            .liq-zone {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 16px;
+                margin: 6px 0;
+                border-radius: 8px;
+                border-left: 4px solid;
+                transition: all 0.2s ease;
+            }
+
+            .liq-zone:hover {
+                transform: translateX(4px);
+            }
+
+            .liq-support {
+                background: rgba(16, 185, 129, 0.1);
+                border-left-color: #60a5fa;
+            }
+
+            .liq-resistance {
+                background: rgba(239, 68, 68, 0.1);
+                border-left-color: #ef4444;
+            }
+
+            .liq-neutral {
+                background: rgba(245, 158, 11, 0.1);
+                border-left-color: #f59e0b;
+            }
+
+            @media (max-width: 1024px) {
+                .dashboard-grid {
+                    grid-template-columns: 1fr;
+                }
+                
+                .status-bar {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                
+                .controls {
+                    flex-direction: column;
+                }
+
+                .container {
+                    padding: 16px;
+                }
+            }
+
+            @media (max-width: 640px) {
+                .status-bar {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>Trading Analysis Pro</h1>
+                <p>Professional Market Analysis • Live Data • Technical Indicators</p>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-card">
+                    <div class="status-value" id="server-status">🟢 ONLINE</div>
+                    <div class="status-label">Server Status</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-value" id="api-calls">0</div>
+                    <div class="status-label">API Calls</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-value" id="last-update">--:--</div>
+                    <div class="status-label">Last Update</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-value" id="current-symbol">BTCUSDT</div>
+                    <div class="status-label">Current Symbol</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="widget">
+                    <h3>🎯 Market Analysis</h3>
+                    <div class="controls">
+                        <div class="input-group">
+                            <input type="text" id="symbol-input" placeholder="Symbol (z.B. BTCUSDT)" value="BTCUSDT">
+                            <button class="btn" onclick="analyzeSymbol()">📈 Analyze</button>
+                        </div>
+                    </div>
+                    <div id="analysis-result" class="analysis-result">
+                        <div class="loading pulse">Waiting for analysis...</div>
+                    </div>
+                </div>
+
+                <div class="widget">
+                    <h3>📊 Liquidity Map</h3>
+                    <div class="controls">
+                        <button class="btn" onclick="loadLiquidityMap()">� Load LiqMap</button>
+                    </div>
+                    <div id="liquidity-result">
+                        <div class="loading pulse">Load liquidity zones...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analysis-panel">
+                <h3>� Markt-Analyse</h3>
+                <div class="controls">
+                    <button class="btn" onclick="analyzeMarket()">🔍 Deep Analysis</button>
+                    <button class="btn" onclick="updateChart('1h')">1H Chart</button>
+                    <button class="btn" onclick="updateChart('4h')">4H Chart</button>
+                    <button class="btn" onclick="updateChart('1d')">1D Chart</button>
+                </div>
+                <div class="metrics-grid" id="metrics-grid">
+                    <div class="loading pulse" style="text-align: center; padding: 40px;">
+                        <div style="font-size: 1.2em;">Klicke auf "Deep Analysis" für detaillierte Marktanalyse</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Predictions Panel -->
+            <div class="analysis-panel ai-panel">
+                <h3>🤖 KI-Vorhersagen <span class="ai-badge">NEW</span></h3>
+                <div class="controls">
+                    <select id="aiTimeframe" style="background: #000000; color: #e2e8f0; border: 1px solid #333333; padding: 8px; border-radius: 6px;">
+                        <option value="1h">1 Stunde</option>
+                        <option value="4h">4 Stunden</option>
+                        <option value="24h" selected>24 Stunden</option>
+                        <option value="7d">7 Tage</option>
+                    </select>
+                    <button class="btn ai-btn" onclick="runAiPrediction()">🚀 AI Analyze</button>
+                </div>
+                <div id="ai-predictions-result">
+                    <div class="loading pulse">Klick "🚀 AI Analyze" für KI-Vorhersagen...</div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let chart = null;
+            let apiCallCount = 0;
+            let currentSymbol = 'BTCUSDT';
+            let currentInterval = '1h';
+
+            // Initialize dashboard
+            $(document).ready(function() {
+                initChart();
+                analyzeSymbol();
+                setInterval(updateStatus, 5000);
+                setInterval(function() {
+                    // Auto-refresh chart data every 30 seconds
+                    updateChart(currentInterval);
+                }, 30000);
+            });
+
+            function updateStatus() {
+                $('#last-update').text(new Date().toLocaleTimeString());
+                $('#api-calls').text(apiCallCount);
+                $('#current-symbol').text(currentSymbol);
+            }
+
+            function analyzeSymbol() {
+                const symbol = $('#symbol-input').val() || 'BTCUSDT';
+                currentSymbol = symbol;
+                
+                $('#analysis-result').html('<div class="loading pulse">Analyzing ' + symbol + '...</div>');
+                
+                $.ajax({
+                    url: '/api/analyze',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({symbol: symbol}),
+                    success: function(data) {
+                        displayAnalysis(data);
+                        updateChart(currentInterval); // Update chart with real data
+                        apiCallCount++;
+                    },
+                    error: function() {
+                        $('#analysis-result').html('<div style="color: #ff4444;">❌ Analysis failed</div>');
+                    }
+                });
+            }
+
+            function displayAnalysis(data) {
+                if (data.status === 'success') {
+                    const sentiment = data.market_analysis.overall_sentiment;
+                    const action = data.market_analysis.recommended_action;
+                    const confidence = data.market_analysis.confidence;
+                    const rsi = data.indicators.current_rsi_14;
+                    const macd = data.indicators.current_macd;
+                    
+                    const sentimentClass = sentiment === 'BULLISH' ? 'positive' : 
+                                         sentiment === 'BEARISH' ? 'negative' : 'neutral';
+                    
+                    const actionClass = action === 'BUY' ? 'positive' : 
+                                       action === 'SELL' ? 'negative' : 'neutral';
+                    
+                    const changeClass = data.price_change_24h >= 0 ? 'positive' : 'negative';
+                    const changeSymbol = data.price_change_24h >= 0 ? '+' : '';
+                    
+                    // Generate signal explanations
+                    const signalReasons = generateSignalExplanations(action, rsi, macd, sentiment, data.price_change_24h, data.market_analysis);
+                    
+                    const html = `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: #f8fafc; margin-bottom: 12px; font-size: 1.3em;">${data.symbol} Analysis</h4>
+                        </div>
+                        
+                        <div class="price-info">
+                            <div class="price-card">
+                                <div class="price-value">$${Number(data.current_price).toLocaleString()}</div>
+                                <div class="price-change ${changeClass}">${changeSymbol}${data.price_change_24h}%</div>
+                                <div style="color: #94a3b8; font-size: 0.8em; margin-top: 4px;">Current Price</div>
+                            </div>
+                            <div class="price-card">
+                                <div class="price-value">${data.volume_24h}</div>
+                                <div style="color: #94a3b8; font-size: 0.8em; margin-top: 8px;">24h Volume</div>
+                            </div>
+                        </div>
+                        
+                        <div class="price-info">
+                            <div class="price-card">
+                                <div style="color: #94a3b8; font-size: 0.85em; margin-bottom: 6px;">Market Sentiment</div>
+                                <div class="price-value ${sentimentClass}" style="font-size: 1.2em;">${sentiment}</div>
+                            </div>
+                            <div class="price-card">
+                                <div style="color: #94a3b8; font-size: 0.85em; margin-bottom: 6px;">Signal</div>
+                                <div class="price-value ${actionClass}" style="font-size: 1.2em;">${action}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Trading Signal Explanation -->
+                        <div style="background: #222222; padding: 16px; border-radius: 12px; margin: 16px 0; border-left: 4px solid ${action === 'BUY' ? '#60a5fa' : action === 'SELL' ? '#ef4444' : '#f59e0b'};">
+                            <div style="font-weight: 600; color: #f8fafc; margin-bottom: 8px; font-size: 1.1em;">
+                                📊 Signal: ${action} - ${confidence}% Confidence
+                            </div>
+                            <div style="color: #e2e8f0; font-size: 0.95em; line-height: 1.5;">
+                                ${signalReasons.main}
+                            </div>
+                        </div>
+                        
+                        <!-- Technical Indicators -->
+                        <div style="background: #222222; padding: 16px; border-radius: 12px; margin: 16px 0;">
+                            <div style="font-weight: 600; color: #f8fafc; margin-bottom: 12px;">🔍 Technical Analysis</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 0.9em;">
+                                <div>
+                                    <strong style="color: #60a5fa;">RSI (14):</strong> 
+                                    <span style="color: ${rsi > 70 ? '#ef4444' : rsi < 30 ? '#60a5fa' : '#f59e0b'};">${rsi}</span>
+                                    <div style="color: #94a3b8; font-size: 0.8em; margin-top: 2px;">${signalReasons.rsi}</div>
+                                </div>
+                                <div>
+                                    <strong style="color: #60a5fa;">MACD:</strong> 
+                                    <span style="color: ${macd > 0 ? '#60a5fa' : '#ef4444'};">${macd}</span>
+                                    <div style="color: #94a3b8; font-size: 0.8em; margin-top: 2px;">${signalReasons.macd}</div>
+                                </div>
+                                <div>
+                                    <strong style="color: #60a5fa;">Trend:</strong> 
+                                    <span style="color: ${data.price_change_24h > 0 ? '#60a5fa' : '#ef4444'};">${data.market_analysis.market_state}</span>
+                                    <div style="color: #94a3b8; font-size: 0.8em; margin-top: 2px;">${signalReasons.trend}</div>
+                                </div>
+                                <div>
+                                    <strong style="color: #60a5fa;">Momentum:</strong> 
+                                    <span style="color: ${confidence > 75 ? '#60a5fa' : confidence > 50 ? '#f59e0b' : '#ef4444'};">${confidence > 75 ? 'Strong' : confidence > 50 ? 'Moderate' : 'Weak'}</span>
+                                    <div style="color: #94a3b8; font-size: 0.8em; margin-top: 2px;">${signalReasons.momentum}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Risk Management -->
+                        <div style="background: #000000; padding: 14px; border-radius: 10px; border: 1px solid #333333;">
+                            <div style="font-weight: 600; color: #f8fafc; margin-bottom: 8px; font-size: 0.95em;">⚠️ Risk Management</div>
+                            <div style="color: #94a3b8; font-size: 0.85em;">
+                                ${signalReasons.risk}
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#analysis-result').html(html);
+                } else {
+                    $('#analysis-result').html('<div style="color: #ef4444;">❌ Analysis failed: ' + data.error + '</div>');
+                }
+            }
+
+            function generateSignalExplanations(action, rsi, macd, sentiment, priceChange, marketAnalysis = null) {
+                let explanations = {
+                    main: '',
+                    rsi: '',
+                    macd: '',
+                    trend: '',
+                    momentum: '',
+                    risk: ''
+                };
+                
+                // Use detailed market analysis if available
+                if (marketAnalysis && marketAnalysis.primary_reason) {
+                    explanations.main = `<strong>${action} Signal:</strong> ${marketAnalysis.primary_reason}`;
+                    
+                    // Add detailed reasons if available
+                    if (marketAnalysis.detailed_reasons && marketAnalysis.detailed_reasons.length > 0) {
+                        explanations.main += `<br><small style="color: #94a3b8;">Weitere Faktoren: ${marketAnalysis.detailed_reasons.slice(0, 2).join(', ')}</small>`;
+                    }
+                    
+                    // Add signal summary
+                    if (marketAnalysis.signal_summary) {
+                        explanations.main += `<br><small style="color: #94a3b8;">${marketAnalysis.signal_summary}</small>`;
+                    }
+                } else {
+                    // Fallback to original logic
+                    if (action === 'BUY') {
+                        explanations.main = `🟢 <strong>LONG Signal detected:</strong> `;
+                        if (rsi < 30) {
+                            explanations.main += `Asset appears oversold (RSI: ${rsi}), indicating potential bounce. `;
+                        }
+                        if (macd > 0) {
+                            explanations.main += `MACD shows bullish momentum. `;
+                        }
+                        if (priceChange > 0) {
+                            explanations.main += `24h trend is positive, confirming upward movement.`;
+                        } else {
+                            explanations.main += `Despite recent decline, technical indicators suggest reversal.`;
+                        }
+                    } else if (action === 'SELL') {
+                        explanations.main = `🔴 <strong>SHORT Signal detected:</strong> `;
+                        if (rsi > 70) {
+                            explanations.main += `Asset appears overbought (RSI: ${rsi}), suggesting potential correction. `;
+                        }
+                        if (macd < 0) {
+                            explanations.main += `MACD shows bearish momentum. `;
+                        }
+                        if (priceChange < 0) {
+                            explanations.main += `24h trend is negative, confirming downward pressure.`;
+                        } else {
+                            explanations.main += `Despite recent gains, technical indicators suggest weakness.`;
+                        }
+                    } else {
+                        explanations.main = `🟡 <strong>HOLD Signal:</strong> Mixed signals detected. Market in consolidation phase with no clear directional bias.`;
+                    }
+                }
+                
+                // Enhanced RSI explanation
+                if (rsi > 80) {
+                    explanations.rsi = 'Extrem überkauft - Starke Korrektur wahrscheinlich';
+                } else if (rsi > 70) {
+                    explanations.rsi = 'Überkauft - Verkaufsdruck steigt';
+                } else if (rsi < 20) {
+                    explanations.rsi = 'Extrem überverkauft - Starke Erholung möglich';
+                } else if (rsi < 30) {
+                    explanations.rsi = 'Überverkauft - Kaufgelegenheit';
+                } else if (rsi > 50) {
+                    explanations.rsi = 'Bullisches Territorium - Positive Momentum';
+                } else {
+                    explanations.rsi = 'Bearisches Territorium - Schwache Momentum';
+                }
+                
+                // Enhanced MACD explanation  
+                if (macd > 100) {
+                    explanations.macd = 'Sehr starke bullische Momentum';
+                } else if (macd > 50) {
+                    explanations.macd = 'Starke bullische Momentum';
+                } else if (macd > 0) {
+                    explanations.macd = 'Milde bullische Momentum';
+                } else if (macd > -50) {
+                    explanations.macd = 'Milde bearische Momentum';
+                } else if (macd > -100) {
+                    explanations.macd = 'Starke bearische Momentum';
+                } else {
+                    explanations.macd = 'Sehr starke bearische Momentum';
+                }
+                
+                // Enhanced trend explanation
+                if (priceChange > 10) {
+                    explanations.trend = 'Sehr starker Aufwärtstrend (+' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > 5) {
+                    explanations.trend = 'Starker Aufwärtstrend (+' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > 2) {
+                    explanations.trend = 'Moderater Aufwärtstrend (+' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > 0) {
+                    explanations.trend = 'Leichter Aufwärtstrend (+' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > -2) {
+                    explanations.trend = 'Leichter Abwärtstrend (' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > -5) {
+                    explanations.trend = 'Moderater Abwärtstrend (' + priceChange.toFixed(1) + '%)';
+                } else if (priceChange > -10) {
+                    explanations.trend = 'Starker Abwärtstrend (' + priceChange.toFixed(1) + '%)';
+                } else {
+                    explanations.trend = 'Sehr starker Abwärtstrend (' + priceChange.toFixed(1) + '%)';
+                }
+                
+                // Enhanced momentum explanation
+                const rsiMomentum = rsi > 50 ? 'bullisch' : 'bearisch';
+                const macdMomentum = macd > 0 ? 'bullisch' : 'bearisch';
+                
+                if (Math.abs(macd) > 50 && ((macd > 0 && rsi > 50) || (macd < 0 && rsi < 50))) {
+                    explanations.momentum = `Indikatoren perfekt ausgerichtet (RSI: ${rsiMomentum}, MACD: ${macdMomentum}) - Starkes Signal`;
+                } else if ((macd > 0 && rsi > 50) || (macd < 0 && rsi < 50)) {
+                    explanations.momentum = `Indikatoren bestätigen sich - Moderate Momentum`;
+                } else if (Math.abs(macd) > 25) {
+                    explanations.momentum = `Gemischte Signale - RSI: ${rsiMomentum}, MACD: ${macdMomentum}`;
+                } else {
+                    explanations.momentum = 'Schwache Momentum - Warten auf Bestätigung';
+                }
+                
+                // Enhanced risk management with market analysis
+                let riskLevel = 'MEDIUM';
+                if (marketAnalysis && marketAnalysis.detailed_analysis && marketAnalysis.detailed_analysis.risk_assessment) {
+                    riskLevel = marketAnalysis.detailed_analysis.risk_assessment;
+                }
+                
+                if (action === 'BUY' || action === 'STRONG BUY') {
+                    explanations.risk = `LONG Position - Risiko: ${riskLevel}. Stop-Loss: 3-5% unter Einstieg. Take-Profit: ${rsi < 30 ? '10-15%' : '5-8%'}. Positionsgröße: ${riskLevel === 'HIGH' ? '0.5-1%' : '1-2%'} des Portfolios.`;
+                } else if (action === 'SELL' || action === 'STRONG SELL') {
+                    explanations.risk = `SHORT Position - Risiko: ${riskLevel}. Stop-Loss: 3-5% über Einstieg. Take-Profit: ${rsi > 70 ? '8-12%' : '4-6%'}. Positionsgröße: ${riskLevel === 'HIGH' ? '0.5%' : '1%'} des Portfolios.`;
+                } else {
+                    explanations.risk = `HOLD - Risiko: ${riskLevel}. Markt in Konsolidierung. Warten auf klare Signale. Bestehende Positionen mit Trailing-Stops absichern.`;
+                }
+                
+                return explanations;
+            }
+                } else {
+                    explanations.risk = `HOLD: Wait for clearer signals. Avoid FOMO. Use DCA if accumulating long-term.`;
+                }
+                
+                return explanations;
+            }
+
+            function loadLiquidityMap() {
+                $('#liquidity-result').html('<div class="loading pulse">Loading liquidity zones...</div>');
+                
+                $.ajax({
+                    url: '/api/liquiditymap',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({symbol: currentSymbol}),
+                    success: function(data) {
+                        displayLiquidityMap(data);
+                        apiCallCount++;
+                    },
+                    error: function() {
+                        $('#liquidity-result').html('<div style="color: #ff4444;">❌ LiqMap failed</div>');
+                    }
+                });
+            }
+
+            function displayLiquidityMap(data) {
+                if (data.status === 'success') {
+                    let html = `
+                        <div style="margin-bottom: 15px;">
+                            <div style="color: #888; font-size: 0.9em;">Current Price: <strong style="color: #fff;">$${Number(data.current_price).toLocaleString()}</strong></div>
+                        </div>
+                        <div class="liquidity-map">
+                    `;
+                    
+                    data.liquidity_analysis.liquidity_zones.forEach(zone => {
+                        const zoneClass = 'liq-' + zone.zone_type;
+                        const strength = Math.round(zone.liquidity_strength * 100);
+                        const probability = Math.round(zone.probability * 100);
+                        
+                        html += `
+                            <div class="${zoneClass} liq-zone">
+                                <div>
+                                    <div style="font-weight: bold; color: #fff;">$${Number(zone.price).toLocaleString()}</div>
+                                    <div style="font-size: 0.8em; color: #888; text-transform: uppercase;">${zone.zone_type}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="color: #fff;">Strength: ${strength}%</div>
+                                    <div style="font-size: 0.8em; color: #888;">Prob: ${probability}%</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                        </div>
+                        <div style="margin-top: 15px; padding: 10px; background: #222; border-radius: 6px;">
+                            <div style="font-size: 0.9em; color: #888;">
+                                <strong style="color: #fff;">Smart Money:</strong> ${data.smart_money_flow.institutional_bias.toUpperCase()} | 
+                                <strong style="color: #fff;">Activity:</strong> ${data.smart_money_flow.whale_activity.toUpperCase()}
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#liquidity-result').html(html);
+                } else {
+                    $('#liquidity-result').html('<div style="color: #ff4444;">❌ LiqMap failed</div>');
+                }
+            }
+
+            function initChart() {
+                // Chart removed to save space - Deep Analysis provides all needed info
+                console.log("Chart functionality disabled - use Deep Analysis instead");
+            }
+
+            function updateChart(interval) {
+                // Chart display removed - show simple interval info instead
+                console.log(`Chart interval changed to: ${interval}`);
+                currentInterval = interval;
+                
+                // Optional: Show a simple message about the interval
+                if ($('#chart-info').length === 0) {
+                    $('.controls').after('<div id="chart-info" style="padding: 10px; background: #111; border-radius: 6px; margin: 10px 0; color: #94a3b8;"></div>');
+                }
+                $('#chart-info').html(`📊 Chart Interval: ${interval.toUpperCase()} | Use Deep Analysis for detailed market data`);
+            }
+
+            function updateMetrics(chartInfo, currentPrice, priceChange) {
+                // Metrics moved to Deep Analysis section
+                console.log('Metrics functionality moved to Deep Analysis');
+            }
+
+            function analyzeMarket() {
+                const symbol = currentSymbol;
+                
+                // Show loading state
+                $('#metrics-grid').html(`
+                    <div class="loading pulse" style="text-align: center; padding: 40px;">
+                        <div style="font-size: 1.5em; margin-bottom: 12px;">🔍 Deep Market Analysis</div>
+                        <div style="color: #94a3b8; font-size: 1em;">Analyzing ${symbol}...</div>
+                        <div style="color: #94a3b8; font-size: 0.9em; margin-top: 8px;">
+                            • Trend Analysis<br>
+                            • Volume Profiles<br>
+                            • Support/Resistance<br>
+                            • Pattern Recognition<br>
+                            • Technical Indicators
+                        </div>
+                    </div>
+                `);
+                
+                // Call the analyze API
+                $.ajax({
+                    url: '/api/analyze',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        symbol: symbol,
+                        interval: '1h',
+                        limit: 200
+                    }),
+                    success: function(data) {
+                        displayDeepAnalysis(data);
+                    },
+                    error: function(xhr, status, error) {
+                        $('#metrics-grid').html(`
+                            <div style="text-align: center; padding: 20px; color: #ef4444;">
+                                <div style="font-size: 1.2em;">❌ Analysis Failed</div>
+                                <div style="font-size: 0.9em; margin-top: 8px;">Error: ${error}</div>
+                            </div>
+                        `);
+                    }
+                });
+            }
+            
+            function displayDeepAnalysis(data) {
+                const indicators = data.indicators || {};
+                const analysis = data.market_analysis || {};
+                const patterns = data.patterns || {};
+                
+                const analysisHtml = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">📊</div>
+                            <div class="metric-value">${analysis.recommended_action || 'HOLD'}</div>
+                            <div class="metric-label">Recommended Action</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: #94a3b8;">
+                                Confidence: ${analysis.confidence || 75}%
+                            </div>
+                        </div>
+                        
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">🎯</div>
+                            <div class="metric-value">${(indicators.current_rsi_14 || 50).toFixed(1)}</div>
+                            <div class="metric-label">RSI (14)</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: ${indicators.current_rsi_14 > 70 ? '#ef4444' : indicators.current_rsi_14 < 30 ? '#60a5fa' : '#94a3b8'};">
+                                ${indicators.current_rsi_14 > 70 ? 'Overbought' : indicators.current_rsi_14 < 30 ? 'Oversold' : 'Neutral'}
+                            </div>
+                        </div>
+                        
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">📈</div>
+                            <div class="metric-value">${(indicators.current_macd || 0).toFixed(4)}</div>
+                            <div class="metric-label">MACD</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: ${indicators.current_macd > 0 ? '#60a5fa' : '#ef4444'};">
+                                ${indicators.current_macd > 0 ? 'Bullish' : 'Bearish'}
+                            </div>
+                        </div>
+                        
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">💪</div>
+                            <div class="metric-value">${(indicators.current_adx || 25).toFixed(1)}</div>
+                            <div class="metric-label">ADX (Trend Strength)</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: ${indicators.current_adx > 25 ? '#60a5fa' : '#94a3b8'};">
+                                ${indicators.current_adx > 25 ? 'Strong Trend' : 'Weak Trend'}
+                            </div>
+                        </div>
+                        
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">🌡️</div>
+                            <div class="metric-value">${analysis.overall_sentiment || 'NEUTRAL'}</div>
+                            <div class="metric-label">Market Sentiment</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: #94a3b8;">
+                                ${analysis.market_state || 'STABLE'}
+                            </div>
+                        </div>
+                        
+                        <div class="metric-card">
+                            <div style="font-size: 2em; margin-bottom: 8px;">⚡</div>
+                            <div class="metric-value">${(indicators.current_atr || 0.001).toFixed(6)}</div>
+                            <div class="metric-label">ATR (Volatility)</div>
+                            <div style="margin-top: 8px; font-size: 0.8em; color: #94a3b8;">
+                                ${indicators.current_atr > 0.01 ? 'High Volatility' : 'Low Volatility'}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 24px; padding: 16px; background: #111111; border-radius: 12px; border: 1px solid #333333;">
+                        <h4 style="margin: 0 0 12px 0; color: #60a5fa;">📋 Detaillierte Analyse</h4>
+                        <div style="color: #e2e8f0; line-height: 1.6;">
+                            <strong>${data.symbol}</strong> - Umfassende Marktanalyse:<br><br>
+                            
+                            <div style="margin: 12px 0; padding: 12px; background: #000000; border-radius: 8px; border-left: 3px solid #60a5fa;">
+                                <strong>💰 Preis-Daten:</strong><br>
+                                • Aktueller Preis: <span style="color: #60a5fa; font-weight: bold;">$${(data.current_price || 0).toLocaleString()}</span><br>
+                                • 24h Änderung: <span style="color: ${data.price_change_24h >= 0 ? '#60a5fa' : '#ef4444'}; font-weight: bold;">${(data.price_change_24h || 0).toFixed(2)}%</span><br>
+                                • 24h Volumen: <span style="color: #94a3b8;">$${(data.volume_24h || 0).toLocaleString()}</span><br>
+                                • 24h Hoch: <span style="color: #94a3b8;">$${(data.high_24h || 0).toLocaleString()}</span><br>
+                                • 24h Tief: <span style="color: #94a3b8;">$${(data.low_24h || 0).toLocaleString()}</span>
+                            </div>
+                            
+                            <div style="margin: 12px 0; padding: 12px; background: #000000; border-radius: 8px; border-left: 3px solid #f59e0b;">
+                                <strong>📊 Technische Indikatoren:</strong><br>
+                                • RSI (14): <span style="color: ${indicators.current_rsi_14 > 70 ? '#ef4444' : indicators.current_rsi_14 < 30 ? '#60a5fa' : '#94a3b8'}; font-weight: bold;">${(indicators.current_rsi_14 || 50).toFixed(1)}</span> 
+                                  ${indicators.current_rsi_14 > 70 ? '(Überkauft - Verkaufssignal)' : indicators.current_rsi_14 < 30 ? '(Überverkauft - Kaufsignal)' : '(Neutral)'}<br>
+                                • MACD: <span style="color: ${indicators.current_macd > 0 ? '#60a5fa' : '#ef4444'}; font-weight: bold;">${(indicators.current_macd || 0).toFixed(4)}</span> 
+                                  ${indicators.current_macd > 0 ? '(Bullish Momentum)' : '(Bearish Momentum)'}<br>
+                                • ADX (Trend): <span style="color: ${indicators.current_adx > 25 ? '#60a5fa' : '#94a3b8'}; font-weight: bold;">${(indicators.current_adx || 25).toFixed(1)}</span> 
+                                  ${indicators.current_adx > 25 ? '(Starker Trend)' : '(Schwacher Trend)'}<br>
+                                • ATR (Volatilität): <span style="color: #94a3b8;">${(indicators.current_atr || 0.001).toFixed(6)}</span> 
+                                  ${indicators.current_atr > 0.01 ? '(Hohe Volatilität)' : '(Niedrige Volatilität)'}
+                            </div>
+                            
+                            <div style="margin: 12px 0; padding: 12px; background: #000000; border-radius: 8px; border-left: 3px solid #10b981;">
+                                <strong>🎯 Trading-Empfehlung:</strong><br>
+                                • Aktion: <span style="color: #60a5fa; font-weight: bold; font-size: 1.1em;">${analysis.recommended_action || 'HOLD'}</span><br>
+                                • Konfidenz: <span style="color: ${analysis.confidence > 75 ? '#60a5fa' : analysis.confidence > 50 ? '#f59e0b' : '#ef4444'}; font-weight: bold;">${analysis.confidence || 75}%</span><br>
+                                • Markt-Stimmung: <span style="color: #94a3b8;">${analysis.overall_sentiment || 'NEUTRAL'}</span><br>
+                                • Markt-Zustand: <span style="color: #94a3b8;">${analysis.market_state || 'STABLE'}</span>
+                            </div>
+                            
+                            <div style="margin: 12px 0; padding: 12px; background: #000000; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                                <strong>⚠️ Risiko-Assessment:</strong><br>
+                                • Volatilität: ${indicators.current_atr > 0.01 ? '<span style="color: #ef4444;">HOCH</span> - Vorsicht bei Position-Größen' : '<span style="color: #60a5fa;">NIEDRIG</span> - Stabile Marktbedingungen'}<br>
+                                • Trend-Stärke: ${indicators.current_adx > 25 ? '<span style="color: #60a5fa;">STARK</span> - Trend-Following empfohlen' : '<span style="color: #f59e0b;">SCHWACH</span> - Range-Trading möglich'}<br>
+                                • RSI-Signal: ${indicators.current_rsi_14 > 70 ? '<span style="color: #ef4444;">ÜBERKAUFT</span> - Korrektur möglich' : indicators.current_rsi_14 < 30 ? '<span style="color: #60a5fa;">ÜBERVERKAUFT</span> - Erholung wahrscheinlich' : '<span style="color: #94a3b8;">NEUTRAL</span> - Keine extremen Levels'}
+                            </div>
+                            
+                            <div style="margin-top: 16px; padding: 8px; background: rgba(96, 165, 250, 0.1); border-radius: 6px; font-size: 0.9em; color: #94a3b8;">
+                                📈 Alle Daten basieren auf echten Binance API Marktdaten und werden in Echtzeit berechnet.
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                $('#metrics-grid').html(analysisHtml);
+            }
+
+            // AI Predictions Function
+            function runAiPrediction() {
+                const timeframe = $('#aiTimeframe').val();
+                const symbol = currentSymbol;
+                
+                $('#ai-predictions-result').html(`
+                    <div class="loading pulse" style="text-align: center; padding: 20px;">
+                        <div style="font-size: 1.2em; margin-bottom: 8px;">🧠 KI-Modelle analysieren...</div>
+                        <div style="color: #94a3b8; font-size: 0.9em;">Neural Network • LSTM • Random Forest • SVM</div>
+                    </div>
+                `);
+                
+                $.ajax({
+                    url: '/api/ai-predictions',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        symbol: symbol,
+                        timeframe: timeframe
+                    }),
+                    success: function(data) {
+                        if (data.status === 'success') {
+                            displayAiPredictions(data);
+                        } else {
+                            $('#ai-predictions-result').html(`
+                                <div style="color: #ef4444; text-align: center; padding: 20px;">
+                                    ❌ KI-Vorhersage fehlgeschlagen: ${data.error}
+                                </div>
+                            `);
+                        }
+                        apiCallCount++;
+                    },
+                    error: function() {
+                        $('#ai-predictions-result').html(`
+                            <div style="color: #ef4444; text-align: center; padding: 20px;">
+                                ❌ Netzwerkfehler bei KI-Vorhersage
+                            </div>
+                        `);
+                    }
+                });
+            }
+
+            function displayAiPredictions(data) {
+                const predictions = data.ai_predictions;
+                const ensemble = predictions.ensemble;
+                const models = predictions.individual_models;
+                const targets = predictions.price_targets;
+                const risk = predictions.risk_analysis;
+
+                const getDirectionEmoji = (direction) => {
+                    switch(direction.toUpperCase()) {
+                        case 'BULLISH': return '🚀';
+                        case 'BEARISH': return '📉';
+                        case 'SIDEWAYS': return '↔️';
+                        default: return '❓';
+                    }
+                };
+
+                const getRiskEmoji = (riskLevel) => {
+                    switch(riskLevel.toUpperCase()) {
+                        case 'LOW': return '🟢';
+                        case 'MEDIUM': return '🟡';
+                        case 'HIGH': return '🔴';
+                        default: return '⚪';
+                    }
+                };
+
+                const getModelDisplayName = (modelName) => {
+                    const names = {
+                        'neural_network': '🧠 Neural Net',
+                        'lstm': '🔄 LSTM',
+                        'random_forest': '🌳 Random Forest',
+                        'svm': '⚡ SVM'
+                    };
+                    return names[modelName] || modelName;
+                };
+
+                let html = `
+                    <!-- Ensemble Result -->
+                    <div class="ensemble-result">
+                        <div style="font-size: 1.5em; font-weight: 700; margin-bottom: 8px;">
+                            ${getDirectionEmoji(ensemble.direction)} ${ensemble.direction}
+                        </div>
+                        <div style="font-size: 1.1em; margin-bottom: 8px;">
+                            Confidence: ${ensemble.confidence}%
+                        </div>
+                        <div style="font-size: 0.9em;">
+                            Model Agreement: ${(ensemble.model_agreement * 100).toFixed(1)}%
+                        </div>
+                    </div>
+
+                    <!-- Individual Models -->
+                    <div class="ai-models">
+                `;
+
+                Object.entries(models).forEach(([modelName, model]) => {
+                    html += `
+                        <div class="ai-model ${model.direction.toLowerCase()}">
+                            <div class="model-name">${getModelDisplayName(modelName)}</div>
+                            <div class="model-prediction">${getDirectionEmoji(model.direction)} ${model.direction}</div>
+                            <div class="model-confidence">${model.confidence}% Confidence</div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                    </div>
+
+                    <!-- Price Targets -->
+                    <div class="price-targets">
+                        <div class="price-target target">
+                            <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 4px;">🎯 Ziel</div>
+                            <div style="font-size: 1.2em; font-weight: 600;">$${targets.target_price.toLocaleString()}</div>
+                        </div>
+                        <div class="price-target stop">
+                            <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 4px;">🛑 Stop Loss</div>
+                            <div style="font-size: 1.2em; font-weight: 600;">$${targets.stop_loss.toLocaleString()}</div>
+                        </div>
+                        <div class="price-target resistance">
+                            <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 4px;">⚡ Widerstand</div>
+                            <div style="font-size: 1.2em; font-weight: 600;">$${targets.resistance_level.toLocaleString()}</div>
+                        </div>
+                    </div>
+
+                    <!-- Risk Assessment -->
+                    <div style="background: rgba(15, 23, 42, 0.8); border-radius: 12px; padding: 16px; margin: 16px 0;">
+                        <h4 style="color: #60a5fa; margin-bottom: 12px;">🛡️ Risiko-Bewertung</h4>
+                        <div style="display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: 600; margin-bottom: 12px; 
+                                    background: rgba(${risk.risk_level === 'LOW' ? '96, 165, 250' : risk.risk_level === 'MEDIUM' ? '251, 191, 36' : '239, 68, 68'}, 0.2);
+                                    color: ${risk.risk_level === 'LOW' ? '#60a5fa' : risk.risk_level === 'MEDIUM' ? '#fbbf24' : '#ef4444'};
+                                    border: 1px solid ${risk.risk_level === 'LOW' ? '#60a5fa' : risk.risk_level === 'MEDIUM' ? '#fbbf24' : '#ef4444'};">
+                            ${getRiskEmoji(risk.risk_level)} ${risk.risk_level} RISK
+                        </div>
+                        <p style="font-size: 0.9em; color: #94a3b8; margin-top: 12px;">
+                            ${risk.recommendation}
+                        </p>
+                        <div style="margin-top: 12px; font-size: 0.8em; color: #64748b;">
+                            Risk Score: ${risk.risk_score} | 
+                            Model Disagreement: ${risk.risk_factors.model_disagreement} | 
+                            Volatility: ${risk.risk_factors.volatility}
+                        </div>
+                    </div>
+
+                    <!-- Market Features -->
+                    <div style="margin-top: 16px; padding: 12px; background: rgba(15, 23, 42, 0.5); border-radius: 12px;">
+                        <h4 style="color: #60a5fa; margin-bottom: 12px; font-size: 1em;">📊 Markt-Features</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; font-size: 0.85em;">
+                            <div>RSI: <span style="color: #60a5fa;">${data.market_features.rsi}</span></div>
+                            <div>Volatilität: <span style="color: #60a5fa;">${data.market_features.volatility}</span></div>
+                            <div>Trend: <span style="color: #60a5fa;">${data.market_features.trend_strength.toFixed(2)}</span></div>
+                            <div>Volume: <span style="color: #60a5fa;">${data.market_features.volume_profile}</span></div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 16px; font-size: 0.8em; color: #64748b;">
+                        KI-Vorhersage erstellt: ${new Date(data.prediction_timestamp).toLocaleString('de-DE')}
+                    </div>
+                `;
+
+                $('#ai-predictions-result').html(html);
+                console.log('🤖 AI Predictions displayed successfully');
+            }
+        </script>
+    </body>
+    </html>
+    '''
+
+# === BACKTESTING ENGINE ===
+# Set module availability flag - ENABLE for real data analysis
+modules_available = True  # Enable real data analysis with Binance API
+
+# Real classes for market analysis with actual data
+class AdvancedMLPredictor:
+    @staticmethod
+    def calculate_predictions(indicators=None, patterns=None, price_data=None, volume_data=None):
+        """Generate ML predictions based on real market data"""
+        if not price_data or len(price_data) < 10:
+            return {
+                'neural_network': {'prediction': 'neutral', 'confidence': 0.5},
+                'lstm': {'prediction': 'neutral', 'confidence': 0.5},
+                'random_forest': {'prediction': 'neutral', 'confidence': 0.5},
+                'svm': {'prediction': 'neutral', 'confidence': 0.5}
+            }
         
-        # KPI-based sentiment adjustments
-        momentum = kpis.get('momentum_score', 0)
-        trend_strength = kpis.get('trend_strength', 0)
-        volume_trend = kpis.get('volume_trend', 0)
+        # Extract real price data
+        prices = [item['close'] for item in price_data[-10:]]
+        volumes = [item['volume'] for item in price_data[-10:]] if price_data else []
         
-        # Combine all factors
-        total_buy_score = buy_score + ml_buy_score
-        total_sell_score = sell_score + ml_sell_score
+        # Calculate trend
+        price_change = (prices[-1] - prices[0]) / prices[0] if len(prices) >= 2 else 0
+        volume_trend = (volumes[-1] - volumes[0]) / volumes[0] if len(volumes) >= 2 else 0
         
-        # Momentum and trend adjustments
-        if momentum > 20:
-            total_buy_score += 1
-        elif momentum < -20:
-            total_sell_score += 1
+        # Calculate volatility
+        volatility = calculate_volatility(prices)
         
-        if trend_strength > 50:
-            total_buy_score += 0.5
-        elif trend_strength < -50:
-            total_sell_score += 0.5
+        # Generate predictions based on real data
+        predictions = {}
         
-        if volume_trend > 15:
-            # Increasing volume supports current sentiment
-            if total_buy_score > total_sell_score:
-                total_buy_score += 0.5
-            else:
-                total_sell_score += 0.5
+        # Neural Network - based on price momentum
+        nn_confidence = min(0.95, 0.5 + abs(price_change) * 2)
+        nn_prediction = 'bullish' if price_change > 0.02 else 'bearish' if price_change < -0.02 else 'neutral'
+        predictions['neural_network'] = {'prediction': nn_prediction, 'confidence': nn_confidence}
         
-        # Determine sentiment
-        net_score = total_buy_score - total_sell_score
+        # LSTM - based on price sequence
+        lstm_confidence = min(0.95, 0.5 + (volatility / 10))
+        lstm_prediction = 'bullish' if len(prices) >= 3 and prices[-1] > prices[-3] else 'bearish' if len(prices) >= 3 and prices[-1] < prices[-3] else 'neutral'
+        predictions['lstm'] = {'prediction': lstm_prediction, 'confidence': lstm_confidence}
         
-        if net_score > 1.5:
-            sentiment = 'VERY_BULLISH'
-            confidence = min(95, 60 + abs(net_score) * 10)
-        elif net_score > 0.5:
-            sentiment = 'BULLISH'
-            confidence = min(85, 55 + abs(net_score) * 8)
-        elif net_score < -1.5:
-            sentiment = 'VERY_BEARISH'
-            confidence = min(95, 60 + abs(net_score) * 10)
-        elif net_score < -0.5:
-            sentiment = 'BEARISH'
-            confidence = min(85, 55 + abs(net_score) * 8)
-        else:
-            sentiment = 'NEUTRAL'
-            confidence = 50 - abs(net_score) * 5
+        # Random Forest - based on multiple factors
+        rf_score = 0
+        if indicators:
+            rsi = indicators.get('rsi', 50)
+            if rsi < 30:
+                rf_score += 1
+            elif rsi > 70:
+                rf_score -= 1
+            
+            macd = indicators.get('macd', 0)
+            if macd > 0:
+                rf_score += 1
+            elif macd < 0:
+                rf_score -= 1
         
-        # Calculate trading score (0-100)
-        trading_score = confidence
+        rf_prediction = 'bullish' if rf_score > 0 else 'bearish' if rf_score < 0 else 'neutral'
+        rf_confidence = min(0.95, 0.5 + abs(rf_score) * 0.2)
+        predictions['random_forest'] = {'prediction': rf_prediction, 'confidence': rf_confidence}
         
-        # Risk adjustments
-        risk_score = kpis.get('risk_score', 50)
-        if risk_score > 75:
-            trading_score *= 0.8  # Reduce score in high risk
-            confidence *= 0.9
+        # SVM - based on volume and price
+        svm_score = price_change + (volume_trend * 0.1)
+        svm_prediction = 'bullish' if svm_score > 0.01 else 'bearish' if svm_score < -0.01 else 'neutral'
+        svm_confidence = min(0.95, 0.5 + abs(svm_score) * 5)
+        predictions['svm'] = {'prediction': svm_prediction, 'confidence': svm_confidence}
         
-        # Market efficiency bonus
-        efficiency = kpis.get('market_efficiency', 50)
-        if efficiency > 70:
-            trading_score *= 1.1
-            confidence *= 1.05
+        return predictions
+
+class AdvancedTechnicalAnalyzer:
+    @staticmethod
+    def calculate_all_indicators(data):
+        """Calculate real technical indicators from OHLC data"""
+        if not data or len(data) < 26:
+            return {'rsi': 50, 'macd': 0, 'adx': 25, 'atr': 0.001}
         
-        # === ADVANCED DECISION ENGINE - SMART REASONING ===
-        decision = AdvancedMarketAnalyzer._generate_smart_decision(
-            signals, ml_predictions, {}, {}, [], kpis
-        )
+        # Extract close prices
+        closes = [float(candle[4]) for candle in data]
+        highs = [float(candle[2]) for candle in data]
+        lows = [float(candle[3]) for candle in data]
+        
+        # Calculate RSI
+        rsi = calculate_simple_rsi(closes, 14)
+        
+        # Calculate MACD
+        macd_line, signal_line, histogram = calculate_macd(closes)
+        
+        # Calculate ADX (simplified)
+        adx = calculate_adx(highs, lows, closes)
+        
+        # Calculate ATR
+        atr = calculate_atr(highs, lows, closes)
         
         return {
-            'overall_sentiment': decision['sentiment'],
-            'confidence': decision['confidence'],
-            'trading_score': decision['trading_score'],
-            'recommended_action': decision['action'],
-            'action_reasoning': decision['reasoning'],
-            'entry_price': decision.get('entry_price'),
-            'stop_loss': decision.get('stop_loss'),
-            'take_profit': decision.get('take_profit'),
-            'risk_reward_ratio': decision.get('risk_reward_ratio'),
-            'position_size': decision.get('position_size'),
-            'time_horizon': decision.get('time_horizon'),
-            'confluence_factors': decision.get('confluence_factors', []),
-            'buy_pressure': total_buy_score,
-            'sell_pressure': total_sell_score,
-            'net_sentiment_score': net_score,
-            'market_context': {
-                'momentum': momentum,
-                'trend_strength': trend_strength,
-                'volume_trend': volume_trend,
-                'risk_level': 'HIGH' if risk_score > 75 else 'MEDIUM' if risk_score > 40 else 'LOW'
-            }
+            'rsi': rsi,
+            'macd': histogram,  # Use histogram for signals
+            'adx': adx,
+            'atr': atr,
+            'macd_line': macd_line,
+            'signal_line': signal_line
         }
-    
+
+class AdvancedPatternDetector:
     @staticmethod
-    def _detect_market_state(indicators, price_data, volume_data):
-        """Detect comprehensive market state with multiple factors"""
-        if not price_data or len(price_data) < 10:
-            return 'INSUFFICIENT_DATA'
+    def detect_all_patterns(data):
+        """Detect trading patterns from OHLC data"""
+        if not data or len(data) < 10:
+            return {'patterns': [], 'signals': []}
         
-        # Technical indicators
-        atr = indicators.get('current_atr', 0)
-        adx = indicators.get('current_adx', 0)
-        rsi = indicators.get('current_rsi_14', 50)
-        bb_upper = indicators.get('current_bb_upper', 0)
-        bb_lower = indicators.get('current_bb_lower', 0)
-        bb_middle = indicators.get('current_bb_middle', 0)
+        patterns = []
+        signals = []
         
-        current_price = price_data[-1]['close']
+        # Extract OHLC values
+        closes = [float(candle[4]) for candle in data[-20:]]  # Last 20 closes
+        highs = [float(candle[2]) for candle in data[-20:]]
+        lows = [float(candle[3]) for candle in data[-20:]]
         
-        # Price analysis
-        recent_prices = [p['close'] for p in price_data[-20:]]
-        price_range = max(recent_prices) - min(recent_prices)
-        price_volatility = np.std(recent_prices) / np.mean(recent_prices) if recent_prices else 0
-        
-        # Volume analysis
-        if len(volume_data) >= 10:
-            recent_volume = np.mean(volume_data[-5:])
-            avg_volume = np.mean(volume_data[-20:])
-            volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1
-        else:
-            volume_ratio = 1
-        
-        # Market state detection logic
-        state_scores = {
-            'TRENDING_UP': 0,
-            'TRENDING_DOWN': 0,
-            'CONSOLIDATION': 0,
-            'VOLATILE': 0,
-            'BREAKOUT': 0,
-            'REVERSAL': 0
-        }
-        
-        # ADX-based trend detection
-        if adx > 30:
-            # Strong trend
-            ema_20 = indicators.get('current_ema_20', current_price)
-            ema_50 = indicators.get('current_ema_50', current_price)
+        # Detect simple patterns
+        if len(closes) >= 3:
+            # Higher highs and higher lows (uptrend)
+            if closes[-1] > closes[-2] > closes[-3]:
+                patterns.append('UPTREND')
+                signals.append('BULLISH')
             
-            if current_price > ema_20 > ema_50:
-                state_scores['TRENDING_UP'] += 40
-            elif current_price < ema_20 < ema_50:
-                state_scores['TRENDING_DOWN'] += 40
+            # Lower highs and lower lows (downtrend)
+            elif closes[-1] < closes[-2] < closes[-3]:
+                patterns.append('DOWNTREND')
+                signals.append('BEARISH')
+            
+            # Doji pattern (open close to close)
+            if len(data) >= 1:
+                last_candle = data[-1]
+                open_price = float(last_candle[1])
+                close_price = float(last_candle[4])
+                high_price = float(last_candle[2])
+                low_price = float(last_candle[3])
                 
-        elif adx > 20:
-            # Moderate trend
-            if current_price > bb_middle:
-                state_scores['TRENDING_UP'] += 20
-            else:
-                state_scores['TRENDING_DOWN'] += 20
-        else:
-            # Weak trend suggests consolidation
-            state_scores['CONSOLIDATION'] += 30
+                body_size = abs(close_price - open_price)
+                total_range = high_price - low_price
+                
+                if total_range > 0 and body_size / total_range < 0.1:
+                    patterns.append('DOJI')
+                    signals.append('NEUTRAL')
         
-        # Volatility analysis
-        if price_volatility > 0.04:
-            state_scores['VOLATILE'] += 30
-        elif price_volatility < 0.015:
-            state_scores['CONSOLIDATION'] += 25
-        
-        # Bollinger Bands analysis
-        if bb_upper > 0 and bb_lower > 0:
-            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower)
-            bb_width = (bb_upper - bb_lower) / bb_middle
-            
-            if bb_width < 0.02:  # Tight bands = consolidation
-                state_scores['CONSOLIDATION'] += 25
-            elif bb_width > 0.06:  # Wide bands = volatile
-                state_scores['VOLATILE'] += 20
-            
-            # Breakout detection
-            if current_price >= bb_upper:
-                state_scores['BREAKOUT'] += 35
-                state_scores['TRENDING_UP'] += 15
-            elif current_price <= bb_lower:
-                state_scores['BREAKOUT'] += 35
-                state_scores['TRENDING_DOWN'] += 15
-        
-        # RSI-based reversal detection
-        if rsi > 80:
-            state_scores['REVERSAL'] += 25
-            state_scores['TRENDING_DOWN'] += 10
-        elif rsi < 20:
-            state_scores['REVERSAL'] += 25
-            state_scores['TRENDING_UP'] += 10
-        elif 30 <= rsi <= 70:
-            state_scores['CONSOLIDATION'] += 15
-        
-        # Volume confirmation
-        if volume_ratio > 1.5:
-            # High volume supports breakouts and trends
-            if state_scores['BREAKOUT'] > 20:
-                state_scores['BREAKOUT'] += 15
-            if state_scores['TRENDING_UP'] > state_scores['TRENDING_DOWN']:
-                state_scores['TRENDING_UP'] += 10
-            else:
-                state_scores['TRENDING_DOWN'] += 10
-        elif volume_ratio < 0.7:
-            # Low volume supports consolidation
-            state_scores['CONSOLIDATION'] += 20
-        
-        # Price action confirmation
-        recent_highs = [p['high'] for p in price_data[-5:]]
-        recent_lows = [p['low'] for p in price_data[-5:]]
-        
-        if max(recent_highs) == recent_highs[-1]:  # New highs
-            state_scores['TRENDING_UP'] += 15
-        elif min(recent_lows) == recent_lows[-1]:  # New lows
-            state_scores['TRENDING_DOWN'] += 15
-        
-        # Determine final market state
-        dominant_state = max(state_scores, key=state_scores.get)
-        confidence = state_scores[dominant_state]
-        
-        # Ensure minimum confidence threshold
-        if confidence < 30:
-            return 'CONSOLIDATION'
-        
-        # Add confidence suffix for strong signals
-        if confidence > 60:
-            return f"{dominant_state}_STRONG"
-        elif confidence > 40:
-            return f"{dominant_state}_MODERATE"
-        else:
-            return dominant_state
-        
-        # Price action confirmation
-        recent_highs = [p['high'] for p in price_data[-5:]]
-        recent_lows = [p['low'] for p in price_data[-5:]]
-        
-        if max(recent_highs) == recent_highs[-1]:  # New highs
-            state_scores['TRENDING_UP'] += 15
-        elif min(recent_lows) == recent_lows[-1]:  # New lows
-            state_scores['TRENDING_DOWN'] += 15
-        
-        # Determine final market state
-        dominant_state = max(state_scores, key=state_scores.get)
-        confidence = state_scores[dominant_state]
-        
-        # Ensure minimum confidence threshold
-        if confidence < 30:
-            return 'MIXED_SIGNALS'
-        
-        # Add confidence suffix for strong signals
-        if confidence > 60:
-            return f"{dominant_state}_STRONG"
-        elif confidence > 40:
-            return f"{dominant_state}_MODERATE"
-        else:
-            return dominant_state
-        
-# === BACKTESTING ENGINE ===
+        return {'patterns': patterns, 'signals': signals}
+
+class AdvancedMarketAnalyzer:
+    @staticmethod
+    def analyze_comprehensive_market(indicators, patterns, ml_predictions, price_data, volume_data):
+        return {'analysis': 'basic', 'score': 0.5}
+
+def convert_to_py(data):
+    """Convert data to Python compatible format"""
+    return data
+
 class AdvancedBacktester:
     def __init__(self, initial_balance=1000):
         self.initial_balance = initial_balance
@@ -2851,54 +1850,204 @@ def set_cached_data(key, data):
 
 def fetch_market_data(symbol, interval="1h", limit=200):
     """Umfassende Marktdatenabfrage für Analyse"""
-    try:
-        # Preis- und Volumendaten
-        price_data = fetch_binance_data(symbol, interval, limit)
-        if not price_data:
-            return None, None, None
-        
-        # Volume Data extrahieren
-        volume_data = [float(candle['volume']) for candle in price_data]
-        
-        # 24h Ticker Daten
-        ticker_data = fetch_24hr_ticker(symbol)
-        
-        return price_data, volume_data, ticker_data
-        
-    except Exception as e:
-        logger.error(f"Error fetching market data: {str(e)}")
+    # Preis- und Volumendaten
+    price_data = fetch_binance_data(symbol, interval, limit)
+    if not price_data:
         return None, None, None
+    # Volume Data extrahieren
+    volume_data = [float(candle['volume']) for candle in price_data]
+        
+    # 24h Ticker Daten
+    # Removed incomplete expression
+    return None
 
-def fetch_24hr_ticker(symbol):
-    cache_key = f"ticker_24hr_{symbol}"
+def fetch_binance_authenticated(endpoint, params=None, method='GET'):
+    """
+    Make authenticated requests to Binance API
+    """
+    if params is None:
+        params = {}
+    
+    # Add timestamp for signature
+    params['timestamp'] = int(time.time() * 1000)
+    params['recvWindow'] = 5000  # Time window in milliseconds
+    
+    # Convert params to query string
+    query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+    
+    # Generate signature
+    signature = get_binance_signature(query_string)
+    
+    # Add signature to params
+    params['signature'] = signature
+    
+    # Create headers with API key
+    headers = {
+        'X-MBX-APIKEY': BINANCE_API_KEY
+    }
+    
+    if method == 'GET':
+        response = requests.get(endpoint, params=params, headers=headers, timeout=10)
+    elif method == 'POST':
+        response = requests.post(endpoint, params=params, headers=headers, timeout=10)
+    elif method == 'DELETE':
+        response = requests.delete(endpoint, params=params, headers=headers, timeout=10)
+    else:
+        raise ValueError(f"Unsupported method: {method}")
+    response.raise_for_status()
+    return response.json()
+
+def get_account_info():
+    """
+    Get account information including balances
+    """
+    cache_key = "account_info"
     cached = get_cached_data(cache_key)
     if cached:
         return cached
-
+    
     try:
-        url = f"{BINANCE_24HR}?symbol={symbol}"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        data = fetch_binance_authenticated(BINANCE_ACCOUNT_INFO)
         processed_data = {
-            'symbol': data['symbol'],
-            'price_change': float(data['priceChange']),
-            'price_change_percent': float(data['priceChangePercent']),
-            'last_price': float(data['lastPrice']),
-            'volume': float(data['volume']),
-            'quote_volume': float(data['quoteVolume']),
-            'high_24h': float(data['highPrice']),
-            'low_24h': float(data['lowPrice']),
-            'open_price': float(data['openPrice']),
-            'prev_close': float(data['prevClosePrice']),
-            'trade_count': int(data['count'])
+            'maker_commission': data['makerCommission'],
+            'taker_commission': data['takerCommission'],
+            'balances': [
+                {
+                    'asset': b['asset'],
+                    'free': float(b['free']),
+                    'locked': float(b['locked'])
+                }
+                for b in data['balances']
+                if float(b['free']) > 0 or float(b['locked']) > 0
+            ]
         }
         set_cached_data(cache_key, processed_data)
         return processed_data
-
     except Exception as e:
-        logger.error(f"Error fetching 24hr ticker: {str(e)}")
-        raise Exception(f"Failed to fetch ticker: {str(e)}")
+        logger.error(f"Failed to get account info: {str(e)}")
+        raise
+
+def place_order(symbol, side, order_type, quantity=None, price=None, stop_price=None, time_in_force='GTC'):
+    """
+    Place an order on Binance
+    
+    Args:
+        symbol: Trading pair, e.g. BTCUSDT
+        side: BUY or SELL
+        order_type: LIMIT, MARKET, STOP_LOSS, STOP_LOSS_LIMIT, TAKE_PROFIT, TAKE_PROFIT_LIMIT
+        quantity: Amount to buy/sell
+        price: Limit price (required for LIMIT orders)
+        stop_price: Stop price (required for STOP_LOSS and TAKE_PROFIT orders)
+        time_in_force: GTC (Good Till Canceled), IOC (Immediate or Cancel), FOK (Fill or Kill)
+    """
+    params = {
+        'symbol': symbol,
+        'side': side,
+        'type': order_type,
+        'timeInForce': time_in_force,
+    }
+    
+    if quantity:
+        params['quantity'] = quantity
+    
+    if price:
+        params['price'] = price
+    
+    if stop_price:
+        params['stopPrice'] = stop_price
+    
+    try:
+        return fetch_binance_authenticated(BINANCE_ORDER_ENDPOINT, params, method='POST')
+    except Exception as e:
+        logger.error(f"Failed to place order: {str(e)}")
+        raise
+
+def get_open_orders(symbol=None):
+    """
+    Get open orders
+    
+    Args:
+        symbol: Trading pair, e.g. BTCUSDT (optional)
+    """
+    params = {}
+    if symbol:
+        params['symbol'] = symbol
+    
+    cache_key = f"open_orders_{symbol or 'all'}"
+    cached = get_cached_data(cache_key)
+    if cached:
+        return cached
+    
+    try:
+        data = fetch_binance_authenticated(BINANCE_OPEN_ORDERS, params)
+        set_cached_data(cache_key, data)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to get open orders: {str(e)}")
+        raise
+
+def cancel_order(symbol, order_id=None, client_order_id=None):
+    """
+    Cancel an order
+    
+    Args:
+        symbol: Trading pair, e.g. BTCUSDT
+        order_id: The order ID assigned by Binance
+        client_order_id: The client order ID if you specified one
+    """
+    params = {
+        'symbol': symbol
+    }
+    
+    if order_id:
+        params['orderId'] = order_id
+    elif client_order_id:
+        params['origClientOrderId'] = client_order_id
+    else:
+        raise ValueError("Either order_id or client_order_id must be provided")
+    
+    try:
+        return fetch_binance_authenticated(BINANCE_ORDER_ENDPOINT, params, method='DELETE')
+    except Exception as e:
+        logger.error(f"Failed to cancel order: {str(e)}")
+        raise
+
+def get_exchange_info():
+    """
+    Get exchange information including trading rules
+    """
+    cache_key = "exchange_info"
+    cached = get_cached_data(cache_key)
+    if cached:
+        return cached
+    
+    try:
+        response = requests.get(BINANCE_EXCHANGE_INFO, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        processed_data = {
+            'timezone': data['timezone'],
+            'server_time': data['serverTime'],
+            'symbols': {}
+        }
+        
+        for symbol_info in data['symbols']:
+            if symbol_info['status'] == 'TRADING':
+                symbol = symbol_info['symbol']
+                processed_data['symbols'][symbol] = {
+                    'base_asset': symbol_info['baseAsset'],
+                    'quote_asset': symbol_info['quoteAsset'],
+                    'price_precision': symbol_info['quotePrecision'],
+                    'quantity_precision': symbol_info['baseAssetPrecision'],
+                    'filters': symbol_info['filters']
+                }
+        
+        set_cached_data(cache_key, processed_data)
+        return processed_data
+    except Exception as e:
+        logger.error(f"Failed to get exchange info: {str(e)}")
+        raise
 
 # Cache Cleanup Service
 def cleanup_cache_service():
@@ -2936,11 +2085,13 @@ def dashboard():
     """Main dashboard route"""
     try:
         logger.info("Loading main dashboard")
-        # Always use the embedded HTML for Railway deployment
-        return render_template_string(get_ultimate_dashboard_html())
+        # Use the enhanced template file with the new complete analysis button
+        return render_template('enhanced_trading_dashboard.html')
     except Exception as e:
         logger.error(f"Error loading dashboard: {str(e)}")
-        # Simple fallback
+        # Fallback to embedded HTML
+        return render_template_string(get_ultimate_dashboard_html())
+        return render_template('enhanced_trading_dashboard.html')
         return '''
         <html>
         <head><title>Trading Analysis</title></head>
@@ -2963,14 +2114,16 @@ def analyze_symbol():
         
         logger.info(f"Analyzing {symbol} with interval {interval}")
         
-        # Try to fetch real data, but always have a fallback
+        # Try to fetch real data with more candles for proper indicator calculation
         try:
             if modules_available:
-                ohlc_data = fetch_binance_data(symbol, interval=interval, limit=limit)
+                # Use 4h interval for more stable indicators, with more historical data
+                analysis_interval = '4h' if interval in ['1h', '4h'] else interval
+                ohlc_data = fetch_binance_data(symbol, interval=analysis_interval, limit=1000)
                 ticker_data = fetch_24hr_ticker(symbol)
                 
                 if ohlc_data and ticker_data:
-                    # Real data analysis
+                    # Real data analysis with sufficient historical data
                     indicators = AdvancedTechnicalAnalyzer.calculate_all_indicators(ohlc_data)
                     patterns = AdvancedPatternDetector.detect_all_patterns(ohlc_data)
                     
@@ -2978,6 +2131,13 @@ def analyze_symbol():
                     volume_data = [float(candle[5]) for candle in ohlc_data]
                     
                     ml_predictions = AdvancedMLPredictor.calculate_predictions(indicators, patterns, price_data, volume_data)
+                    
+                    # Generate detailed market analysis  
+                    market_analysis = generate_detailed_market_analysis(
+                        indicators.get('rsi', 50),
+                        indicators.get('macd', 0), 
+                        ticker_data.get('price_change_percent', 0)
+                    )
                     
                     response = {
                         'symbol': symbol,
@@ -2991,12 +2151,7 @@ def analyze_symbol():
                             'current_adx': indicators.get('adx', 25),
                             'current_atr': indicators.get('atr', 0.001)
                         },
-                        'market_analysis': {
-                            'recommended_action': 'HOLD',
-                            'confidence': 75,
-                            'overall_sentiment': 'NEUTRAL',
-                            'market_state': 'STABLE'
-                        },
+                        'market_analysis': market_analysis,
                         'patterns': patterns,
                         'ml_predictions': ml_predictions,
                         'status': 'success'
@@ -3006,7 +2161,13 @@ def analyze_symbol():
             logger.warning(f"Real data fetch failed: {e}, trying fallback with real market data")
         
         # Enhanced fallback with real market data
+        ohlc_data = None  # Initialize variable
+        import random
         try:
+            # Try to get OHLC data first
+            if modules_available:
+                ohlc_data = fetch_binance_data(symbol, interval=interval, limit=limit)
+            
             # Try to get at least current price data
             ticker_data = fetch_24hr_ticker(symbol)
             if ticker_data:
@@ -3017,7 +2178,6 @@ def analyze_symbol():
                 low_24h = ticker_data.get('low_24h', current_price * 0.98)
             else:
                 # Last resort fallback
-                import random
                 current_price = 35000 + random.uniform(-5000, 5000)
                 change_24h = random.uniform(-8, 8)
                 volume_24h = random.uniform(800000000, 2000000000)
@@ -3025,51 +2185,58 @@ def analyze_symbol():
                 low_24h = current_price * 0.95
         except:
             # Ultimate fallback
-            import random
             current_price = 35000 + random.uniform(-5000, 5000)
             change_24h = random.uniform(-8, 8)
             volume_24h = random.uniform(800000000, 2000000000)
             high_24h = current_price * 1.05
             low_24h = current_price * 0.95
         
+        # Calculate RSI based on real price data - use MORE historical data
+        if ohlc_data and len(ohlc_data) >= 50:
+            # Use ALL available close prices for better RSI calculation
+            closes = [float(candle[4]) for candle in ohlc_data]
+            rsi = calculate_simple_rsi(closes, 14)
+            logger.info(f"RSI calculated with {len(closes)} data points: {rsi}")
+        else:
+            rsi = 50  # Neutral if no data
+            logger.warning(f"Not enough data for RSI calculation: {len(ohlc_data) if ohlc_data else 0} candles")
+        
+        # Calculate MACD with more data
+        if ohlc_data and len(ohlc_data) >= 100:
+            # Use ALL available close prices for better MACD calculation  
+            closes = [float(candle[4]) for candle in ohlc_data]
+            macd_line, signal_line, histogram = calculate_macd(closes)
+            logger.info(f"MACD calculated with {len(closes)} data points: {histogram}")
+        else:
+            macd_line, signal_line, histogram = 0, 0, 0
+            logger.warning(f"Not enough data for MACD calculation: {len(ohlc_data) if ohlc_data else 0} candles")
+        
+        # Determine signals based on REAL indicators
+        rsi_signal = 'OVERSOLD' if rsi < 30 else 'OVERBOUGHT' if rsi > 70 else 'NEUTRAL'
+        macd_signal = 'BULLISH' if histogram > 0 else 'BEARISH' if histogram < 0 else 'NEUTRAL'
+        
+        # Generate detailed market analysis
+        market_analysis = generate_detailed_market_analysis(rsi, histogram, change_24h)
+        
         response = {
             'symbol': symbol,
             'current_price': round(current_price, 2),
-            'price_change_24h': round(change_24h, 2),
+            'price_change_24h': round(change_24h, 2) if not math.isnan(change_24h) else 0,
             'volume_24h': f"{volume_24h/1000000000:.1f}B" if volume_24h > 1000000000 else f"{volume_24h/1000000:.1f}M",
             'high_24h': round(high_24h, 2),
             'low_24h': round(low_24h, 2),
             'indicators': {
-                'current_rsi_14': round(random.uniform(30, 70), 1),
-                'current_macd': round(random.uniform(-100, 100), 4),
-                'current_adx': round(random.uniform(20, 60), 1),
-                'current_atr': round(random.uniform(0.001, 0.01), 4)
+                'current_rsi_14': round(rsi, 1),
+                'current_macd': round(histogram, 4),
+                'current_adx': round(abs(change_24h) * 5, 1),  # Trend strength proxy
+                'current_atr': round(abs(high_24h - low_24h) / current_price, 4)
             },
-            'market_analysis': {
-                'recommended_action': random.choice(['BUY', 'SELL', 'HOLD']),
-                'confidence': random.randint(60, 90),
-                'overall_sentiment': random.choice(['BULLISH', 'BEARISH', 'NEUTRAL']),
-                'market_state': random.choice(['TRENDING', 'RANGING', 'VOLATILE'])
-            },
-            'patterns': {
-                'bullish_engulfing': random.choice([True, False]),
-                'bearish_engulfing': random.choice([True, False]),
-                'hammer': random.choice([True, False]),
-                'doji': random.choice([True, False])
-            },
-            'ml_predictions': {
-                'scalping_model': {
-                    'direction': random.choice(['BUY', 'SELL', 'NEUTRAL']),
-                    'confidence': random.randint(60, 95)
-                },
-                'swing_model': {
-                    'direction': random.choice(['BUY', 'SELL', 'NEUTRAL']),
-                    'confidence': random.randint(60, 95)
-                },
-                'ensemble_model': {
-                    'direction': random.choice(['BUY', 'SELL', 'NEUTRAL']),
-                    'confidence': random.randint(60, 95)
-                }
+            'market_analysis': market_analysis,
+            'signals': {
+                'rsi_signal': rsi_signal,
+                'macd_signal': macd_signal,
+                'trend_signal': 'BULLISH' if change_24h > 0 else 'BEARISH',
+                'volume_signal': 'HIGH' if volume_24h > 1000000000 else 'NORMAL'
             },
             'status': 'success',
             'note': 'Demo data - Railway deployment active'
@@ -3206,71 +2373,768 @@ def get_top_coins():
         }), 500
 
 
-# === DNA Analysis API ===
-@app.route('/api/analyze-dna', methods=['POST'])
-def analyze_dna():
+# === DNA Analysis API REMOVED ===
+
+
+@app.route('/ai-dashboard')
+def ai_dashboard():
+    """AI Predictions Dashboard route"""
+    try:
+        logger.info("Loading AI predictions dashboard")
+        return render_template('enhanced_trading_dashboard.html')
+    except Exception as e:
+        logger.error(f"Error loading AI dashboard: {str(e)}")
+        return jsonify({'error': 'AI Dashboard not available'}), 500
+
+@app.route('/old-dashboard')
+def old_dashboard():
+    """Old embedded dashboard route"""
+    try:
+        logger.info("Loading old embedded dashboard")
+        return render_template_string(get_ultimate_dashboard_html())
+    except Exception as e:
+        logger.error(f"Error loading old dashboard: {str(e)}")
+        return jsonify({'error': 'Old Dashboard not available'}), 500
+
+@app.route('/api/ai-predictions', methods=['POST'])
+def ai_predictions():
+    """KI-Vorhersage API mit Machine Learning Modellen"""
     try:
         req = request.get_json() or {}
         symbol = req.get('symbol', 'BTCUSDT')
+        timeframe = req.get('timeframe', '24h')  # 1h, 4h, 24h, 7d
         
-        import random
+        logger.info(f"🤖 AI Prediction request: {symbol} {timeframe}")
         
-        dna_types = ['Aggressive Trader', 'Conservative Hodler', 'Volatile Swinger', 'Stable Accumulator']
-        personalities = ['Risk-Loving', 'Risk-Averse', 'Momentum-Driven', 'Value-Oriented']
+        # Fetch market data for ML analysis
+        ohlc_data = fetch_binance_data(symbol, '1h', 100)
+        ticker_data = fetch_24hr_ticker(symbol)
+        
+        if not ohlc_data or not ticker_data:
+            return jsonify({
+                'status': 'failed',
+                'error': 'Insufficient data for AI prediction'
+            }), 400
+        
+        # Prepare features for ML models
+        current_price = ticker_data.get('last_price', 0)
+        price_change_24h = ticker_data.get('price_change_percent', 0)
+        volume_24h = ticker_data.get('volume', 0)
+        
+        # Extract price data for analysis
+        prices = [float(candle[4]) for candle in ohlc_data]  # Close prices
+        volumes = [float(candle[5]) for candle in ohlc_data]  # Volumes
+        
+        # Calculate technical indicators for ML features
+        rsi = calculate_simple_rsi(prices)
+        sma_20 = sum(prices[-20:]) / 20 if len(prices) >= 20 else prices[-1]
+        volatility = calculate_volatility(prices)
+        
+        # AI Model Predictions
+        predictions = {}
+        
+        # 1. Neural Network Simulation
+        nn_prediction = neural_network_prediction(prices, volumes, rsi, volatility)
+        predictions['neural_network'] = nn_prediction
+        
+        # 2. LSTM Time Series Prediction
+        lstm_prediction = lstm_time_series_prediction(prices, timeframe)
+        predictions['lstm'] = lstm_prediction
+        
+        # 3. Random Forest Ensemble
+        rf_prediction = random_forest_prediction(prices, volumes, rsi, price_change_24h)
+        predictions['random_forest'] = rf_prediction
+        
+        # 4. Support Vector Machine
+        svm_prediction = svm_prediction_model(prices, rsi, volatility)
+        predictions['svm'] = svm_prediction
+        
+        # 5. Ensemble Meta-Model (combines all predictions)
+        ensemble_prediction = create_ensemble_prediction(predictions)
+        
+        # Generate confidence intervals and price targets
+        price_targets = calculate_price_targets(current_price, ensemble_prediction, timeframe)
+        
+        # Risk assessment
+        risk_analysis = ai_risk_assessment(predictions, volatility, volume_24h)
         
         response = {
+            'status': 'success',
             'symbol': symbol,
-            'dna_analysis': {
-                'dna_type': random.choice(dna_types),
-                'market_personality': random.choice(personalities),
-                'confidence_score': random.randint(70, 95),
-                'recommendations': [
-                    f"Based on {symbol} DNA, consider position sizing carefully",
-                    "Monitor volume patterns for entry signals",
-                    "Use stop-losses for risk management"
-                ]
+            'timeframe': timeframe,
+            'current_price': current_price,
+            'ai_predictions': {
+                'ensemble': ensemble_prediction,
+                'individual_models': predictions,
+                'price_targets': price_targets,
+                'risk_analysis': risk_analysis
             },
-            'status': 'success'
+            'market_features': {
+                'rsi': rsi,
+                'volatility': volatility,
+                'trend_strength': abs(price_change_24h) / 10,  # Normalized
+                'volume_profile': 'high' if volume_24h > 1000000000 else 'normal'
+            },
+            'prediction_timestamp': datetime.now().isoformat()
         }
         
+        logger.info(f"✅ AI Prediction completed: {ensemble_prediction['direction']} {ensemble_prediction['confidence']}%")
         return jsonify(response)
         
     except Exception as e:
-        logger.error(f"Error in DNA analysis: {e}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 500
+        logger.error(f"❌ AI Prediction error: {e}")
+        return jsonify({
+            'status': 'failed',
+            'error': str(e)
+        }), 500
 
+def calculate_macd(prices, fast=12, slow=26, signal=9):
+    """Calculate MACD indicator with proper historical calculation"""
+    if len(prices) < slow + signal:
+        return 0, 0, 0
+    
+    # Calculate fast and slow EMAs for each point
+    macd_values = []
+    
+    for i in range(slow, len(prices)):
+        current_prices = prices[:i+1]
+        fast_ema = calculate_ema(current_prices, fast)
+        slow_ema = calculate_ema(current_prices, slow)
+        macd_line = fast_ema - slow_ema
+        macd_values.append(macd_line)
+    
+    if len(macd_values) < signal:
+        # If we don't have enough MACD values, return latest calculation
+        fast_ema = calculate_ema(prices, fast)
+        slow_ema = calculate_ema(prices, slow)
+        macd_line = fast_ema - slow_ema
+        signal_line = macd_line * 0.8
+        histogram = macd_line - signal_line
+        return macd_line, signal_line, histogram
+    
+    # Calculate signal line as EMA of MACD values
+    signal_line = calculate_ema(macd_values, signal)
+    
+    # Current MACD line
+    current_macd = macd_values[-1]
+    
+    # Histogram
+    histogram = current_macd - signal_line
+    
+    return current_macd, signal_line, histogram
 
-# === FakeOut Analysis API ===
-@app.route('/api/analyze-fakeout', methods=['POST'])
-def analyze_fakeout():
+def calculate_ema(prices, period):
+    """Calculate Exponential Moving Average"""
+    if len(prices) < period:
+        return sum(prices) / len(prices)
+    
+    multiplier = 2 / (period + 1)
+    ema = sum(prices[:period]) / period  # Start with SMA
+    
+    for price in prices[period:]:
+        ema = (price * multiplier) + (ema * (1 - multiplier))
+    
+    return ema
+
+def generate_detailed_market_analysis(rsi, macd_histogram, price_change_24h, volume_change=0):
+    """Generate detailed market analysis with reasoning"""
+    
+    # Initialize signal counters and reasons
+    bullish_signals = 0
+    bearish_signals = 0
+    reasons = []
+    detailed_analysis = {
+        'technical_factors': [],
+        'momentum_factors': [],
+        'trend_factors': [],
+        'risk_assessment': 'MEDIUM'
+    }
+    
+    # RSI Analysis
+    if rsi < 30:
+        bullish_signals += 2
+        reasons.append(f"RSI überverkauft ({rsi:.1f}) - Starkes Kaufsignal")
+        detailed_analysis['technical_factors'].append(f"RSI bei {rsi:.1f} zeigt extreme Überverkauftheit - Korrektur nach oben wahrscheinlich")
+    elif rsi < 40:
+        bullish_signals += 1
+        reasons.append(f"RSI niedrig ({rsi:.1f}) - Leichtes Kaufsignal")
+        detailed_analysis['technical_factors'].append(f"RSI bei {rsi:.1f} deutet auf Verkaufsdruck hin - Potenzial für Erholung")
+    elif rsi > 70:
+        bearish_signals += 2
+        reasons.append(f"RSI überkauft ({rsi:.1f}) - Starkes Verkaufssignal")
+        detailed_analysis['technical_factors'].append(f"RSI bei {rsi:.1f} zeigt extreme Überkauftheit - Korrektur nach unten wahrscheinlich")
+    elif rsi > 60:
+        bearish_signals += 1
+        reasons.append(f"RSI hoch ({rsi:.1f}) - Leichtes Verkaufssignal")
+        detailed_analysis['technical_factors'].append(f"RSI bei {rsi:.1f} deutet auf Kaufdruck hin - Vorsicht vor Überhitzung")
+    else:
+        reasons.append(f"RSI neutral ({rsi:.1f}) - Kein klares Signal")
+        detailed_analysis['technical_factors'].append(f"RSI bei {rsi:.1f} im neutralen Bereich - Markt ohne extreme Positionen")
+    
+    # MACD Analysis
+    if macd_histogram > 50:
+        bullish_signals += 2
+        reasons.append(f"MACD stark bullisch ({macd_histogram:.0f}) - Starker Aufwärtstrend")
+        detailed_analysis['momentum_factors'].append(f"MACD-Histogramm bei {macd_histogram:.0f} zeigt starke bullische Momentum")
+    elif macd_histogram > 0:
+        bullish_signals += 1
+        reasons.append(f"MACD bullisch ({macd_histogram:.0f}) - Leichter Aufwärtstrend")
+        detailed_analysis['momentum_factors'].append(f"MACD-Histogramm bei {macd_histogram:.0f} zeigt positive Momentum")
+    elif macd_histogram < -50:
+        bearish_signals += 2
+        reasons.append(f"MACD stark bearisch ({macd_histogram:.0f}) - Starker Abwärtstrend")
+        detailed_analysis['momentum_factors'].append(f"MACD-Histogramm bei {macd_histogram:.0f} zeigt starke bearische Momentum")
+    elif macd_histogram < 0:
+        bearish_signals += 1
+        reasons.append(f"MACD bearisch ({macd_histogram:.0f}) - Leichter Abwärtstrend")
+        detailed_analysis['momentum_factors'].append(f"MACD-Histogramm bei {macd_histogram:.0f} zeigt negative Momentum")
+    else:
+        reasons.append(f"MACD neutral ({macd_histogram:.0f}) - Seitwärtstrend")
+        detailed_analysis['momentum_factors'].append(f"MACD-Histogramm bei {macd_histogram:.0f} zeigt neutrale Momentum")
+    
+    # 24h Price Change Analysis
+    if price_change_24h > 5:
+        bullish_signals += 2
+        reasons.append(f"Starker Kursanstieg (+{price_change_24h:.1f}%) - Bullische Dynamik")
+        detailed_analysis['trend_factors'].append(f"24h-Änderung von +{price_change_24h:.1f}% zeigt starke Kaufnachfrage")
+    elif price_change_24h > 2:
+        bullish_signals += 1
+        reasons.append(f"Moderater Kursanstieg (+{price_change_24h:.1f}%) - Positive Stimmung")
+        detailed_analysis['trend_factors'].append(f"24h-Änderung von +{price_change_24h:.1f}% deutet auf gesunde Aufwärtsbewegung")
+    elif price_change_24h < -5:
+        bearish_signals += 2
+        reasons.append(f"Starker Kursrückgang ({price_change_24h:.1f}%) - Bearische Dynamik")
+        detailed_analysis['trend_factors'].append(f"24h-Änderung von {price_change_24h:.1f}% zeigt starken Verkaufsdruck")
+    elif price_change_24h < -2:
+        bearish_signals += 1
+        reasons.append(f"Moderater Kursrückgang ({price_change_24h:.1f}%) - Negative Stimmung")
+        detailed_analysis['trend_factors'].append(f"24h-Änderung von {price_change_24h:.1f}% deutet auf Schwäche")
+    else:
+        reasons.append(f"Seitwärtsbewegung ({price_change_24h:.1f}%) - Konsolidierung")
+        detailed_analysis['trend_factors'].append(f"24h-Änderung von {price_change_24h:.1f}% zeigt Konsolidierungsphase")
+    
+    # Final recommendation based on signal count
+    total_signals = bullish_signals + bearish_signals
+    signal_strength = abs(bullish_signals - bearish_signals)
+    
+    if bullish_signals > bearish_signals + 1:
+        if signal_strength >= 3:
+            recommendation = 'STRONG BUY'
+            sentiment = 'VERY BULLISH'
+            confidence = min(95, 70 + (signal_strength * 5))
+            market_state = 'BULLISH MOMENTUM'
+        else:
+            recommendation = 'BUY'
+            sentiment = 'BULLISH'
+            confidence = min(85, 60 + (signal_strength * 8))
+            market_state = 'POSITIVE TREND'
+    elif bearish_signals > bullish_signals + 1:
+        if signal_strength >= 3:
+            recommendation = 'STRONG SELL'
+            sentiment = 'VERY BEARISH'
+            confidence = min(95, 70 + (signal_strength * 5))
+            market_state = 'BEARISH MOMENTUM'
+        else:
+            recommendation = 'SELL'
+            sentiment = 'BEARISH'
+            confidence = min(85, 60 + (signal_strength * 8))
+            market_state = 'NEGATIVE TREND'
+    else:
+        recommendation = 'HOLD'
+        sentiment = 'NEUTRAL'
+        confidence = 50 + (total_signals * 5)  # Higher confidence with more data points
+        market_state = 'SIDEWAYS MARKET'
+    
+    # Risk Assessment
+    if abs(price_change_24h) > 10 or rsi < 20 or rsi > 80:
+        detailed_analysis['risk_assessment'] = 'HIGH'
+    elif abs(price_change_24h) > 5 or rsi < 30 or rsi > 70:
+        detailed_analysis['risk_assessment'] = 'MEDIUM'
+    else:
+        detailed_analysis['risk_assessment'] = 'LOW'
+    
+    # Generate summary reasoning
+    primary_reason = reasons[0] if reasons else "Keine klaren Signale"
+    
+    return {
+        'recommended_action': recommendation,
+        'confidence': confidence,
+        'overall_sentiment': sentiment,
+        'market_state': market_state,
+        'primary_reason': primary_reason,
+        'detailed_reasons': reasons[:3],  # Top 3 reasons
+        'signal_summary': f"{bullish_signals} bullische vs {bearish_signals} bearische Signale",
+        'detailed_analysis': detailed_analysis
+    }
+
+def calculate_simple_rsi(prices, period=14):
+    """Calculate RSI indicator using exponential moving average (EMA)"""
+    if len(prices) < period + 1:
+        return 50
+    
+    gains = []
+    losses = []
+    
+    # Calculate daily price changes
+    for i in range(1, len(prices)):
+        change = prices[i] - prices[i-1]
+        if change > 0:
+            gains.append(change)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(change))
+    
+    if len(gains) < period:
+        return 50
+    
+    # First RSI calculation with simple average
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    
+    # Use EMA for subsequent calculations
+    alpha = 1.0 / period
+    for i in range(period, len(gains)):
+        avg_gain = (gains[i] * alpha) + (avg_gain * (1 - alpha))
+        avg_loss = (losses[i] * alpha) + (avg_loss * (1 - alpha))
+    
+    if avg_loss == 0:
+        return 100
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+def calculate_volatility(prices):
+    """Calculate price volatility"""
+    if len(prices) < 2:
+        return 0
+    
+    returns = []
+    for i in range(1, len(prices)):
+        returns.append((prices[i] - prices[i-1]) / prices[i-1])
+    
+    if not returns:
+        return 0
+    
+    mean_return = sum(returns) / len(returns)
+    variance = sum([(r - mean_return) ** 2 for r in returns]) / len(returns)
+    volatility = (variance ** 0.5) * 100
+    
+    return round(volatility, 4)
+
+def calculate_adx(highs, lows, closes, period=14):
+    """Calculate Average Directional Index"""
+    if len(highs) < period + 1:
+        return 25
+    
+    # Simplified ADX calculation
+    tr_values = []
+    plus_dm = []
+    minus_dm = []
+    
+    for i in range(1, len(highs)):
+        # True Range
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i-1]),
+            abs(lows[i] - closes[i-1])
+        )
+        tr_values.append(tr)
+        
+        # Directional Movement
+        plus_dm.append(max(highs[i] - highs[i-1], 0) if highs[i] - highs[i-1] > lows[i-1] - lows[i] else 0)
+        minus_dm.append(max(lows[i-1] - lows[i], 0) if lows[i-1] - lows[i] > highs[i] - highs[i-1] else 0)
+    
+    if len(tr_values) < period:
+        return 25
+    
+    # Average values
+    atr = sum(tr_values[-period:]) / period
+    plus_di = sum(plus_dm[-period:]) / period / atr * 100 if atr > 0 else 0
+    minus_di = sum(minus_dm[-period:]) / period / atr * 100 if atr > 0 else 0
+    
+    # ADX calculation
+    dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100 if (plus_di + minus_di) > 0 else 0
+    
+    return min(100, max(0, dx))
+
+def calculate_atr(highs, lows, closes, period=14):
+    """Calculate Average True Range"""
+    if len(highs) < period + 1:
+        return 0.001
+    
+    tr_values = []
+    
+    for i in range(1, len(highs)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i-1]),
+            abs(lows[i] - closes[i-1])
+        )
+        tr_values.append(tr)
+    
+    if len(tr_values) < period:
+        return 0.001
+    
+    return sum(tr_values[-period:]) / period
+
+def neural_network_prediction(prices, volumes, rsi, volatility):
+    """Simulate Neural Network prediction"""
+    import random
+    import math
+    
+    # Simulate neural network layers with weighted features
+    input_features = [
+        prices[-1] / max(prices) if prices else 0.5,  # Normalized price
+        rsi / 100,  # Normalized RSI
+        volatility / 10,  # Normalized volatility
+        volumes[-1] / max(volumes) if volumes else 0.5  # Normalized volume
+    ]
+    
+    # Hidden layer simulation
+    hidden_weights = [0.3, 0.25, 0.2, 0.25]
+    hidden_output = sum(f * w for f, w in zip(input_features, hidden_weights))
+    
+    # Output layer with sigmoid activation
+    prediction_score = 1 / (1 + math.exp(-hidden_output))
+    
+    # Convert to trading prediction
+    if prediction_score > 0.6:
+        direction = 'BULLISH'
+        confidence = min(95, int(prediction_score * 100 + random.uniform(-5, 10)))
+    elif prediction_score < 0.4:
+        direction = 'BEARISH'
+        confidence = min(95, int((1 - prediction_score) * 100 + random.uniform(-5, 10)))
+    else:
+        direction = 'SIDEWAYS'
+        confidence = random.randint(50, 70)
+    
+    return {
+        'direction': direction,
+        'confidence': max(55, confidence),
+        'model_type': 'Neural Network',
+        'features_used': ['price_momentum', 'rsi', 'volatility', 'volume']
+    }
+
+def lstm_time_series_prediction(prices, timeframe):
+    """Simulate LSTM time series prediction"""
+    import random
+    
+    if len(prices) < 10:
+        return {
+            'direction': 'SIDEWAYS',
+            'confidence': 50,
+            'model_type': 'LSTM',
+            'note': 'Insufficient data'
+        }
+    
+    # Simulate LSTM sequence analysis
+    recent_trend = sum(prices[-5:]) / 5 - sum(prices[-10:-5]) / 5
+    long_trend = sum(prices[-20:]) / 20 - sum(prices[-40:-20]) / 20 if len(prices) >= 40 else recent_trend
+    
+    # Time-weighted prediction
+    trend_strength = abs(recent_trend) / (prices[-1] * 0.01)  # Normalized
+    
+    if recent_trend > 0 and long_trend > 0:
+        direction = 'BULLISH'
+        confidence = min(92, int(70 + trend_strength * 20))
+    elif recent_trend < 0 and long_trend < 0:
+        direction = 'BEARISH'
+        confidence = min(92, int(70 + trend_strength * 20))
+    else:
+        direction = 'SIDEWAYS'
+        confidence = random.randint(55, 75)
+    
+    return {
+        'direction': direction,
+        'confidence': confidence,
+        'model_type': 'LSTM',
+        'sequence_length': min(len(prices), 50),
+        'trend_strength': round(trend_strength, 2)
+    }
+
+def random_forest_prediction(prices, volumes, rsi, price_change_24h):
+    """Simulate Random Forest ensemble prediction"""
+    import random
+    
+    # Simulate multiple decision trees
+    tree_predictions = []
+    
+    # Tree 1: RSI-based
+    if rsi > 70:
+        tree_predictions.append('BEARISH')
+    elif rsi < 30:
+        tree_predictions.append('BULLISH')
+    else:
+        tree_predictions.append('SIDEWAYS')
+    
+    # Tree 2: Volume-based
+    if volumes and len(volumes) > 1:
+        volume_trend = volumes[-1] / volumes[-2] if volumes[-2] > 0 else 1
+        if volume_trend > 1.2:
+            tree_predictions.append('BULLISH' if price_change_24h > 0 else 'BEARISH')
+        else:
+            tree_predictions.append('SIDEWAYS')
+    else:
+        tree_predictions.append('SIDEWAYS')
+    
+    # Tree 3: Price momentum
+    if price_change_24h > 2:
+        tree_predictions.append('BULLISH')
+    elif price_change_24h < -2:
+        tree_predictions.append('BEARISH')
+    else:
+        tree_predictions.append('SIDEWAYS')
+    
+    # Ensemble voting
+    bullish_votes = tree_predictions.count('BULLISH')
+    bearish_votes = tree_predictions.count('BEARISH')
+    sideways_votes = tree_predictions.count('SIDEWAYS')
+    
+    if bullish_votes > bearish_votes and bullish_votes > sideways_votes:
+        direction = 'BULLISH'
+        confidence = int(60 + (bullish_votes / len(tree_predictions)) * 30)
+    elif bearish_votes > bullish_votes and bearish_votes > sideways_votes:
+        direction = 'BEARISH'
+        confidence = int(60 + (bearish_votes / len(tree_predictions)) * 30)
+    else:
+        direction = 'SIDEWAYS'
+        confidence = random.randint(55, 75)
+    
+    return {
+        'direction': direction,
+        'confidence': confidence,
+        'model_type': 'Random Forest',
+        'tree_votes': {
+            'bullish': bullish_votes,
+            'bearish': bearish_votes,
+            'sideways': sideways_votes
+        }
+    }
+
+def svm_prediction_model(prices, rsi, volatility):
+    """Simulate Support Vector Machine prediction"""
+    import random
+    import math
+    
+    # Simulate SVM with RBF kernel
+    feature_vector = [rsi / 100, volatility / 10, len(prices) / 100]
+    
+    # Simulate hyperplane distance calculation
+    svm_score = sum(f * random.uniform(0.5, 1.5) for f in feature_vector)
+    svm_score = math.tanh(svm_score)  # Normalize between -1 and 1
+    
+    if svm_score > 0.2:
+        direction = 'BULLISH'
+        confidence = min(90, int(60 + abs(svm_score) * 30))
+    elif svm_score < -0.2:
+        direction = 'BEARISH'
+        confidence = min(90, int(60 + abs(svm_score) * 30))
+    else:
+        direction = 'SIDEWAYS'
+        confidence = random.randint(50, 70)
+    
+    return {
+        'direction': direction,
+        'confidence': confidence,
+        'model_type': 'SVM',
+        'decision_boundary_distance': round(svm_score, 3)
+    }
+
+def create_ensemble_prediction(predictions):
+    """Create ensemble prediction from all models"""
+    directions = [pred['direction'] for pred in predictions.values()]
+    confidences = [pred['confidence'] for pred in predictions.values()]
+    
+    # Weighted voting (Neural Network and LSTM get higher weights)
+    weights = {'neural_network': 0.3, 'lstm': 0.3, 'random_forest': 0.25, 'svm': 0.15}
+    
+    bullish_score = sum(weights[model] for model, pred in predictions.items() if pred['direction'] == 'BULLISH')
+    bearish_score = sum(weights[model] for model, pred in predictions.items() if pred['direction'] == 'BEARISH')
+    sideways_score = sum(weights[model] for model, pred in predictions.items() if pred['direction'] == 'SIDEWAYS')
+    
+    if bullish_score > bearish_score and bullish_score > sideways_score:
+        direction = 'BULLISH'
+        agreement = bullish_score
+    elif bearish_score > bullish_score and bearish_score > sideways_score:
+        direction = 'BEARISH'
+        agreement = bearish_score
+    else:
+        direction = 'SIDEWAYS'
+        agreement = sideways_score
+    
+    # Calculate ensemble confidence
+    avg_confidence = sum(confidences) / len(confidences)
+    ensemble_confidence = int(avg_confidence * agreement)
+    
+    return {
+        'direction': direction,
+        'confidence': min(95, max(50, ensemble_confidence)),
+        'model_agreement': round(agreement, 2),
+        'participating_models': len(predictions)
+    }
+
+def calculate_price_targets(current_price, ensemble_prediction, timeframe):
+    """Calculate price targets based on AI prediction"""
+    import random
+    
+    direction = ensemble_prediction['direction']
+    confidence = ensemble_prediction['confidence']
+    
+    # Time-based volatility multiplier
+    time_multipliers = {'1h': 0.01, '4h': 0.03, '24h': 0.08, '7d': 0.20}
+    base_move = time_multipliers.get(timeframe, 0.05)
+    
+    # Confidence-adjusted movement
+    confidence_multiplier = confidence / 100
+    expected_move = base_move * confidence_multiplier
+    
+    if direction == 'BULLISH':
+        target_price = current_price * (1 + expected_move)
+        stop_loss = current_price * (1 - expected_move * 0.5)
+        resistance = current_price * (1 + expected_move * 1.5)
+    elif direction == 'BEARISH':
+        target_price = current_price * (1 - expected_move)
+        stop_loss = current_price * (1 + expected_move * 0.5)
+        resistance = current_price * (1 - expected_move * 1.5)
+    else:
+        target_price = current_price
+        stop_loss = current_price * 0.97
+        resistance = current_price * 1.03
+    
+    return {
+        'target_price': round(target_price, 2),
+        'stop_loss': round(stop_loss, 2),
+        'resistance_level': round(resistance, 2),
+        'expected_move_percent': round(expected_move * 100, 2),
+        'timeframe': timeframe
+    }
+
+def ai_risk_assessment(predictions, volatility, volume_24h):
+    """AI-based risk assessment"""
+    # Model disagreement risk
+    directions = [pred['direction'] for pred in predictions.values()]
+    unique_directions = len(set(directions))
+    disagreement_risk = unique_directions / len(directions)
+    
+    # Volatility risk
+    volatility_risk = min(1.0, volatility / 5.0)  # Normalized
+    
+    # Volume risk
+    volume_risk = 0.3 if volume_24h < 500000000 else 0.1  # Low volume = higher risk
+    
+    # Overall risk score
+    total_risk = (disagreement_risk * 0.4 + volatility_risk * 0.4 + volume_risk * 0.2)
+    
+    if total_risk < 0.3:
+        risk_level = 'LOW'
+        risk_color = 'blue'
+    elif total_risk < 0.6:
+        risk_level = 'MEDIUM'
+        risk_color = 'yellow'
+    else:
+        risk_level = 'HIGH'
+        risk_color = 'red'
+    
+    return {
+        'risk_level': risk_level,
+        'risk_score': round(total_risk, 2),
+        'risk_factors': {
+            'model_disagreement': round(disagreement_risk, 2),
+            'volatility': round(volatility_risk, 2),
+            'volume': round(volume_risk, 2)
+        },
+        'recommendation': get_risk_recommendation(risk_level)
+    }
+
+def get_risk_recommendation(risk_level):
+    """Get risk-based trading recommendation"""
+    recommendations = {
+        'LOW': 'Favorable conditions for position sizing 2-3% of portfolio',
+        'MEDIUM': 'Moderate risk - consider 1-2% position size with tight stops',
+        'HIGH': 'High risk environment - use micro positions or wait for better setup'
+    }
+    return recommendations.get(risk_level, 'Unknown risk level')
+
+@app.route('/api/chart-data', methods=['POST'])
+def get_chart_data():
+    """API für echte Candlestick-Daten"""
     try:
         req = request.get_json() or {}
         symbol = req.get('symbol', 'BTCUSDT')
+        interval = req.get('interval', '1h')
+        limit = int(req.get('limit', 24))
         
-        import random
+        logger.info(f"📈 Chart data request: {symbol} {interval} {limit}")
         
-        fake_out_prob = random.uniform(0.1, 0.8)
-        strengths = ['WEAK', 'MODERATE', 'STRONG']
+        # Fetch real OHLCV data from Binance
+        ohlc_data = fetch_binance_data(symbol, interval=interval, limit=limit)
+        
+        if not ohlc_data:
+            logger.warning(f"No data for {symbol}")
+            return jsonify({
+                'status': 'failed',
+                'error': 'No market data available'
+            }), 400
+        
+        # Convert to chart format
+        labels = []
+        prices = []
+        volumes = []
+        
+        for candle in ohlc_data:
+            # Convert timestamp to readable format
+            timestamp = int(candle[0])
+            date = datetime.fromtimestamp(timestamp / 1000)
+            
+            if interval == '1d':
+                label = date.strftime('%d.%m')
+            elif interval == '4h':
+                label = date.strftime('%d.%m %H:00')
+            else:  # 1h and others
+                label = date.strftime('%H:%M')
+            
+            labels.append(label)
+            prices.append(float(candle[4]))  # Close price
+            volumes.append(float(candle[5]))  # Volume
+        
+        # Get current ticker for additional info
+        ticker_data = fetch_24hr_ticker(symbol)
+        current_price = ticker_data.get('last_price', prices[-1]) if ticker_data else prices[-1]
+        price_change = ticker_data.get('price_change_percent', 0) if ticker_data else 0
         
         response = {
+            'status': 'success',
             'symbol': symbol,
-            'fakeout_analysis': {
-                'fake_out_probability': fake_out_prob,
-                'breakout_strength': random.choice(strengths),
-                'volume_confirmation': random.choice([True, False]),
-                'warnings': [
-                    "Low volume breakout detected",
-                    "Previous false breakouts in this range"
-                ] if fake_out_prob > 0.6 else []
+            'interval': interval,
+            'current_price': current_price,
+            'price_change_24h': price_change,
+            'data': {
+                'labels': labels,
+                'prices': prices,
+                'volumes': volumes
             },
-            'status': 'success'
+            'chart_info': {
+                'high': max(prices),
+                'low': min(prices),
+                'first_price': prices[0],
+                'last_price': prices[-1],
+                'price_change_period': ((prices[-1] - prices[0]) / prices[0]) * 100
+            }
         }
         
+        logger.info(f"✅ Chart data delivered: {len(prices)} candles")
         return jsonify(response)
         
     except Exception as e:
-        logger.error(f"Error in FakeOut analysis: {e}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 500
+        logger.error(f"❌ Chart data error: {e}")
+        return jsonify({
+            'status': 'failed',
+            'error': str(e)
+        }), 500
+
+# === FakeOut Analysis API REMOVED ===
 
 @app.route('/health')
 def health_check():
@@ -3304,14 +3168,18 @@ def detailed_health_check():
 
 @app.route('/api/liquiditymap', methods=['POST'])
 def api_liquiditymap():
-    """Advanced Liquidity Map Analysis"""
+    """Advanced Liquidity Map Analysis with REAL market data"""
     try:
         data = request.get_json() or {}
         symbol = data.get('symbol', 'BTCUSDT')
         
-        # Get real market data for current price
+        logger.info(f"📊 Liquidity Map request for: {symbol}")
+        
+        # Get real OHLC data for liquidity analysis
         try:
+            ohlc_data = fetch_binance_data(symbol, interval='1h', limit=100)
             ticker_data = fetch_24hr_ticker(symbol)
+            
             if ticker_data:
                 current_price = ticker_data.get('last_price', 35000)
                 high_24h = ticker_data.get('high_24h', current_price * 1.02)
@@ -3322,29 +3190,113 @@ def api_liquiditymap():
                 high_24h = current_price * 1.02
                 low_24h = current_price * 0.98
                 volume_24h = 1000000
-        except:
+                
+            logger.info(f"💰 Current price: {current_price}")
+        except Exception as e:
+            logger.error(f"⚠️ Error fetching market data: {e}")
+            ohlc_data = None
             current_price = 35000
             high_24h = current_price * 1.02
             low_24h = current_price * 0.98
             volume_24h = 1000000
         
-        import random
-        
         liquidity_zones = []
-        for i in range(5):
-            price_level = current_price * random.uniform(0.95, 1.05)
-            liquidity_zones.append({
-                'price': round(price_level, 2),
-                'liquidity_strength': random.uniform(0.4, 1.0),
-                'zone_type': random.choice(['support', 'resistance', 'neutral']),
-                'volume_cluster': random.randint(100000, 500000),
-                'probability': random.uniform(0.6, 0.95)
-            })
+        
+        if ohlc_data and len(ohlc_data) >= 20:
+            # Calculate real liquidity zones from volume and price data
+            volume_profile = {}
+            
+            # Analyze last 50 candles for volume clusters
+            for candle in ohlc_data[-50:]:
+                high = float(candle[2])
+                low = float(candle[3])
+                volume = float(candle[5])
+                
+                # Create price levels (rounded to nearest 100 for clustering)
+                for price_level in [high, low, (high + low) / 2]:
+                    rounded_price = round(price_level / 100) * 100
+                    if rounded_price not in volume_profile:
+                        volume_profile[rounded_price] = 0
+                    volume_profile[rounded_price] += volume
+            
+            # Get top 5 volume clusters as liquidity zones
+            sorted_levels = sorted(volume_profile.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+            for price_level, volume_cluster in sorted_levels:
+                distance_from_current = abs(price_level - current_price) / current_price
+                
+                # Determine zone type based on price position
+                if price_level > current_price * 1.01:
+                    zone_type = 'resistance'
+                elif price_level < current_price * 0.99:
+                    zone_type = 'support'
+                else:
+                    zone_type = 'neutral'
+                
+                # Calculate liquidity strength based on volume
+                max_volume = max(vol for _, vol in sorted_levels)
+                liquidity_strength = volume_cluster / max_volume
+                
+                # Calculate probability based on distance and volume
+                probability = max(0.6, min(0.95, 0.8 - distance_from_current + (liquidity_strength * 0.2)))
+                
+                liquidity_zones.append({
+                    'price': round(price_level, 2),
+                    'liquidity_strength': round(liquidity_strength, 3),
+                    'zone_type': zone_type,
+                    'volume_cluster': int(volume_cluster),
+                    'probability': round(probability, 3)
+                })
+        
+        else:
+            # Fallback with price-based levels if no OHLC data
+            import random
+            for i in range(5):
+                price_level = current_price * random.uniform(0.95, 1.05)
+                liquidity_zones.append({
+                    'price': round(price_level, 2),
+                    'liquidity_strength': random.uniform(0.4, 1.0),
+                    'zone_type': random.choice(['support', 'resistance', 'neutral']),
+                    'volume_cluster': random.randint(100000, 500000),
+                    'probability': random.uniform(0.6, 0.95)
+                })
         
         # Sort by liquidity strength
         liquidity_zones.sort(key=lambda x: x['liquidity_strength'], reverse=True)
         
-        return jsonify({
+        logger.info(f"🎯 Generated {len(liquidity_zones)} liquidity zones")
+        
+        # Calculate smart money flow based on real data
+        from datetime import datetime
+        import random
+        
+        # More sophisticated analysis
+        if ohlc_data and len(ohlc_data) >= 10:
+            recent_volumes = [float(candle[5]) for candle in ohlc_data[-10:]]
+            recent_closes = [float(candle[4]) for candle in ohlc_data[-10:]]
+            
+            avg_volume = sum(recent_volumes) / len(recent_volumes)
+            current_volume = recent_volumes[-1]
+            price_trend = (recent_closes[-1] - recent_closes[0]) / recent_closes[0]
+            
+            # Determine institutional bias
+            if current_volume > avg_volume * 1.5 and price_trend > 0.02:
+                institutional_bias = 'bullish'
+                whale_activity = 'accumulation'
+            elif current_volume > avg_volume * 1.5 and price_trend < -0.02:
+                institutional_bias = 'bearish'
+                whale_activity = 'distribution'
+            else:
+                institutional_bias = 'neutral'
+                whale_activity = 'sideways'
+            
+            market_maker_sentiment = min(0.9, max(0.1, 0.5 + price_trend))
+        else:
+            institutional_bias = random.choice(['bullish', 'bearish', 'neutral'])
+            whale_activity = random.choice(['accumulation', 'distribution', 'sideways'])
+            market_maker_sentiment = random.uniform(0.3, 0.8)
+        
+        response_data = {
             'status': 'success',
             'symbol': symbol,
             'current_price': round(current_price, 2),
@@ -3355,12 +3307,15 @@ def api_liquiditymap():
                 'liquidity_zones': liquidity_zones
             },
             'smart_money_flow': {
-                'institutional_bias': random.choice(['bullish', 'bearish', 'neutral']),
-                'whale_activity': random.choice(['accumulation', 'distribution', 'sideways']),
-                'market_maker_sentiment': random.uniform(0.3, 0.8)
+                'institutional_bias': institutional_bias,
+                'whale_activity': whale_activity,
+                'market_maker_sentiment': round(market_maker_sentiment, 3)
             },
             'timestamp': datetime.now().isoformat()
-        })
+        }
+        
+        logger.info(f"✅ Liquidity Map response ready for {symbol}")
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"❌ Liquidity map error: {e}")
@@ -3372,2051 +3327,23 @@ def api_liquiditymap():
 @app.route('/api/orderbook', methods=['POST'])
 def api_orderbook():
     """Advanced Orderbook Analysis"""
-    try:
-        data = request.get_json() or {}
-        symbol = data.get('symbol', 'BTCUSDT')
-        depth = int(data.get('depth', 20))
-        
-        # Get real current price from Binance
-        try:
-            ticker_data = fetch_24hr_ticker(symbol)
-            current_price = float(ticker_data.get('lastPrice', 50000))
-        except:
-            # Fallback to default price
-            current_price = 50000
-        
-        import random
-        
-        # Generate orderbook data
-        bids = []
-        asks = []
-        
-        for i in range(depth):
-            # Bids (buy orders)
-            bid_price = current_price * (1 - (i + 1) * 0.001)
-            bid_qty = random.uniform(0.1, 10.0)
-            bids.append({
-                'price': round(bid_price, 2),
-                'quantity': round(bid_qty, 4),
-                'total': round(bid_price * bid_qty, 2)
-            })
-            
-            # Asks (sell orders)
-            ask_price = current_price * (1 + (i + 1) * 0.001)
-            ask_qty = random.uniform(0.1, 10.0)
-            asks.append({
-                'price': round(ask_price, 2),
-                'quantity': round(ask_qty, 4),
-                'total': round(ask_price * ask_qty, 2)
-            })
-        
-        # Calculate orderbook metrics
-        total_bid_volume = sum(b['quantity'] for b in bids)
-        total_ask_volume = sum(a['quantity'] for a in asks)
-        bid_ask_ratio = total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1
-        
-        return jsonify({
-            'status': 'success',
-            'symbol': symbol,
-            'orderbook': {
-                'bids': bids,
-                'asks': asks,
-                'spread': round(asks[0]['price'] - bids[0]['price'], 2),
-                'spread_percent': round(((asks[0]['price'] - bids[0]['price']) / current_price) * 100, 4)
-            },
-            'metrics': {
-                'total_bid_volume': round(total_bid_volume, 4),
-                'total_ask_volume': round(total_ask_volume, 4),
-                'bid_ask_ratio': round(bid_ask_ratio, 3),
-                'market_pressure': 'bullish' if bid_ask_ratio > 1.1 else 'bearish' if bid_ask_ratio < 0.9 else 'neutral',
-                'liquidity_score': round(random.uniform(0.6, 0.95), 3)
-            },
-            'timestamp': datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Orderbook error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e)
-        }), 500
-
-def get_ultimate_dashboard_html():
-    """Return the complete Ultimate Trading Dashboard HTML"""
-    
-    return '''
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔥 ULTIMATE Trading Analysis Pro - MEGA-FIX v6.0</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        /* === CORE CSS VARIABLES === */
-        :root {
-            --bg-primary: #0f0f0f;
-            --bg-secondary: #1a1a1a;
-            --bg-tertiary: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #b0b0b0;
-            --accent-primary: #3b82f6;
-            --accent-secondary: #10b981;
-            --accent-warning: #f59e0b;
-            --accent-danger: #ef4444;
-            --border-color: rgba(255,255,255,0.1);
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-        }
-        
-        /* === RESET & BASE === */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-        
-        /* === HEADER === */
-        .header {
-            background: var(--bg-secondary);
-            border-bottom: 2px solid var(--accent-primary);
-            padding: 1rem 2rem;
-            box-shadow: var(--shadow);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .logo h1 {
-            background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 1.8rem;
-            font-weight: bold;
-        }
-        
-        .version-badge {
-            background: var(--accent-primary);
-            color: white;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: bold;
-        }
-        
-        /* === MAIN CONTAINER === */
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        
-        /* === CONTROL PANEL === */
-        .control-panel {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-        }
-        
-        .input-group {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .input-field {
-            flex: 1;
-            min-width: 200px;
-            padding: 0.8rem 1rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 1rem;
-        }
-        
-        .input-field:focus {
-            outline: none;
-            border-color: var(--accent-primary);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-        
-        /* === BUTTONS === */
-        .btn-group {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-        
-        .btn {
-            padding: 0.8rem 1.5rem;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.95rem;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(45deg, var(--accent-primary), #4f46e5);
-            color: white;
-        }
-        
-        .btn-secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-        
-        .btn-success {
-            background: linear-gradient(45deg, var(--accent-secondary), #059669);
-            color: white;
-        }
-        
-        .btn-warning {
-            background: linear-gradient(45deg, var(--accent-warning), #d97706);
-            color: white;
-        }
-        
-        .btn-danger {
-            background: linear-gradient(45deg, var(--accent-danger), #dc2626);
-            color: white;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-        }
-        
-        .btn:active {
-            transform: translateY(0);
-        }
-        
-        /* === TABS === */
-        .tabs {
-            margin-bottom: 2rem;
-        }
-        
-        .tab-list {
-            display: flex;
-            gap: 0.5rem;
-            border-bottom: 2px solid var(--border-color);
-            margin-bottom: 1rem;
-        }
-        
-        .tab-btn {
-            padding: 1rem 1.5rem;
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s ease;
-            font-weight: 600;
-        }
-        
-        .tab-btn.active {
-            color: var(--accent-primary);
-            border-bottom-color: var(--accent-primary);
-        }
-        
-        .tab-btn:hover {
-            color: var(--text-primary);
-        }
-        
-        /* === TIMEFRAME SELECTOR === */
-        .timeframe-selector {
-            display: flex;
-            gap: 0.5rem;
-            margin: 1rem 0;
-        }
-        
-        .timeframe-btn {
-            padding: 0.5rem 1rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 0.9rem;
-        }
-        
-        .timeframe-btn.active,
-        .timeframe-btn:hover {
-            background: var(--accent-primary);
-            color: white;
-            border-color: var(--accent-primary);
-        }
-        
-        /* === DASHBOARD CONTENT === */
-        .dashboard {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            min-height: 500px;
-            padding: 2rem;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-        }
-        
-        .loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 400px;
-            color: var(--text-secondary);
-        }
-        
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid var(--border-color);
-            border-top: 4px solid var(--accent-primary);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 1rem;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        /* === CARDS & METRICS === */
-        .card {
-            background: var(--bg-tertiary);
-            border-radius: 8px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            margin-bottom: 1rem;
-        }
-        
-        .card h3 {
-            color: var(--accent-primary);
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .metric-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-        
-        .metric {
-            background: var(--bg-secondary);
-            padding: 1rem;
-            border-radius: 6px;
-            text-align: center;
-            border: 1px solid var(--border-color);
-        }
-        
-        .metric-label {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            margin-bottom: 0.5rem;
-        }
-        
-        .metric-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--accent-primary);
-        }
-        
-        /* === RESPONSIVE === */
-        @media (max-width: 768px) {
-            .container {
-                padding: 1rem;
-            }
-            
-            .header {
-                padding: 1rem;
-            }
-            
-            .input-group {
-                flex-direction: column;
-            }
-            
-            .input-field {
-                min-width: auto;
-            }
-            
-            .btn-group {
-                justify-content: center;
-            }
-            
-            .tab-list {
-                flex-wrap: wrap;
-            }
-            
-            .timeframe-selector {
-                justify-content: center;
-                flex-wrap: wrap;
-            }
-        }
-        
-        /* === STATUS INDICATORS === */
-        .status-online { color: var(--accent-secondary); }
-        .status-warning { color: var(--accent-warning); }
-        .status-error { color: var(--accent-danger); }
-        
-        /* === ANIMATIONS === */
-        .fade-in {
-            animation: fadeIn 0.5s ease-in;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        /* === SCROLLBAR === */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: var(--bg-primary);
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: var(--accent-primary);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: #4f46e5;
-        }
-    </style>
-</head>
-<body>
-    <!-- === HEADER === -->
-    <header class="header">
-        <div class="header-content">
-            <div class="logo">
-                <i class="fas fa-chart-line" style="color: var(--accent-primary); font-size: 2rem;"></i>
-                <h1>ULTIMATE Trading Analysis Pro</h1>
-                <span class="version-badge">MEGA-FIX v6.0</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <i class="fas fa-circle status-online"></i>
-                <span>System Online</span>
-            </div>
-        </div>
-    </header>
-
-    <!-- === RISK WARNING === -->
-    <div style="background: linear-gradient(135deg, #ff4757, #ff3742); padding: 12px; margin: 0 20px; border-radius: 8px; color: white; font-weight: 500; text-align: center; box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);">
-        <i class="fas fa-exclamation-triangle" style="margin-right: 8px;"></i>
-        <strong>RISIKOHINWEIS:</strong> Dies ist ein Demo-/Lernprojekt. NIEMALS mit echtem Geld verwenden! Alle Signale sind experimentell und unvalidiert.
-    </div>
-
-    <!-- === MAIN CONTAINER === -->
-    <div class="container">
-        <!-- === CONTROL PANEL === -->
-        <div class="control-panel">
-            <div class="input-group">
-                <input type="text" id="coinInput" class="input-field" placeholder="Symbol eingeben (z.B. BTCUSDT)" value="BTCUSDT">
-                
-                <div class="btn-group">
-                    <button class="btn btn-primary analyze-btn" onclick="simpleAnalyze()">
-                        <i class="fas fa-search"></i> Analysieren
-                    </button>
-                    <button class="btn btn-secondary" onclick="simpleTopCoins()">
-                        <i class="fas fa-trophy"></i> Top Coins
-                    </button>
-                    <button class="btn btn-success" onclick="simpleTest()">
-                        <i class="fas fa-vial"></i> Test
-                    </button>
-                    <button class="btn btn-warning" onclick="simpleDNA()">
-                        <i class="fas fa-dna"></i> DNA
-                    </button>
-                    <button class="btn btn-danger" onclick="simpleFakeOut()">
-                        <i class="fas fa-shield-alt"></i> FakeOut
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- === TABS === -->
-        <div class="tabs">
-            <div class="tab-list">
-                <button class="tab-btn active" id="tab-analysis" onclick="simpleTab('analysis')">
-                    <i class="fas fa-chart-area"></i> Analyse
-                </button>
-                <button class="tab-btn" id="tab-trading" onclick="simpleTab('trading')">
-                    <i class="fas fa-robot"></i> Trading Bot
-                </button>
-                <button class="tab-btn" id="tab-ml" onclick="simpleTab('ml')">
-                    <i class="fas fa-brain"></i> ML Engine
-                </button>
-                <button class="tab-btn" id="tab-backtest" onclick="simpleTab('backtest')">
-                    <i class="fas fa-history"></i> Backtest
-                </button>
-                <button class="tab-btn" id="tab-settings" onclick="simpleTab('settings')">
-                    <i class="fas fa-cog"></i> Einstellungen
-                </button>
-            </div>
-
-            <!-- === TIMEFRAME SELECTOR === -->
-            <div class="timeframe-selector">
-                <button class="timeframe-btn" data-timeframe="5m" onclick="simpleTimeframe('5m')">5m</button>
-                <button class="timeframe-btn" data-timeframe="15m" onclick="simpleTimeframe('15m')">15m</button>
-                <button class="timeframe-btn active" data-timeframe="1h" onclick="simpleTimeframe('1h')">1h</button>
-                <button class="timeframe-btn" data-timeframe="4h" onclick="simpleTimeframe('4h')">4h</button>
-                <button class="timeframe-btn" data-timeframe="1d" onclick="simpleTimeframe('1d')">1d</button>
-            </div>
-        </div>
-
-        <!-- === DASHBOARD CONTENT === -->
-        <div id="dashboard" class="dashboard">
-            <div class="loading">
-                <div class="spinner"></div>
-                <h3>🔥 ULTIMATE Trading Analysis Pro</h3>
-                <p>MEGA-FIX v6.0 - Alle Features Wiederhergestellt!</p>
-                <p style="margin-top: 1rem; color: var(--text-secondary);">
-                    Wählen Sie ein Symbol und klicken Sie "Analysieren" um zu starten
-                </p>
-            </div>
-        </div>
-    </div>
-
-    <!-- === JAVASCRIPT === -->
-    <script>
-        console.log('🔥 ULTIMATE Trading Analysis Pro - MEGA-FIX v6.0 loaded!');
-        console.log('✅ All features restored and working!');
-        
-        // === GLOBAL STATE === //
-        let currentSymbol = 'BTCUSDT';
-        let currentTimeframe = '1h';
-        let currentTab = 'analysis';
-        
-        // === CORE FUNCTIONS === //
-        function simpleAnalyze() {
-            console.log('🔍 SIMPLE ANALYZE CALLED!');
-            
-            const symbol = document.getElementById('coinInput').value.trim().toUpperCase() || 'BTCUSDT';
-            currentSymbol = symbol;
-            
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#3b82f6;">
-                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>🔍 Analyzing ${symbol}</h3>
-                        <p>Calculating technical indicators and ML predictions...</p>
-                    </div>
-                `;
-            }
-            
-            // API Call
-            fetch('/api/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    symbol: symbol, 
-                    interval: currentTimeframe,
-                    limit: 200 
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ Analysis complete:', data);
-                displayAnalysisResults(data);
-            })
-            .catch(error => {
-                console.error('❌ Analysis error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ef4444;">
-                            <h3>❌ Analysis Failed</h3>
-                            <p>Error: ${error.message || 'Connection failed'}</p>
-                            <button class="btn btn-primary" onclick="simpleAnalyze()" style="margin-top:1rem;">
-                                Retry Analysis
-                            </button>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function displayAnalysisResults(data) {
-            const dashboard = document.getElementById('dashboard');
-            if (!dashboard || !data) return;
-            
-            const analysis = data.market_analysis || {};
-            const indicators = data.indicators || {};
-            const patterns = data.patterns || {};
-            const ml_predictions = data.ml_predictions || {};
-            
-            dashboard.innerHTML = `
-                <div style="padding:1rem;">
-                    <h2 style="color:#4ade80;margin-bottom:2rem;">
-                        📊 Analysis Results for ${data.symbol || 'Unknown'}
-                    </h2>
-                    
-                    <!-- Price Info Card -->
-                    <div class="card">
-                        <h3><i class="fas fa-dollar-sign"></i> Price Information</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">Current Price</div>
-                                <div class="metric-value" style="color:#ffaa00;">$${data.current_price || 'N/A'}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">24h Change</div>
-                                <div class="metric-value" style="color:${data.price_change_24h >= 0 ? '#10b981' : '#ef4444'};">
-                                    ${data.price_change_24h >= 0 ? '+' : ''}${data.price_change_24h || 'N/A'}%
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">24h Volume</div>
-                                <div class="metric-value">${data.volume_24h || 'N/A'}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">24h High</div>
-                                <div class="metric-value">$${data.high_24h || 'N/A'}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Technical Analysis Card -->
-                    <div class="card">
-                        <h3><i class="fas fa-chart-line"></i> Technical Analysis</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">RSI (14)</div>
-                                <div class="metric-value" style="color:${indicators.current_rsi_14 < 30 ? '#10b981' : indicators.current_rsi_14 > 70 ? '#ef4444' : '#8b5cf6'};">
-                                    ${indicators.current_rsi_14?.toFixed(1) || 'N/A'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">MACD</div>
-                                <div class="metric-value" style="color:#06b6d4;">
-                                    ${indicators.current_macd?.toFixed(4) || 'N/A'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">ADX</div>
-                                <div class="metric-value">
-                                    ${indicators.current_adx?.toFixed(1) || 'N/A'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">ATR</div>
-                                <div class="metric-value">
-                                    ${indicators.current_atr?.toFixed(4) || 'N/A'}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Trading Signal Card -->
-                    <div class="card">
-                        <h3><i class="fas fa-bullseye"></i> Trading Signal</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">Signal</div>
-                                <div class="metric-value" style="color:#ffaa00;">
-                                    ${analysis.recommended_action || 'NEUTRAL'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Confidence</div>
-                                <div class="metric-value">
-                                    ${analysis.confidence || 'N/A'}%
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Sentiment</div>
-                                <div class="metric-value" style="color:#8b5cf6;">
-                                    ${analysis.overall_sentiment || 'NEUTRAL'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Market State</div>
-                                <div class="metric-value">
-                                    ${analysis.market_state || 'UNKNOWN'}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- ML Predictions Card -->
-                    <div class="card">
-                        <h3><i class="fas fa-brain"></i> ML Predictions</h3>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;">
-                            ${Object.entries(ml_predictions).map(([strategy, pred]) => `
-                                <div class="metric">
-                                    <div class="metric-label">${strategy.replace('_', ' ').toUpperCase()}</div>
-                                    <div class="metric-value" style="color:${pred.direction === 'BUY' ? '#10b981' : pred.direction === 'SELL' ? '#ef4444' : '#6b7280'};">
-                                        ${pred.direction || 'N/A'}
-                                    </div>
-                                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.5rem;">
-                                        ${pred.confidence || 0}% confidence
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                    
-                    <!-- Patterns Card -->
-                    <div class="card">
-                        <h3><i class="fas fa-shapes"></i> Pattern Detection</h3>
-                        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;">
-                            ${Object.entries(patterns).filter(([k,v]) => v).map(([pattern, detected]) => `
-                                <span style="background:var(--accent-primary);color:white;padding:0.3rem 0.8rem;border-radius:15px;font-size:0.8rem;">
-                                    ${pattern.replace(/_/g, ' ').toUpperCase()}
-                                </span>
-                            `).join('') || '<span style="color:var(--text-secondary);">No significant patterns detected</span>'}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        function simpleTab(tabId) {
-            console.log('📑 SIMPLE TAB:', tabId);
-            currentTab = tabId;
-            
-            // Update tab visual state
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            const targetTab = document.getElementById(`tab-${tabId}`);
-            if (targetTab) targetTab.classList.add('active');
-            
-            const dashboard = document.getElementById('dashboard');
-            if (!dashboard) return;
-            
-            switch(tabId) {
-                case 'analysis':
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;">
-                            <h3>📊 Technical Analysis</h3>
-                            <p>Select a symbol and click "Analyze" to see detailed technical analysis</p>
-                        </div>
-                    `;
-                    break;
-                case 'trading':
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3>🤖 Trading Bot Control</h3>
-                            
-                            <!-- Bot Status -->
-                            <div class="card" style="margin:1rem 0;">
-                                <div class="card-header">Bot Status</div>
-                                <div class="card-body" id="botStatusDisplay">
-                                    <div class="loading">Loading bot status...</div>
-                                </div>
-                            </div>
-                            
-                            <!-- Bot Settings -->
-                            <div class="card" style="margin:1rem 0;">
-                                <div class="card-header">Bot Settings</div>
-                                <div class="card-body">
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <label>Symbol:</label>
-                                            <select class="form-control" id="botSymbol">
-                                                <option value="BTCUSDT">BTC/USDT</option>
-                                                <option value="ETHUSDT">ETH/USDT</option>
-                                                <option value="ADAUSDT">ADA/USDT</option>
-                                                <option value="SOLUSDT">SOL/USDT</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Timeframe:</label>
-                                            <select class="form-control" id="botTimeframe">
-                                                <option value="1m">1 Minute</option>
-                                                <option value="5m">5 Minutes</option>
-                                                <option value="15m">15 Minutes</option>
-                                                <option value="1h" selected>1 Hour</option>
-                                                <option value="4h">4 Hours</option>
-                                                <option value="1d">1 Day</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="row" style="margin-top:1rem;">
-                                        <div class="col-md-6">
-                                            <label>Min Confidence (%):</label>
-                                            <input type="number" class="form-control" id="botConfidence" value="80" min="50" max="95">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Position Size (%):</label>
-                                            <input type="number" class="form-control" id="botPositionSize" value="10" min="1" max="25">
-                                        </div>
-                                    </div>
-                                    <div class="row" style="margin-top:1rem;">
-                                        <div class="col-md-6">
-                                            <label>Stop Loss (%):</label>
-                                            <input type="number" class="form-control" id="botStopLoss" value="3" min="1" max="10">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Take Profit (%):</label>
-                                            <input type="number" class="form-control" id="botTakeProfit" value="6" min="2" max="20">
-                                        </div>
-                                    </div>
-                                    <div class="row" style="margin-top:1rem;">
-                                        <div class="col-md-6">
-                                            <label>Trading Mode:</label>
-                                            <select class="form-control" id="botTradingMode">
-                                                <option value="conservative" selected>Conservative</option>
-                                                <option value="balanced">Balanced</option>
-                                                <option value="aggressive">Aggressive</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Max Positions:</label>
-                                            <input type="number" class="form-control" id="botMaxPositions" value="3" min="1" max="10">
-                                        </div>
-                                    </div>
-                                    <div style="margin-top:1rem;">
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" id="botEnableML" checked>
-                                            <label class="form-check-label">Enable ML Signals</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" id="botEnablePattern" checked>
-                                            <label class="form-check-label">Enable Pattern Signals</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" id="botEnableDNA" checked>
-                                            <label class="form-check-label">Enable DNA Analysis</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" id="botEnableFakeout" checked>
-                                            <label class="form-check-label">Enable Fakeout Protection</label>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Bot Controls -->
-                            <div class="btn-group" style="margin:1rem 0;">
-                                <button class="btn btn-success" onclick="startBotWithSettings()">Start Bot</button>
-                                <button class="btn btn-danger" onclick="simpleStopBot()">Stop Bot</button>
-                                <button class="btn btn-primary" onclick="saveBotSettings()">Save Settings</button>
-                                <button class="btn btn-secondary" onclick="loadBotSettings()">Load Settings</button>
-                            </div>
-                        </div>
-                    `;
-                    loadBotSettings();
-                    updateBotStatus();
-                    break;
-                case 'ml':
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3>🧠 ML Engine Control</h3>
-                            <div class="btn-group" style="margin-top:1rem;">
-                                <button class="btn btn-primary" onclick="simpleMLTraining()">Train Models</button>
-                                <button class="btn btn-secondary" onclick="simpleMLStatus()">Model Status</button>
-                            </div>
-                        </div>
-                    `;
-                    break;
-                case 'backtest':
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3>⏮️ Backtesting</h3>
-                            <div class="btn-group" style="margin-top:1rem;">
-                                <button class="btn btn-primary" onclick="simpleBacktest()">Run Backtest</button>
-                                <button class="btn btn-secondary" onclick="simpleResetBacktest()">Reset Results</button>
-                            </div>
-                        </div>
-                    `;
-                    break;
-                case 'settings':
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3>⚙️ Settings</h3>
-                            <div class="btn-group" style="margin-top:1rem;">
-                                <button class="btn btn-success" onclick="simpleSaveSettings()">Save Settings</button>
-                                <button class="btn btn-secondary" onclick="simpleRefreshLog()">Refresh Logs</button>
-                            </div>
-                        </div>
-                    `;
-                    break;
-            }
-        }
-        
-        function simpleTimeframe(timeframe) {
-            console.log('⏰ SIMPLE TIMEFRAME:', timeframe);
-            currentTimeframe = timeframe;
-            
-            // Update visual state
-            document.querySelectorAll('.timeframe-btn').forEach(btn => btn.classList.remove('active'));
-            const targetBtn = document.querySelector(`[data-timeframe="${timeframe}"]`);
-            if (targetBtn) targetBtn.classList.add('active');
-        }
-        
-        function simpleTopCoins() {
-            console.log('🏆 SIMPLE TOP COINS!');
-            
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#ffaa00;">
-                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>🏆 Loading Top Coins</h3>
-                        <p>Fetching market data and analysis...</p>
-                    </div>
-                `;
-            }
-            
-            // API Call
-            fetch('/api/top-coins')
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ Top coins loaded:', data);
-                displayTopCoins(data);
-            })
-            .catch(error => {
-                console.error('❌ Top coins error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ef4444;">
-                            <h3>❌ Failed to load top coins</h3>
-                            <p>Error: ${error.message || 'Connection failed'}</p>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function displayTopCoins(data) {
-            const dashboard = document.getElementById('dashboard');
-            if (!dashboard || !data.success) return;
-            
-            const coins = data.coins || [];
-            
-            let html = `
-                <div style="padding:1rem;">
-                    <h2 style="color:#ffaa00;margin-bottom:2rem;">🏆 Top Performing Coins</h2>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;">
-            `;
-            
-            coins.forEach(coin => {
-                const changeColor = coin.change_24h >= 0 ? '#10b981' : '#ef4444';
-                const trendIcon = coin.change_24h >= 0 ? '📈' : '📉';
-                
-                html += `
-                    <div class="card" style="cursor:pointer;" onclick="selectCoinFromTop('${coin.symbol}')">
-                        <h3>${trendIcon} ${coin.name} (${coin.symbol})</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">💰 Price</div>
-                                <div class="metric-value">$${coin.price.toFixed(6)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">📊 24h Change</div>
-                                <div class="metric-value" style="color:${changeColor};">
-                                    ${coin.change_24h >= 0 ? '+' : ''}${coin.change_24h.toFixed(2)}%
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">📈 RSI</div>
-                                <div class="metric-value">${coin.rsi.toFixed(1)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">📊 Volume</div>
-                                <div class="metric-value">${formatVolume(coin.volume_24h)}</div>
-                            </div>
-                        </div>
-                        <div style="margin-top:1rem;font-size:0.9rem;color:var(--text-secondary);">
-                            Quality Score: ${coin.quality_score}/100
-                        </div>
-                    </div>
-                `;
-            });
-            
-            html += '</div></div>';
-            dashboard.innerHTML = html;
-        }
-        
-        function selectCoinFromTop(symbol) {
-            console.log('🎯 Selected coin from top:', symbol);
-            document.getElementById('coinInput').value = symbol;
-            simpleAnalyze();
-        }
-        
-        function formatVolume(volume) {
-            const num = parseFloat(volume);
-            if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-            return num.toFixed(0);
-        }
-        
-        function simpleTest() {
-            console.log('🧪 SIMPLE TEST CALLED!');
-            
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#4ade80;">
-                        <i class="fas fa-check-circle" style="font-size:3rem;margin-bottom:1rem;color:#10b981;"></i>
-                        <h3>🎉 System Test Successful!</h3>
-                        <p>All components are working correctly</p>
-                        <div style="margin-top:2rem;">
-                            <div style="background:#1a1a1a;padding:1rem;border-radius:8px;text-align:left;">
-                                <h4>✅ Test Results:</h4>
-                                <ul style="margin:0;padding-left:2rem;">
-                                    <li>API Connection: <span style="color:#10b981;">OK</span></li>
-                                    <li>Button Functions: <span style="color:#10b981;">OK</span></li>
-                                    <li>Data Processing: <span style="color:#10b981;">OK</span></li>
-                                    <li>UI Components: <span style="color:#10b981;">OK</span></li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        function simpleDNA() {
-            console.log('🧬 SIMPLE DNA CALLED!');
-            
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#8b5cf6;">
-                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>🧬 DNA Market Analysis</h3>
-                        <p>Analyzing market DNA patterns...</p>
-                    </div>
-                `;
-            }
-            
-            // DNA Analysis
-            const symbol = document.getElementById('coinInput').value.trim().toUpperCase() || 'BTCUSDT';
-            fetch('/api/analyze-dna', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: symbol })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ DNA analysis complete:', data);
-                displayDNAResults(data);
-            })
-            .catch(error => {
-                console.error('❌ DNA analysis error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ff4444;">
-                            <h3>❌ DNA Analysis Failed</h3>
-                            <p>Error: ${error.message || 'Connection failed'}</p>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function simpleFakeOut() {
-            console.log('🎯 SIMPLE FAKEOUT CALLED!');
-            
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#ef4444;">
-                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>🎯 FakeOut Killer Analysis</h3>
-                        <p>Detecting fake breakouts and market manipulation...</p>
-                    </div>
-                `;
-            }
-            
-            // FakeOut Analysis
-            const symbol = document.getElementById('coinInput').value.trim().toUpperCase() || 'BTCUSDT';
-            fetch('/api/analyze-fakeout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: symbol })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ FakeOut analysis complete:', data);
-                displayFakeOutResults(data);
-            })
-            .catch(error => {
-                console.error('❌ FakeOut analysis error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ff4444;">
-                            <h3>❌ FakeOut Analysis Failed</h3>
-                            <p>Error: ${error.message || 'Connection failed'}</p>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function displayDNAResults(data) {
-            const dashboard = document.getElementById('dashboard');
-            if (!dashboard) return;
-            
-            const dna = data.dna_analysis || {};
-            
-            dashboard.innerHTML = `
-                <div style="padding:1rem;">
-                    <h2 style="color:#8b5cf6;margin-bottom:2rem;">🧬 Market DNA Analysis for ${data.symbol}</h2>
-                    <div class="card">
-                        <h3>🔬 DNA Profile</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">Market Personality</div>
-                                <div class="metric-value" style="font-size:1rem;">${dna.market_personality || 'Unknown'}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">DNA Type</div>
-                                <div class="metric-value">${dna.dna_type || 'Unknown'}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Confidence</div>
-                                <div class="metric-value">${dna.confidence_score || 0}%</div>
-                            </div>
-                        </div>
-                        
-                        ${dna.recommendations ? `
-                            <div style="margin-top:1rem;">
-                                <h4>📋 Recommendations:</h4>
-                                <ul style="margin-top:0.5rem;padding-left:2rem;">
-                                    ${dna.recommendations.map(rec => `<li>${rec}</li>`).join('')}
-                                </ul>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }
-        
-        function displayFakeOutResults(data) {
-            const dashboard = document.getElementById('dashboard');
-            if (!dashboard) return;
-            
-            const fakeout = data.fakeout_analysis || {};
-            
-            dashboard.innerHTML = `
-                <div style="padding:1rem;">
-                    <h2 style="color:#ef4444;margin-bottom:2rem;">🎯 FakeOut Analysis for ${data.symbol}</h2>
-                    <div class="card">
-                        <h3>🛡️ Protection Analysis</h3>
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">FakeOut Probability</div>
-                                <div class="metric-value" style="color:${fakeout.fake_out_probability > 0.6 ? '#ef4444' : '#10b981'};">
-                                    ${((fakeout.fake_out_probability || 0) * 100).toFixed(1)}%
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Breakout Strength</div>
-                                <div class="metric-value">${fakeout.breakout_strength || 'Unknown'}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Volume Confirmation</div>
-                                <div class="metric-value" style="color:${fakeout.volume_confirmation ? '#10b981' : '#ef4444'};">
-                                    ${fakeout.volume_confirmation ? 'YES' : 'NO'}
-                                </div>
-                            </div>
-                        </div>
-                        
-                        ${fakeout.warnings && fakeout.warnings.length > 0 ? `
-                            <div style="margin-top:1rem;">
-                                <h4>⚠️ Warnings:</h4>
-                                <ul style="margin-top:0.5rem;padding-left:2rem;color:#f59e0b;">
-                                    ${fakeout.warnings.map(warning => `<li>${warning}</li>`).join('')}
-                                </ul>
-                            </div>
-                        ` : `
-                            <div style="margin-top:1rem;color:#10b981;">
-                                ✅ No significant fake-out risks detected
-                            </div>
-                        `}
-                    </div>
-                </div>
-            `;
-        }
-        
-        // Additional simple functions for all buttons
-        function simpleStartBot() { 
-            console.log('🤖 START BOT!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#10b981;">
-                        <i class="fas fa-robot" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>🤖 Trading Bot Started</h3>
-                        <p>Bot is now running with current settings</p>
-                        <div style="margin-top:1rem;">
-                            <button class="btn btn-danger" onclick="simpleStopBot()">Stop Bot</button>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        function simpleStopBot() { 
-            console.log('🛑 STOP BOT!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#ef4444;">
-                        <i class="fas fa-stop-circle" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>🛑 Trading Bot Stopped</h3>
-                        <p>Bot has been safely stopped</p>
-                        <div style="margin-top:1rem;">
-                            <button class="btn btn-success" onclick="simpleStartBot()">Start Bot</button>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        function simpleEmergencyStop() { 
-            console.log('🚨 EMERGENCY STOP!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#ef4444;">
-                        <i class="fas fa-exclamation-triangle" style="font-size:3rem;margin-bottom:1rem;color:#ef4444;"></i>
-                        <h3>🚨 EMERGENCY STOP ACTIVATED</h3>
-                        <p>All trading activities have been immediately halted</p>
-                        <p style="color:var(--text-secondary);">All positions closed and bot stopped</p>
-                    </div>
-                `;
-            }
-        }
-        
-        // Enhanced Bot Settings Functions
-        function startBotWithSettings() {
-            const settings = getBotSettingsFromForm();
-            
-            fetch('/api/bot/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ settings: settings })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showSuccess('🤖 Trading Bot started successfully!');
-                    updateBotStatus();
-                } else {
-                    showError('Failed to start bot: ' + data.error);
-                }
-            })
-            .catch(error => {
-                showError('Bot start error: ' + error.message);
-            });
-        }
-        
-        function saveBotSettings() {
-            const settings = getBotSettingsFromForm();
-            
-            fetch('/api/bot/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ settings: settings })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showSuccess('💾 Bot settings saved successfully!');
-                } else {
-                    showError('Failed to save settings: ' + data.error);
-                }
-            })
-            .catch(error => {
-                showError('Settings save error: ' + error.message);
-            });
-        }
-        
-        function loadBotSettings() {
-            fetch('/api/bot/settings')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success' && data.settings) {
-                    setBotSettingsToForm(data.settings);
-                }
-            })
-            .catch(error => {
-                console.error('Error loading settings:', error);
-            });
-        }
-        
-        function updateBotStatus() {
-            fetch('/api/bot/status')
-            .then(response => response.json())
-            .then(data => {
-                const statusDisplay = document.getElementById('botStatusDisplay');
-                if (statusDisplay && data.status === 'success') {
-                    const bot = data.bot_state;
-                    statusDisplay.innerHTML = `
-                        <div class="metric-grid">
-                            <div class="metric">
-                                <div class="metric-label">Status</div>
-                                <div class="metric-value" style="color:${bot.running ? '#10b981' : '#ef4444'};">
-                                    ${bot.running ? '🟢 RUNNING' : '🔴 STOPPED'}
-                                </div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Trades Made</div>
-                                <div class="metric-value">${bot.trades_made}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Current Balance</div>
-                                <div class="metric-value">$${bot.current_balance.toFixed(2)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Total Profit</div>
-                                <div class="metric-value" style="color:${bot.total_profit >= 0 ? '#10b981' : '#ef4444'};">
-                                    ${bot.total_profit >= 0 ? '+' : ''}$${bot.total_profit.toFixed(2)}
-                                </div>
-                            </div>
-                        </div>
-                        ${bot.start_time ? `<p><small>Started: ${new Date(bot.start_time).toLocaleString()}</small></p>` : ''}
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('Error updating bot status:', error);
-            });
-        }
-        
-        function getBotSettingsFromForm() {
-            return {
-                symbol: document.getElementById('botSymbol')?.value || 'BTCUSDT',
-                timeframe: document.getElementById('botTimeframe')?.value || '1h',
-                min_confidence: parseInt(document.getElementById('botConfidence')?.value) || 80,
-                position_size_percent: parseInt(document.getElementById('botPositionSize')?.value) || 10,
-                stop_loss_percent: parseInt(document.getElementById('botStopLoss')?.value) || 3,
-                take_profit_percent: parseInt(document.getElementById('botTakeProfit')?.value) || 6,
-                max_positions: parseInt(document.getElementById('botMaxPositions')?.value) || 3,
-                trading_mode: document.getElementById('botTradingMode')?.value || 'conservative',
-                enable_ml_signals: document.getElementById('botEnableML')?.checked || false,
-                enable_pattern_signals: document.getElementById('botEnablePattern')?.checked || false,
-                enable_dna_analysis: document.getElementById('botEnableDNA')?.checked || false,
-                enable_fakeout_protection: document.getElementById('botEnableFakeout')?.checked || false
-            };
-        }
-        
-        function setBotSettingsToForm(settings) {
-            if (document.getElementById('botSymbol')) document.getElementById('botSymbol').value = settings.symbol || 'BTCUSDT';
-            if (document.getElementById('botTimeframe')) document.getElementById('botTimeframe').value = settings.timeframe || '1h';
-            if (document.getElementById('botConfidence')) document.getElementById('botConfidence').value = settings.min_confidence || 80;
-            if (document.getElementById('botPositionSize')) document.getElementById('botPositionSize').value = settings.position_size_percent || 10;
-            if (document.getElementById('botStopLoss')) document.getElementById('botStopLoss').value = settings.stop_loss_percent || 3;
-            if (document.getElementById('botTakeProfit')) document.getElementById('botTakeProfit').value = settings.take_profit_percent || 6;
-            if (document.getElementById('botMaxPositions')) document.getElementById('botMaxPositions').value = settings.max_positions || 3;
-            if (document.getElementById('botTradingMode')) document.getElementById('botTradingMode').value = settings.trading_mode || 'conservative';
-            if (document.getElementById('botEnableML')) document.getElementById('botEnableML').checked = settings.enable_ml_signals !== false;
-            if (document.getElementById('botEnablePattern')) document.getElementById('botEnablePattern').checked = settings.enable_pattern_signals !== false;
-            if (document.getElementById('botEnableDNA')) document.getElementById('botEnableDNA').checked = settings.enable_dna_analysis !== false;
-            if (document.getElementById('botEnableFakeout')) document.getElementById('botEnableFakeout').checked = settings.enable_fakeout_protection !== false;
-        }
-        
-        function simpleSaveSettings() { 
-            console.log('💾 SAVE SETTINGS!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#10b981;">
-                        <i class="fas fa-save" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>💾 Settings Saved</h3>
-                        <p>All configuration changes have been saved successfully</p>
-                    </div>
-                `;
-            }
-        }
-        
-        function simpleRefreshLog() { 
-            console.log('🔄 REFRESH LOG!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#3b82f6;">
-                        <i class="fas fa-sync-alt fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>🔄 Refreshing Logs</h3>
-                        <p>Loading latest system logs...</p>
-                    </div>
-                `;
-                
-                // Simulate log loading
-                setTimeout(() => {
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3>📋 System Logs</h3>
-                            <div style="background:#1a1a1a;padding:1rem;border-radius:8px;font-family:monospace;margin-top:1rem;max-height:400px;overflow-y:auto;">
-                                <div style="color:#10b981;">[${new Date().toLocaleTimeString()}] ✅ System operational</div>
-                                <div style="color:#3b82f6;">[${new Date().toLocaleTimeString()}] 📊 Market data updated</div>
-                                <div style="color:#f59e0b;">[${new Date().toLocaleTimeString()}] ⚠️ High volatility detected</div>
-                                <div style="color:#10b981;">[${new Date().toLocaleTimeString()}] 🎯 Signal generated</div>
-                                <div style="color:#3b82f6;">[${new Date().toLocaleTimeString()}] 🔄 Cache refreshed</div>
-                            </div>
-                        </div>
-                    `;
-                }, 2000);
-            }
-        }
-        
-        function simpleMLTraining() { 
-            console.log('🧠 ML TRAINING!'); 
-            const dashboard = document.getElementById('dashboard');
-            const symbol = document.getElementById('coinInput').value.trim().toUpperCase() || 'BTCUSDT';
-            
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#8b5cf6;">
-                        <i class="fas fa-brain fa-pulse" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>🧠 Training ML Models</h3>
-                        <p>Training models with ${symbol} data...</p>
-                        <div style="margin-top:1rem;">
-                            <div style="background:#1a1a1a;padding:1rem;border-radius:8px;">
-                                <div>🔄 Fetching historical data...</div>
-                                <div>🧮 Processing features...</div>
-                                <div>🤖 Training models...</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-            
-            // Call ML training API
-            fetch('/api/ml/train', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: symbol, days: 30 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ ML Training result:', data);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3 style="color:#10b981;">🧠 ML Training Complete</h3>
-                            <div class="card">
-                                <h4>Training Results</h4>
-                                <div class="metric-grid">
-                                    <div class="metric">
-                                        <div class="metric-label">Status</div>
-                                        <div class="metric-value" style="color:${data.status === 'success' ? '#10b981' : '#ef4444'};">
-                                            ${data.status === 'success' ? 'SUCCESS' : 'FAILED'}
-                                        </div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Symbol</div>
-                                        <div class="metric-value">${data.symbol || 'N/A'}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Training Days</div>
-                                        <div class="metric-value">${data.training_days || 0}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Models Trained</div>
-                                        <div class="metric-value">${data.models_trained || 0}</div>
-                                    </div>
-                                </div>
-                                <div style="margin-top:1rem;">
-                                    <p style="color:var(--text-secondary);">${data.message || 'Training completed'}</p>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('❌ ML Training error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ef4444;">
-                            <h3>❌ ML Training Failed</h3>
-                            <p>Error: ${error.message || 'Training failed'}</p>
-                            <button class="btn btn-primary" onclick="simpleMLTraining()" style="margin-top:1rem;">
-                                Retry Training
-                            </button>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function simpleMLStatus() { 
-            console.log('📊 ML STATUS!'); 
-            const dashboard = document.getElementById('dashboard');
-            
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#3b82f6;">
-                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;"></i>
-                        <h3>📊 Checking ML Status</h3>
-                        <p>Loading model information...</p>
-                    </div>
-                `;
-            }
-            
-            // Call ML status API
-            fetch('/api/ml/status')
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ ML Status result:', data);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3 style="color:#3b82f6;">📊 ML Engine Status</h3>
-                            <div class="card">
-                                <h4>Model Information</h4>
-                                <div class="metric-grid">
-                                    <div class="metric">
-                                        <div class="metric-label">Training Status</div>
-                                        <div class="metric-value" style="color:${data.trained ? '#10b981' : '#ef4444'};">
-                                            ${data.trained ? 'TRAINED' : 'NOT TRAINED'}
-                                        </div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Available Models</div>
-                                        <div class="metric-value">${data.models ? data.models.length : 0}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Features Count</div>
-                                        <div class="metric-value">${data.features_count || 0}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Engine Status</div>
-                                        <div class="metric-value" style="color:#10b981;">ONLINE</div>
-                                    </div>
-                                </div>
-                                ${data.models ? `
-                                    <div style="margin-top:1rem;">
-                                        <h4>Active Models:</h4>
-                                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                                            ${data.models.map(model => `
-                                                <span style="background:#3b82f6;color:white;padding:0.3rem 0.8rem;border-radius:15px;font-size:0.8rem;">
-                                                    ${model}
-                                                </span>
-                                            `).join('')}
-                                        </div>
-                                    </div>
-                                ` : ''}
-                                ${!data.trained ? `
-                                    <div style="margin-top:1rem;">
-                                        <button class="btn btn-primary" onclick="simpleMLTraining()">
-                                            Train Models Now
-                                        </button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('❌ ML Status error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ef4444;">
-                            <h3>❌ ML Status Check Failed</h3>
-                            <p>Error: ${error.message || 'Status check failed'}</p>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function simpleBacktest() { 
-            console.log('⏮️ BACKTEST!'); 
-            const dashboard = document.getElementById('dashboard');
-            const symbol = document.getElementById('coinInput').value.trim().toUpperCase() || 'BTCUSDT';
-            
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#f59e0b;">
-                        <i class="fas fa-history fa-spin" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>⏮️ Running Backtest</h3>
-                        <p>Testing strategy on ${symbol} historical data...</p>
-                        <div style="margin-top:1rem;">
-                            <div style="background:#1a1a1a;padding:1rem;border-radius:8px;">
-                                <div>📈 Analyzing 30 days of data...</div>
-                                <div>🔍 Processing signals...</div>
-                                <div>💰 Calculating returns...</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-            
-            // Call backtest API
-            fetch('/api/backtest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    symbol: symbol, 
-                    days: 30,
-                    initial_balance: 1000,
-                    strategy: 'advanced'
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('✅ Backtest result:', data);
-                if (dashboard) {
-                    const results = data.results || {};
-                    dashboard.innerHTML = `
-                        <div style="padding:1rem;">
-                            <h3 style="color:#f59e0b;">⏮️ Backtest Results</h3>
-                            <div class="card">
-                                <h4>Performance Metrics</h4>
-                                <div class="metric-grid">
-                                    <div class="metric">
-                                        <div class="metric-label">Total Return</div>
-                                        <div class="metric-value" style="color:${results.total_return >= 0 ? '#10b981' : '#ef4444'};">
-                                            ${results.total_return >= 0 ? '+' : ''}${results.total_return?.toFixed(2) || 0}%
-                                        </div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Total Trades</div>
-                                        <div class="metric-value">${results.total_trades || 0}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Win Rate</div>
-                                        <div class="metric-value">${results.win_rate?.toFixed(1) || 0}%</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Max Drawdown</div>
-                                        <div class="metric-value" style="color:#ef4444;">
-                                            ${results.max_drawdown?.toFixed(2) || 0}%
-                                        </div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Sharpe Ratio</div>
-                                        <div class="metric-value">${results.sharpe_ratio?.toFixed(2) || 0}</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">Final Balance</div>
-                                        <div class="metric-value">$${results.final_balance?.toFixed(2) || 1000}</div>
-                                    </div>
-                                </div>
-                                <div style="margin-top:1rem;">
-                                    <p style="color:var(--text-secondary);">
-                                        Processed ${results.signals_processed || 0} signals, executed ${results.trades_executed || 0} trades
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
-            })
-            .catch(error => {
-                console.error('❌ Backtest error:', error);
-                if (dashboard) {
-                    dashboard.innerHTML = `
-                        <div style="text-align:center;padding:2rem;color:#ef4444;">
-                            <h3>❌ Backtest Failed</h3>
-                            <p>Error: ${error.message || 'Backtest failed'}</p>
-                            <button class="btn btn-primary" onclick="simpleBacktest()" style="margin-top:1rem;">
-                                Retry Backtest
-                            </button>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        function simpleResetBacktest() { 
-            console.log('🔄 RESET BACKTEST!'); 
-            const dashboard = document.getElementById('dashboard');
-            if (dashboard) {
-                dashboard.innerHTML = `
-                    <div style="text-align:center;padding:2rem;color:#6b7280;">
-                        <i class="fas fa-undo" style="font-size:3rem;margin-bottom:1rem;"></i>
-                        <h3>🔄 Backtest Reset</h3>
-                        <p>All backtest results have been cleared</p>
-                        <div style="margin-top:1rem;">
-                            <button class="btn btn-primary" onclick="simpleBacktest()">
-                                Run New Backtest
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        // Auto-load initial content
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🔥 MEGA-FIX v6.0 Dashboard Loaded Successfully!');
-            console.log('✅ All functions working and deployment-ready!');
-        });
-    </script>
-</body>
-</html>
-'''
+    return jsonify({'error': 'Orderbook feature removed', 'status': 'failed'}), 501
 
 
 # ===========================
 # ML ENGINE API ENDPOINTS
 # ===========================
 
-# Initialize ML predictor
-ml_predictor = AdvancedMLPredictor()
-
-@app.route('/api/ml/train', methods=['POST'])
-def api_ml_train():
-    """Train ML models with historical data"""
-    try:
-        data = request.get_json() or {}
-        symbol = data.get('symbol', 'BTCUSDT')
-        days = int(data.get('days', 30))
-        
-        logger.info(f"🧠 Starting ML training for {symbol} with {days} days")
-        
-        # Simulate successful training with demo data
-        import random
-        import time
-        
-        # Simulate training time
-        time.sleep(2)
-        
-        # Generate realistic training results
-        models_trained = random.randint(3, 5)
-        accuracy = random.uniform(0.75, 0.92)
-        
-        return jsonify({
-            'status': 'success',
-            'symbol': symbol,
-            'training_days': days,
-            'models_trained': models_trained,
-            'accuracy': round(accuracy, 3),
-            'message': f'Successfully trained {models_trained} models on {days} days of {symbol} data',
-            'training_results': {
-                'random_forest': {'accuracy': round(random.uniform(0.70, 0.90), 3), 'features': 15},
-                'gradient_boosting': {'accuracy': round(random.uniform(0.75, 0.95), 3), 'features': 18},
-                'ensemble_model': {'accuracy': round(random.uniform(0.80, 0.95), 3), 'features': 22}
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ ML training error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'symbol': data.get('symbol', 'BTCUSDT') if 'data' in locals() else 'BTCUSDT',
-            'training_days': 0,
-            'models_trained': 0,
-            'message': f'Training failed: {str(e)}'
-        }), 500
-
-@app.route('/api/ml/status', methods=['GET'])
-def api_ml_status():
-    """Get ML model status"""
-    try:
-        return jsonify({
-            'trained': ml_predictor.model_trained,
-            'models': ['RandomForest Scalping', 'GradientBoosting Swing', 'Ensemble Short-term'],
-            'features_count': 15,  # Approximate feature count
-            'engine_status': 'online',
-            'last_trained': datetime.now().isoformat() if ml_predictor.model_trained else None
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ ML status error: {e}")
-        return jsonify({
-            'trained': False,
-            'models': [],
-            'features_count': 0,
-            'engine_status': 'error',
-            'error': str(e)
-        }), 500
 
 # ===========================
 # BACKTESTING API ENDPOINTS
 # ===========================
 
-@app.route('/api/backtest', methods=['POST'])
-def api_backtest():
-    """Run comprehensive backtesting"""
-    try:
-        data = request.get_json() or {}
-        symbol = data.get('symbol', 'BTCUSDT')
-        days = int(data.get('days', 30))
-        initial_balance = float(data.get('initial_balance', 1000))
-        strategy = data.get('strategy', 'advanced')
-        
-        logger.info(f"📊 Starting backtest for {symbol} - {days} days")
-        
-        # Enhanced strategy settings with multiple timeframes
-        timeframes = data.get('timeframes', ['1h'])  # Default 1h
-        
-        strategy_settings = {
-            'min_confidence': 75 if strategy == 'conservative' else 70 if strategy == 'balanced' else 60,
-            'position_size_pct': 0.05 if strategy == 'conservative' else 0.1 if strategy == 'balanced' else 0.15,
-            'stop_loss': 2 if strategy == 'conservative' else 3 if strategy == 'balanced' else 4,
-            'take_profit': 4 if strategy == 'conservative' else 6 if strategy == 'balanced' else 8,
-            'signal_quality': strategy,
-            'timeframes': timeframes,
-            'enable_ml': data.get('enable_ml', True),
-            'enable_patterns': data.get('enable_patterns', True),
-            'enable_dna': data.get('enable_dna', True),
-            'enable_fakeout_protection': data.get('enable_fakeout_protection', True)
-        }
-        
-        # Multi-timeframe backtest simulation
-        all_results = {}
-        
-        for timeframe in timeframes:
-            import random
-            
-            # Generate realistic results based on timeframe
-            if timeframe in ['1m', '5m']:
-                # Scalping results
-                trades = random.randint(150, 300)
-                win_rate = random.uniform(52, 68)
-                total_return = random.uniform(-5, 15)
-            elif timeframe in ['15m', '1h']:
-                # Day trading results  
-                trades = random.randint(50, 120)
-                win_rate = random.uniform(58, 75)
-                total_return = random.uniform(2, 25)
-            elif timeframe in ['4h', '1d']:
-                # Swing trading results
-                trades = random.randint(15, 40)
-                win_rate = random.uniform(65, 82)
-                total_return = random.uniform(8, 35)
-            else:
-                # Default
-                trades = random.randint(30, 80)
-                win_rate = random.uniform(60, 75)
-                total_return = random.uniform(5, 20)
-            
-            all_results[timeframe] = {
-                'total_return': round(total_return, 2),
-                'total_trades': trades,
-                'win_rate': round(win_rate, 1),
-                'avg_win': round(random.uniform(2, 8), 2),
-                'avg_loss': round(random.uniform(-4, -1), 2),
-                'max_drawdown': round(random.uniform(3, 15), 2),
-                'sharpe_ratio': round(random.uniform(0.8, 2.5), 2),
-                'profit_factor': round(random.uniform(1.2, 2.8), 2),
-                'final_balance': round(initial_balance * (1 + total_return/100), 2),
-                'timeframe': timeframe
-            }
-        
-        # Best performing timeframe
-        best_tf = max(all_results.keys(), key=lambda tf: all_results[tf]['total_return'])
-        
-        return jsonify({
-            'status': 'success',
-            'symbol': symbol,
-            'strategy': strategy,
-            'results': all_results,
-            'best_timeframe': best_tf,
-            'best_result': all_results[best_tf],
-            'settings': strategy_settings,
-            'summary': {
-                'total_timeframes_tested': len(timeframes),
-                'average_return': round(sum(r['total_return'] for r in all_results.values()) / len(all_results), 2),
-                'best_return': all_results[best_tf]['total_return'],
-                'recommendation': f"Best performance on {best_tf} timeframe"
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Backtest error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e),
-            'symbol': data.get('symbol', 'BTCUSDT') if 'data' in locals() else 'BTCUSDT'
-        }), 500
 
 # ===========================
 # TRADING BOT API ENDPOINTS
 # ===========================
 
-# Bot state management with persistence
-import json
-import os
-
-BOT_STATE_FILE = 'bot_state.json'
-
-def load_bot_state():
-    """Load bot state from file"""
-    try:
-        if os.path.exists(BOT_STATE_FILE):
-            with open(BOT_STATE_FILE, 'r') as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading bot state: {e}")
-    
-    # Default state
-    return {
-        'running': False,
-        'start_time': None,
-        'trades_made': 0,
-        'current_balance': 1000,
-        'total_profit': 0,
-        'win_rate': 0,
-        'settings': {
-            'symbol': 'BTCUSDT',
-            'timeframe': '1h',
-            'min_confidence': 80,
-            'position_size_percent': 10,
-            'stop_loss_percent': 3,
-            'take_profit_percent': 6,
-            'max_positions': 3,
-            'trading_mode': 'conservative',  # conservative, balanced, aggressive
-            'enable_ml_signals': True,
-            'enable_pattern_signals': True,
-            'enable_dna_analysis': True,
-            'enable_fakeout_protection': True,
-            'auto_restart': True
-        }
-    }
-
-def save_bot_state(state):
-    """Save bot state to file"""
-    try:
-        with open(BOT_STATE_FILE, 'w') as f:
-            json.dump(state, f, indent=2)
-    except Exception as e:
-        logger.error(f"Error saving bot state: {e}")
-
-# Load bot state on startup
-bot_state = load_bot_state()
-
-@app.route('/api/bot/start', methods=['POST'])
-def api_bot_start():
-    """Start the trading bot"""
-    try:
-        data = request.get_json() or {}
-        
-        # Update bot settings if provided
-        if 'settings' in data:
-            bot_state['settings'].update(data['settings'])
-        
-        bot_state['running'] = True
-        bot_state['start_time'] = datetime.now().isoformat()
-        
-        # Save state for persistence
-        save_bot_state(bot_state)
-        
-        logger.info("🤖 Trading bot started")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Trading bot started successfully',
-            'bot_state': bot_state
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Bot start error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e)
-        }), 500
-
-@app.route('/api/bot/stop', methods=['POST'])
-def api_bot_stop():
-    """Stop the trading bot"""
-    try:
-        bot_state['running'] = False
-        save_bot_state(bot_state)  # Save state
-        
-        logger.info("🛑 Trading bot stopped")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Trading bot stopped successfully',
-            'bot_state': bot_state
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Bot stop error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e)
-        }), 500
-
-@app.route('/api/bot/settings', methods=['GET', 'POST'])
-def api_bot_settings():
-    """Get or update bot settings"""
-    try:
-        if request.method == 'GET':
-            return jsonify({
-                'status': 'success',
-                'settings': bot_state['settings']
-            })
-        
-        elif request.method == 'POST':
-            data = request.get_json() or {}
-            
-            # Update settings
-            if 'settings' in data:
-                bot_state['settings'].update(data['settings'])
-                save_bot_state(bot_state)
-                
-                return jsonify({
-                    'status': 'success',
-                    'message': 'Settings updated successfully',
-                    'settings': bot_state['settings']
-                })
-            else:
-                return jsonify({
-                    'status': 'failed',
-                    'message': 'No settings provided'
-                }), 400
-                
-    except Exception as e:
-        logger.error(f"❌ Bot settings error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e)
-        }), 500
-
-@app.route('/api/bot/status', methods=['GET'])
-def api_bot_status():
-    """Get trading bot status"""
-    try:
-        return jsonify({
-            'status': 'success',
-            'bot_state': bot_state,
-            'uptime': datetime.now().isoformat() if bot_state['running'] else None
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Bot status error: {e}")
-        return jsonify({
-            'status': 'failed',
-            'error': str(e)
-        }), 500
 
 
 # ===========================
@@ -5424,11 +3351,16 @@ def api_bot_status():
 # ===========================
 
 if __name__ == '__main__':
-    try:
-        port = int(os.environ.get('PORT', 8080))  # Railway default port
-        logger.info(f"🔥 Starting Ultimate Trading Analysis Pro v6.0 on port {port}")
-        app.run(host='0.0.0.0', port=port, debug=False)
-    except Exception as e:
-        logger.error(f"❌ Failed to start app: {e}")
-        print(f"❌ Failed to start app: {e}")
-        raise
+    logger.info("🚀 Starting ULTIMATE Trading Analysis Pro v6.0")
+    logger.info("🔥 Ready for Railway deployment")
+    
+    # Get port from environment or use default
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Run Flask app
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=True,
+        threaded=True
+    )
