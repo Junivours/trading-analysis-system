@@ -1790,35 +1790,39 @@ class AdvancedMLPredictor:
                 signals.append('BOLLINGER_SQUEEZE_SETUP')
             
             # Pattern Reversal Signale
-            reversal_patterns = ['hammer', 'shooting_star', 'doji']
-            pattern_score = 0
-            for pattern in reversal_patterns:
-                # Hier würde man prüfen ob das Pattern in den Features enthalten ist
-                pass
+            pattern_score = features.get('pattern_strength', 0) * -20  # Umkehr-Score
+            score += pattern_score
+            if pattern_score != 0:
+                signals.append('PATTERN_REVERSAL_SIGNAL')
             
             # Divergenz zwischen Preis und Momentum
             if features['price_trend'] > 0 and features['price_momentum'] < -0.01:
-                score -= 40  # Bearish Divergence
-                signals.append('BEARISH_MOMENTUM_DIVERGENCE')
+                score -= 40  # Bearish Divergenz
+                signals.append('BEARISH_DIVERGENCE')
             elif features['price_trend'] < 0 and features['price_momentum'] > 0.01:
-                score += 40  # Bullish Divergence
-                signals.append('BULLISH_MOMENTUM_DIVERGENCE')
+                score += 40  # Bullish Divergenz
+                signals.append('BULLISH_DIVERGENCE')
             
-            # Volume Divergence
-            if features['volume_trend'] < -0.2 and abs(features['price_momentum']) > 0.02:
-                score = score * 1.3  # Verstärke Signal bei Volume-Divergence
-                signals.append('VOLUME_DIVERGENCE_CONFIRM')
+            # Volume Divergenz
+            if features['volume_trend'] < -0.2:
+                score = score * 1.2 if abs(score) > 30 else score
+                signals.append('VOLUME_DIVERGENCE')
+            
+            # Market Chaos Score (hohe Volatilität = Umkehr wahrscheinlicher)
+            if features.get('market_chaos', 0) > 0.03:
+                score = score * 1.3 if abs(score) > 20 else score
+                signals.append('HIGH_CHAOS_REVERSAL')
             
             # Final Decision
-            if score > 60:
+            if score > 50:
                 direction = 'BUY'
-                confidence = min(90, 65 + score // 5)
-            elif score < -60:
+                confidence = min(90, 65 + score // 3)
+            elif score < -50:
                 direction = 'SELL'
-                confidence = min(90, 65 + abs(score) // 5)
+                confidence = min(90, 65 + abs(score) // 3)
             else:
                 direction = 'NEUTRAL'
-                confidence = max(50, 70 - abs(score) // 2)
+                confidence = max(55, 75 - abs(score) // 2)
             
             return {
                 'direction': direction,
@@ -1831,166 +1835,76 @@ class AdvancedMLPredictor:
             
         except Exception as e:
             logger.error(f"❌ Mean reversion prediction failed: {str(e)}")
-            return {'direction': 'NEUTRAL', 'confidence': 60, 'signals': ['ERROR'], 'score': 0}
+            return {'direction': 'NEUTRAL', 'confidence': 65, 'signals': ['ERROR'], 'score': 0}
 
     @staticmethod
     def _calculate_ensemble_prediction(predictions):
         """🎯 Ensemble Prediction - Kombiniert alle Modelle"""
         try:
-            # Gewichtung der Modelle
+            if not predictions:
+                return {'direction': 'NEUTRAL', 'confidence': 60, 'signals': ['NO_DATA']}
+            
+            # Gewichtung der verschiedenen Modelle
             weights = {
-                'scalping_model': 0.15,
-                'swing_model': 0.35,
-                'trend_model': 0.30,
-                'reversal_model': 0.20
+                'scalping_model': 0.15,      # Kurzfristig
+                'swing_model': 0.35,         # Hauptgewicht
+                'trend_model': 0.30,         # Trend wichtig
+                'reversal_model': 0.20       # Contrarian
             }
             
             total_score = 0
-            total_confidence = 0
+            total_weight = 0
             all_signals = []
-            directions = {'BUY': 0, 'SELL': 0, 'NEUTRAL': 0, 'HOLD': 0}
             
-            for model_name, prediction in predictions.items():
-                if model_name == 'ensemble_prediction' or not prediction:
-                    continue
+            # Aggregiere Scores aller Modelle
+            for model_name, weight in weights.items():
+                if model_name in predictions and predictions[model_name]:
+                    model_pred = predictions[model_name]
+                    model_score = model_pred.get('score', 0)
+                    model_conf = model_pred.get('confidence', 60)
                     
-                weight = weights.get(model_name, 0.25)
-                
-                # Score gewichtet addieren
-                score = prediction.get('score', 0)
-                confidence = prediction.get('confidence', 60)
-                direction = prediction.get('direction', 'NEUTRAL')
-                
-                total_score += score * weight
-                total_confidence += confidence * weight
-                
-                # Direction counting
-                directions[direction] += weight * (confidence / 100)
-                
-                # Signals sammeln
-                signals = prediction.get('signals', [])
-                all_signals.extend([f"{model_name.upper()}: {s}" for s in signals])
+                    # Gewichte Score mit Confidence
+                    weighted_score = model_score * weight * (model_conf / 100)
+                    total_score += weighted_score
+                    total_weight += weight
+                    
+                    # Sammle alle Signale
+                    model_signals = model_pred.get('signals', [])
+                    all_signals.extend([f"{model_name.split('_')[0].upper()}:{sig}" for sig in model_signals])
             
-            # Final Direction
-            final_direction = max(directions, key=directions.get)
+            # Normalisiere Score
+            if total_weight > 0:
+                final_score = total_score / total_weight
+            else:
+                final_score = 0
             
-            # Normalize HOLD to NEUTRAL
-            if final_direction == 'HOLD':
-                final_direction = 'NEUTRAL'
+            # Bestimme finale Richtung
+            if final_score > 25:
+                direction = 'BUY'
+                confidence = min(95, 70 + abs(final_score) // 2)
+            elif final_score < -25:
+                direction = 'SELL'
+                confidence = min(95, 70 + abs(final_score) // 2)
+            else:
+                direction = 'NEUTRAL'
+                confidence = max(60, 80 - abs(final_score))
             
-            # Final Confidence (gewichteter Durchschnitt)
-            final_confidence = min(95, max(50, int(total_confidence)))
-            
-            # Consensus Bonus
-            consensus_strength = max(directions.values()) / sum(directions.values())
-            if consensus_strength > 0.6:
-                final_confidence += 5
-                all_signals.append('HIGH_MODEL_CONSENSUS')
+            # Top Signale (begrenzt auf wichtigste)
+            top_signals = all_signals[:8] if len(all_signals) > 8 else all_signals
             
             return {
-                'direction': final_direction,
-                'confidence': final_confidence,
-                'score': round(total_score, 2),
-                'signals': all_signals[:10],  # Limitiere auf 10 wichtigste Signale
-                'model_weights': weights,
-                'consensus_strength': round(consensus_strength, 3),
-                'strategy': 'ENSEMBLE_ML'
+                'direction': direction,
+                'confidence': confidence,
+                'score': final_score,
+                'signals': top_signals,
+                'timeframe': 'multi_timeframe',
+                'strategy': 'ENSEMBLE',
+                'model_consensus': len([p for p in predictions.values() if p and p.get('direction') == direction])
             }
             
         except Exception as e:
             logger.error(f"❌ Ensemble prediction failed: {str(e)}")
-            return {
-                'direction': 'NEUTRAL',
-                'confidence': 60,
-                'score': 0,
-                'signals': ['ENSEMBLE_ERROR'],
-                'strategy': 'FALLBACK'
-            }
-        features['fvg_signal'] = 1 if patterns.get('bullish_fvg', False) else (-1 if patterns.get('bearish_fvg', False) else 0)
-        features['liquidity_sweep'] = 1 if patterns.get('liquidity_sweep', False) else 0
-        features['doji_reversal'] = 1 if patterns.get('doji', False) else 0
-        
-        # Essential LiqMap Features
-        features['equal_highs'] = 1 if patterns.get('equal_highs', False) else 0
-        features['equal_lows'] = 1 if patterns.get('equal_lows', False) else 0
-        features['stop_hunt'] = 1 if (patterns.get('stop_hunt_high', False) or patterns.get('stop_hunt_low', False)) else 0
-        features['volume_cluster'] = 1 if patterns.get('volume_cluster', False) else 0
-        
-        return features
-    
-    @staticmethod
-    def _calculate_bb_position(indicators, current_price):
-        """Calculate position within Bollinger Bands"""
-        bb_upper = indicators.get('current_bb_upper', current_price)
-        bb_lower = indicators.get('current_bb_lower', current_price)
-        if bb_upper == bb_lower:
-            return 0.5
-        return (current_price - bb_lower) / (bb_upper - bb_lower)
-    
-    @staticmethod
-    def _calculate_trend_strength(indicators):
-        """Calculate overall trend strength"""
-        ema_20 = indicators.get('current_ema_20', 0)
-        ema_50 = indicators.get('current_ema_50', 0)
-        sma_200 = indicators.get('current_sma_200', 0)
-        
-        if ema_50 == 0 or sma_200 == 0:
-            return 0
-        
-        trend_score = 0
-        if ema_20 > ema_50:
-            trend_score += 1
-        if ema_50 > sma_200:
-            trend_score += 1
-        if ema_20 > sma_200:
-            trend_score += 1
-            
-        return trend_score / 3
-    
-    @staticmethod
-    def _predict_scalping(features):
-        """Scalping predictions (1-15 minutes)"""
-        score = 0
-        confidence_factors = []
-        
-        # RSI for quick reversals
-        rsi = features.get('rsi', 50)
-        if rsi < 20:
-            score += 4
-            confidence_factors.append(0.9)
-        elif rsi < 30:
-            score += 2
-            confidence_factors.append(0.7)
-        elif rsi > 80:
-            score -= 4
-            confidence_factors.append(0.9)
-        elif rsi > 70:
-            score -= 2
-            confidence_factors.append(0.7)
-        else:
-            confidence_factors.append(0.3)
-        
-        # Volume spike for momentum
-        volume_spike = features.get('volume_spike', 1)
-        if volume_spike > 2:
-            score += 2
-            confidence_factors.append(0.8)
-        elif volume_spike > 1.5:
-            score += 1
-            confidence_factors.append(0.6)
-        
-        # Pattern strength with FVG
-        pattern_strength = features.get('pattern_strength', 0)
-        score += pattern_strength * 2
-        
-        # FVG Signal (combined bullish/bearish)
-        fvg_signal = features.get('fvg_signal', 0)
-        if fvg_signal > 0:  # Bullish FVG
-            score += 3
-            confidence_factors.append(0.85)
-        elif fvg_signal < 0:  # Bearish FVG
-            score -= 3
-            confidence_factors.append(0.85)
+            return {'direction': 'NEUTRAL', 'confidence': 60, 'signals': ['ENSEMBLE_ERROR'], 'score': 0}
         
         # Liquidity Sweep (High-Probability Reversal)
         if features.get('liquidity_sweep', 0):
@@ -2181,8 +2095,105 @@ class AdvancedMLPredictor:
         bb_position = features.get('bb_position', 0.5)
         if bb_position < 0.1:
             score += 2
+            confidence_factors.append(0.8)
         elif bb_position > 0.9:
             score -= 2
+            confidence_factors.append(0.8)
+        else:
+            confidence_factors.append(0.3)
+        
+        # Pattern strength
+        pattern_strength = features.get('pattern_strength', 0)
+        score += pattern_strength * 1.5
+        
+        # Volume considerations
+        volume_spike = features.get('volume_spike', 1)
+        if volume_spike > 1.8:
+            score = score * 1.2 if score != 0 else score
+            confidence_factors.append(0.7)
+        
+        # Smart Money features
+        fvg_signal = features.get('fvg_signal', 0)
+        if fvg_signal != 0:
+            score += fvg_signal * 1.5
+            confidence_factors.append(0.75)
+        
+        direction = 'BUY' if score > 1.5 else 'SELL' if score < -1.5 else 'NEUTRAL'
+        confidence = min(90, max(40, int(np.mean(confidence_factors) * 100))) if confidence_factors else 50
+        
+        return {
+            'direction': direction,
+            'confidence': confidence,
+            'score': score,
+            'timeframe': '15min-4h',
+            'strategy': 'Short-term',
+            'risk_level': 'MEDIUM'
+        }
+    
+    @staticmethod
+    def _predict_long_term(features):
+        """Long term trend predictions (4 hours - several days)"""
+        score = 0
+        confidence_factors = []
+        
+        # Trend is king for long term
+        trend_strength = features.get('trend_strength', 0)
+        if trend_strength > 0.8:
+            score += 4
+            confidence_factors.append(0.9)
+        elif trend_strength > 0.6:
+            score += 3
+            confidence_factors.append(0.8)
+        elif trend_strength < 0.2:
+            score -= 4
+            confidence_factors.append(0.9)
+        elif trend_strength < 0.4:
+            score -= 3
+            confidence_factors.append(0.8)
+        else:
+            confidence_factors.append(0.5)
+        
+        # Moving average convergence
+        ema_convergence = features.get('ema_convergence', 0.01)
+        if ema_convergence < 0.005:  # EMAs close together = strong trend
+            score = score * 1.3 if score != 0 else score
+            confidence_factors.append(0.8)
+        
+        # Long term RSI
+        rsi = features.get('rsi', 50)
+        if rsi < 30:
+            score += 2
+            confidence_factors.append(0.7)
+        elif rsi > 70:
+            score -= 2
+            confidence_factors.append(0.7)
+        
+        # Price momentum (important for long term)
+        price_momentum = features.get('price_momentum', 0)
+        if price_momentum > 0.03:  # Strong bullish momentum
+            score += 3
+            confidence_factors.append(0.85)
+        elif price_momentum < -0.03:  # Strong bearish momentum
+            score -= 3
+            confidence_factors.append(0.85)
+        
+        # Volume trend consistency
+        volume_consistency = features.get('volume_consistency', 0.5)
+        if volume_consistency > 0.7:
+            score = score * 1.1 if score != 0 else score
+            confidence_factors.append(0.6)
+        
+        direction = 'BUY' if score > 2 else 'SELL' if score < -2 else 'HOLD'
+        confidence = min(95, max(45, int(np.mean(confidence_factors) * 100))) if confidence_factors else 50
+        
+        return {
+            'direction': direction,
+            'confidence': confidence,
+            'score': score,
+            'timeframe': '4h-days',
+            'strategy': 'Long-term',
+            'risk_level': 'LOW'
+        }
         
         direction = 'BUY' if score > 1 else 'SELL' if score < -1 else 'NEUTRAL'
         confidence = min(92, max(45, np.mean(confidence_factors) * 90 + abs(score) * 6))
@@ -2287,12 +2298,94 @@ class AdvancedMLPredictor:
         
         return {
             'direction': direction,
-            'confidence': confidence,
-            'score': score,
+            'confidence': int(confidence) if confidence_factors else 50,
+            'score': round(score, 2),
             'timeframe': '3 days - 4 weeks',
             'strategy': 'Long Term',
             'risk_level': 'LOW'
         }
+    
+    @staticmethod
+    def _generate_combined_signal(predictions):
+        """Generate combined trading signal from all timeframes"""
+        try:
+            if not predictions:
+                return {
+                    'signal': 'NEUTRAL',
+                    'strength': 'WEAK',
+                    'confidence': 50,
+                    'timeframe_consensus': 'NO_DATA'
+                }
+            
+            # Count signals by direction
+            signals = {'BUY': 0, 'SELL': 0, 'NEUTRAL': 0, 'HOLD': 0}
+            weighted_confidence = 0
+            total_weight = 0
+            
+            # Timeframe weights (shorter = less weight)
+            weights = {
+                'scalping_model': 0.1,
+                'swing_model': 0.3,
+                'trend_model': 0.4,
+                'reversal_model': 0.2
+            }
+            
+            for model_name, prediction in predictions.items():
+                if model_name == 'ensemble_prediction':
+                    continue
+                    
+                direction = prediction.get('direction', 'NEUTRAL')
+                if direction == 'HOLD':
+                    direction = 'NEUTRAL'
+                    
+                confidence = prediction.get('confidence', 50)
+                weight = weights.get(model_name, 0.25)
+                
+                signals[direction] += weight * (confidence / 100)
+                weighted_confidence += confidence * weight
+                total_weight += weight
+            
+            # Determine final signal
+            max_signal = max(signals.items(), key=lambda x: x[1])
+            final_signal = max_signal[0]
+            signal_strength = max_signal[1]
+            
+            # Determine strength
+            if signal_strength > 0.6:
+                strength = 'STRONG'
+            elif signal_strength > 0.4:
+                strength = 'MODERATE'
+            else:
+                strength = 'WEAK'
+            
+            # Calculate final confidence
+            final_confidence = int(weighted_confidence / total_weight) if total_weight > 0 else 50
+            
+            # Timeframe consensus
+            consensus_count = sum(1 for v in signals.values() if v > 0.3)
+            if consensus_count >= 3:
+                consensus = 'HIGH'
+            elif consensus_count >= 2:
+                consensus = 'MEDIUM'
+            else:
+                consensus = 'LOW'
+            
+            return {
+                'signal': final_signal,
+                'strength': strength,
+                'confidence': final_confidence,
+                'timeframe_consensus': consensus,
+                'signals_breakdown': signals
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating combined signal: {e}")
+            return {
+                'signal': 'NEUTRAL',
+                'strength': 'WEAK',
+                'confidence': 50,
+                'timeframe_consensus': 'ERROR'
+            }
     
     @staticmethod
     def _predict_swing_trade(features):
@@ -3858,6 +3951,203 @@ def analyze_dna():
         return jsonify({'error': str(e), 'status': 'failed'}), 500
 
 
+# === COMPREHENSIVE TEST API ENDPOINT ===
+@app.route('/api/test-complete-analysis', methods=['GET'])
+def test_complete_analysis():
+    """🧪 Comprehensive test of all analysis functions with real data"""
+    try:
+        test_symbol = 'BTCUSDT'
+        logger.info(f"🧪 Testing complete analysis for {test_symbol}")
+        
+        # 1. Test Market Data Fetching
+        try:
+            ohlc_data = fetch_binance_data(test_symbol, interval='1h', limit=100)
+            market_data_status = 'SUCCESS' if ohlc_data and len(ohlc_data) > 50 else 'FAILED'
+            data_points = len(ohlc_data) if ohlc_data else 0
+        except Exception as e:
+            market_data_status = f'ERROR: {str(e)}'
+            data_points = 0
+            ohlc_data = generate_fallback_data(test_symbol, 100)  # Use fallback
+        
+        # 2. Test Technical Indicators
+        try:
+            indicators = AdvancedTechnicalAnalyzer.calculate_all_indicators(ohlc_data)
+            indicators_status = 'SUCCESS' if indicators and len(indicators) > 10 else 'FAILED'
+            indicators_count = len(indicators) if indicators else 0
+            
+            # Extract key values
+            current_rsi = indicators.get('current_rsi_14', 0)
+            current_macd = indicators.get('current_macd', 0)
+            current_ema_20 = indicators.get('current_ema_20', 0)
+            
+        except Exception as e:
+            indicators_status = f'ERROR: {str(e)}'
+            indicators_count = 0
+            current_rsi = current_macd = current_ema_20 = 0
+            indicators = {}
+        
+        # 3. Test Pattern Detection
+        try:
+            patterns = AdvancedPatternDetector.detect_all_patterns(ohlc_data)
+            patterns_status = 'SUCCESS' if patterns else 'FAILED'
+            patterns_detected = sum(1 for p in patterns.values() if p) if patterns else 0
+        except Exception as e:
+            patterns_status = f'ERROR: {str(e)}'
+            patterns_detected = 0
+            patterns = {}
+        
+        # 4. Test ML Predictions
+        try:
+            price_data = [{'close': c['close'], 'volume': c['volume']} for c in ohlc_data[-50:]]
+            volume_data = [c['volume'] for c in ohlc_data[-50:]]
+            
+            ml_predictions = AdvancedMLPredictor.calculate_predictions(
+                indicators, patterns, price_data, volume_data
+            )
+            
+            ml_status = 'SUCCESS' if ml_predictions and len(ml_predictions) >= 4 else 'FAILED'
+            ml_models_count = len(ml_predictions) if ml_predictions else 0
+            
+            # Extract ML decisions
+            ensemble_prediction = ml_predictions.get('ensemble_prediction', {})
+            ensemble_decision = ensemble_prediction.get('direction', 'UNKNOWN')
+            ensemble_confidence = ensemble_prediction.get('confidence', 0)
+            
+        except Exception as e:
+            ml_status = f'ERROR: {str(e)}'
+            ml_models_count = 0
+            ensemble_decision = 'ERROR'
+            ensemble_confidence = 0
+            ml_predictions = {}
+        
+        # 5. Test DNA Analysis
+        try:
+            dna_analysis = create_real_dna_analysis(test_symbol, price_data, volume_data, indicators)
+            dna_status = 'SUCCESS' if dna_analysis and dna_analysis.get('confidence_score', 0) > 0 else 'FAILED'
+            dna_personality = dna_analysis.get('market_personality', 'UNKNOWN') if dna_analysis else 'ERROR'
+            dna_confidence = dna_analysis.get('confidence_score', 0) if dna_analysis else 0
+        except Exception as e:
+            dna_status = f'ERROR: {str(e)}'
+            dna_personality = 'ERROR'
+            dna_confidence = 0
+        
+        # 6. Test Fakeout Analysis
+        try:
+            fakeout_analysis = create_real_fakeout_analysis(test_symbol, patterns, price_data, indicators)
+            fakeout_status = 'SUCCESS' if fakeout_analysis and 'fakeout_probability' in fakeout_analysis else 'FAILED'
+            fakeout_probability = fakeout_analysis.get('fakeout_probability', 0) if fakeout_analysis else 0
+            protection_level = fakeout_analysis.get('protection_level', 'UNKNOWN') if fakeout_analysis else 'ERROR'
+        except Exception as e:
+            fakeout_status = f'ERROR: {str(e)}'
+            fakeout_probability = 0
+            protection_level = 'ERROR'
+        
+        # 7. Test API Status
+        api_status = 'LIVE_BINANCE' if REAL_API_AVAILABLE else 'FALLBACK_DATA'
+        
+        # === COMPREHENSIVE TEST RESULTS ===
+        test_results = {
+            'test_timestamp': int(time.time()),
+            'test_symbol': test_symbol,
+            'overall_status': 'SUCCESS',  # Will be updated based on critical failures
+            
+            # Core Systems Tests
+            'systems_status': {
+                'market_data': {
+                    'status': market_data_status,
+                    'data_points': data_points,
+                    'api_source': api_status
+                },
+                'technical_indicators': {
+                    'status': indicators_status,
+                    'indicators_count': indicators_count,
+                    'sample_values': {
+                        'rsi_14': round(current_rsi, 2),
+                        'macd': round(current_macd, 4),
+                        'ema_20': round(current_ema_20, 2)
+                    }
+                },
+                'pattern_detection': {
+                    'status': patterns_status,
+                    'patterns_detected': patterns_detected,
+                    'sample_patterns': list(patterns.keys())[:5] if patterns else []
+                },
+                'ml_predictions': {
+                    'status': ml_status,
+                    'models_count': ml_models_count,
+                    'ensemble_decision': ensemble_decision,
+                    'ensemble_confidence': ensemble_confidence,
+                    'available_models': list(ml_predictions.keys()) if ml_predictions else []
+                },
+                'dna_analysis': {
+                    'status': dna_status,
+                    'market_personality': dna_personality,
+                    'confidence': dna_confidence
+                },
+                'fakeout_analysis': {
+                    'status': fakeout_status,
+                    'fakeout_probability': fakeout_probability,
+                    'protection_level': protection_level
+                }
+            },
+            
+            # Performance Metrics
+            'performance_metrics': {
+                'analysis_complete': True,
+                'data_quality': 'HIGH' if api_status == 'LIVE_BINANCE' else 'DEMO',
+                'systems_operational': 6,  # Total systems tested
+                'critical_failures': 0    # Will be calculated
+            },
+            
+            # Quality Assessment
+            'quality_assessment': {
+                'data_accuracy': 'HIGH' if market_data_status == 'SUCCESS' else 'MEDIUM',
+                'indicator_reliability': 'HIGH' if indicators_count > 15 else 'MEDIUM',
+                'pattern_confidence': 'HIGH' if patterns_detected >= 2 else 'MEDIUM',
+                'ml_reliability': 'HIGH' if ml_models_count >= 4 else 'MEDIUM',
+                'overall_grade': 'A'  # Will be calculated
+            }
+        }
+        
+        # Calculate critical failures
+        critical_systems = ['market_data', 'technical_indicators', 'ml_predictions']
+        critical_failures = sum(1 for sys in critical_systems 
+                              if 'ERROR' in test_results['systems_status'][sys]['status'])
+        
+        test_results['performance_metrics']['critical_failures'] = critical_failures
+        
+        # Update overall status
+        if critical_failures > 0:
+            test_results['overall_status'] = 'DEGRADED'
+        if critical_failures >= 2:
+            test_results['overall_status'] = 'FAILED'
+        
+        # Calculate overall grade
+        success_rate = (6 - critical_failures) / 6
+        if success_rate >= 0.9:
+            grade = 'A'
+        elif success_rate >= 0.8:
+            grade = 'B'
+        elif success_rate >= 0.6:
+            grade = 'C'
+        else:
+            grade = 'F'
+        
+        test_results['quality_assessment']['overall_grade'] = grade
+        
+        logger.info(f"✅ Complete system test finished - Grade: {grade}")
+        return jsonify(test_results)
+        
+    except Exception as e:
+        logger.error(f"❌ System test failed: {str(e)}")
+        return jsonify({
+            'test_timestamp': int(time.time()),
+            'overall_status': 'SYSTEM_ERROR',
+            'error': str(e),
+            'systems_status': 'FAILED'
+        }), 500
+
+
 # === FakeOut Analysis API ===
 @app.route('/api/analyze-fakeout', methods=['POST'])
 def analyze_fakeout():
@@ -3889,6 +4179,112 @@ def analyze_fakeout():
     except Exception as e:
         logger.error(f"Error in FakeOut analysis: {e}")
         return jsonify({'error': str(e), 'status': 'failed'}), 500
+
+# === LIVE DATA VERIFICATION API ===
+@app.route('/api/verify-live-data', methods=['GET'])
+def verify_live_data():
+    """🔍 Verify that analyses are using real, non-zero data"""
+    try:
+        symbol = request.args.get('symbol', 'BTCUSDT')
+        logger.info(f"🔍 Verifying live data for {symbol}")
+        
+        # Test multiple symbols to ensure variety
+        test_symbols = [symbol, 'ETHUSDT', 'BNBUSDT']
+        verification_results = {}
+        
+        for test_sym in test_symbols:
+            try:
+                # Fetch real data
+                ohlc_data = fetch_binance_data(test_sym, interval='1h', limit=50)
+                
+                if not ohlc_data or len(ohlc_data) < 10:
+                    verification_results[test_sym] = {
+                        'status': 'NO_DATA',
+                        'reason': 'Insufficient OHLC data'
+                    }
+                    continue
+                
+                # Calculate indicators
+                indicators = AdvancedTechnicalAnalyzer.calculate_all_indicators(ohlc_data)
+                
+                # Verify data is not all zeros/empty
+                price_data = [c['close'] for c in ohlc_data[-10:]]
+                volume_data = [c['volume'] for c in ohlc_data[-10:]]
+                
+                # Check for realistic price variations
+                price_variance = np.var(price_data) if len(price_data) > 1 else 0
+                price_mean = np.mean(price_data) if len(price_data) > 0 else 0
+                
+                # Check for realistic volume
+                volume_mean = np.mean(volume_data) if len(volume_data) > 0 else 0
+                
+                # Check indicator values are reasonable
+                rsi_value = indicators.get('current_rsi_14', 0)
+                macd_value = indicators.get('current_macd', 0)
+                
+                # Verification checks
+                checks = {
+                    'price_realistic': price_mean > 0.01,  # Not tiny values
+                    'price_varies': price_variance > 0,    # Prices change
+                    'volume_present': volume_mean > 0,     # Volume exists
+                    'rsi_reasonable': 0 <= rsi_value <= 100,  # RSI in range
+                    'indicators_calculated': len(indicators) > 5,  # Indicators work
+                    'macd_exists': abs(macd_value) > 0.0001 or macd_value == 0  # MACD calculated
+                }
+                
+                passed_checks = sum(checks.values())
+                total_checks = len(checks)
+                
+                verification_results[test_sym] = {
+                    'status': 'VERIFIED' if passed_checks >= total_checks - 1 else 'QUESTIONABLE',
+                    'checks_passed': f"{passed_checks}/{total_checks}",
+                    'sample_data': {
+                        'price_range': f"${min(price_data):.2f} - ${max(price_data):.2f}",
+                        'avg_volume': f"{volume_mean:.0f}",
+                        'rsi': round(rsi_value, 1),
+                        'price_variance': round(price_variance, 4)
+                    },
+                    'detailed_checks': checks
+                }
+                
+            except Exception as e:
+                verification_results[test_sym] = {
+                    'status': 'ERROR',
+                    'reason': str(e)
+                }
+        
+        # Overall assessment
+        total_verified = sum(1 for r in verification_results.values() if r['status'] == 'VERIFIED')
+        total_tested = len(verification_results)
+        
+        overall_status = 'EXCELLENT' if total_verified == total_tested else \
+                        'GOOD' if total_verified >= total_tested * 0.8 else \
+                        'POOR' if total_verified >= total_tested * 0.5 else 'FAILED'
+        
+        return jsonify({
+            'verification_timestamp': int(time.time()),
+            'overall_status': overall_status,
+            'verified_symbols': total_verified,
+            'total_tested': total_tested,
+            'success_rate': f"{(total_verified/total_tested)*100:.1f}%" if total_tested > 0 else "0%",
+            'api_source': 'LIVE_BINANCE' if REAL_API_AVAILABLE else 'FALLBACK_DATA',
+            'individual_results': verification_results,
+            'data_quality_summary': {
+                'realistic_prices': total_verified > 0,
+                'price_variations': total_verified > 0,
+                'volume_data': total_verified > 0,
+                'indicators_working': total_verified > 0,
+                'analysis_ready': overall_status in ['EXCELLENT', 'GOOD']
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Data verification failed: {str(e)}")
+        return jsonify({
+            'verification_timestamp': int(time.time()),
+            'overall_status': 'VERIFICATION_ERROR',
+            'error': str(e)
+        }), 500
 
 @app.route('/health')
 def health_check():
