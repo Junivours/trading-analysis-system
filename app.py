@@ -678,90 +678,137 @@ class AdvancedTechnicalAnalyzer:
     @staticmethod
     def calculate_all_indicators(ohlc_data):
         try:
+            if not ohlc_data or len(ohlc_data) < 2:
+                logger.warning("Insufficient OHLC data for indicators")
+                return {}
+                
             if not ta_available:
                 # Return basic indicators without pandas-ta
                 return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
                 
             df = pd.DataFrame(ohlc_data)
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades']
-            df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+            
+            # Robuste DataFrame-Struktur-Erkennung
+            if len(df.columns) >= 5:
+                if len(df.columns) == 9:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades']
+                elif len(df.columns) == 6:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                elif len(df.columns) == 5:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close']
+                    df['volume'] = 1000  # Default volume
+                else:
+                    # Fallback für andere Längen
+                    logger.warning(f"Unexpected DataFrame structure with {len(df.columns)} columns, using basic indicators")
+                    return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
+            else:
+                logger.error(f"DataFrame has only {len(df.columns)} columns, need at least 5")
+                return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
+            
+            # Sichere numerische Konvertierung
+            numeric_cols = ['open', 'high', 'low', 'close']
+            if 'volume' in df.columns:
+                numeric_cols.append('volume')
+                
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            # Validierung der Mindestdatenlänge
+            if len(df) < 10:
+                logger.warning("Not enough data points for reliable indicators")
+                return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
             
             # === CORE INDICATORS ONLY - Fokus auf höchste Qualität ===
             indicators = {}
 
-            # Trend Indicators - Nur die wichtigsten 3
-            # indicators['sma_5'] = ta.sma(df['close'], length=5).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            # indicators['sma_10'] = ta.sma(df['close'], length=10).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            indicators['sma_20'] = ta.sma(df['close'], length=20).fillna(0).values
-            indicators['sma_50'] = ta.sma(df['close'], length=50).fillna(0).values
-            indicators['sma_200'] = ta.sma(df['close'], length=200).fillna(0).values
+            try:
+                # Trend Indicators - Nur die wichtigsten 3
+                indicators['sma_20'] = ta.sma(df['close'], length=20).fillna(0).values
+                indicators['sma_50'] = ta.sma(df['close'], length=50).fillna(0).values
+                indicators['sma_200'] = ta.sma(df['close'], length=200).fillna(0).values
 
-            # indicators['ema_5'] = ta.ema(df['close'], length=5).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            # indicators['ema_10'] = ta.ema(df['close'], length=10).fillna(0).values  # ENTFERNT - zu viel Rauschen
-            indicators['ema_20'] = ta.ema(df['close'], length=20).fillna(0).values
-            indicators['ema_50'] = ta.ema(df['close'], length=50).fillna(0).values
-            # indicators['ema_200'] = ta.ema(df['close'], length=200).fillna(0).values  # ENTFERNT - SMA200 reicht
+                indicators['ema_20'] = ta.ema(df['close'], length=20).fillna(0).values
+                indicators['ema_50'] = ta.ema(df['close'], length=50).fillna(0).values
 
-            # MACD using pandas-ta
-            macd_data = ta.macd(df['close']).fillna(0)
-            indicators['macd'] = macd_data.iloc[:, 0].values if len(macd_data.columns) > 0 else np.zeros(len(df))
-            indicators['macd_signal'] = macd_data.iloc[:, 2].values if len(macd_data.columns) > 2 else np.zeros(len(df))
-            indicators['macd_histogram'] = macd_data.iloc[:, 1].values if len(macd_data.columns) > 1 else np.zeros(len(df))
+                # MACD using pandas-ta mit Fehlerbehandlung
+                try:
+                    macd_data = ta.macd(df['close']).fillna(0)
+                    if len(macd_data.columns) >= 3:
+                        indicators['macd'] = macd_data.iloc[:, 0].values
+                        indicators['macd_signal'] = macd_data.iloc[:, 2].values
+                        indicators['macd_histogram'] = macd_data.iloc[:, 1].values
+                    else:
+                        # Fallback MACD
+                        indicators['macd'] = np.zeros(len(df))
+                        indicators['macd_signal'] = np.zeros(len(df))
+                        indicators['macd_histogram'] = np.zeros(len(df))
+                except Exception as e:
+                    logger.warning(f"MACD calculation failed: {e}")
+                    indicators['macd'] = np.zeros(len(df))
+                    indicators['macd_signal'] = np.zeros(len(df))
+                    indicators['macd_histogram'] = np.zeros(len(df))
 
-            # Oscillators - Nur RSI (wichtigster und zuverlässigster)
-            indicators['rsi_14'] = ta.rsi(df['close'], length=14).fillna(50).values
-            # indicators['rsi_7'] = ta.rsi(df['close'], length=7).fillna(50).values  # ENTFERNT - zu volatil
-            # indicators['rsi_21'] = ta.rsi(df['close'], length=21).fillna(50).values  # ENTFERNT - RSI14 reicht
+                # Oscillators - Nur RSI
+                indicators['rsi_14'] = ta.rsi(df['close'], length=14).fillna(50).values
 
-            # Stochastic - ENTFERNT - oft zu viele Fake-Signale
-            # stoch_data = ta.stoch(df['high'], df['low'], df['close']).fillna(50)
-            # indicators['stoch_k'] = stoch_data.iloc[:, 0].values if len(stoch_data.columns) > 0 else np.full(len(df), 50)
-            # indicators['stoch_d'] = stoch_data.iloc[:, 1].values if len(stoch_data.columns) > 1 else np.full(len(df), 50)
+                # Bollinger Bands using pandas-ta mit Fehlerbehandlung
+                try:
+                    bb_data = ta.bbands(df['close']).fillna(method='bfill').fillna(method='ffill')
+                    if len(bb_data.columns) >= 3:
+                        indicators['bb_upper'] = bb_data.iloc[:, 0].values
+                        indicators['bb_middle'] = bb_data.iloc[:, 1].values 
+                        indicators['bb_lower'] = bb_data.iloc[:, 2].values
+                    else:
+                        # Fallback BB
+                        indicators['bb_upper'] = df['close'].values
+                        indicators['bb_middle'] = df['close'].values
+                        indicators['bb_lower'] = df['close'].values
+                except Exception as e:
+                    logger.warning(f"Bollinger Bands calculation failed: {e}")
+                    indicators['bb_upper'] = df['close'].values
+                    indicators['bb_middle'] = df['close'].values
+                    indicators['bb_lower'] = df['close'].values
 
-            # Williams %R - ENTFERNT - ähnlich wie RSI, aber weniger zuverlässig
-            # indicators['williams_r'] = ta.willr(df['high'], df['low'], df['close']).fillna(-50).values
+                # Volume Indicators - Nur OBV
+                indicators['obv'] = ta.obv(df['close'], df['volume']).fillna(0).values
 
-            # CCI - ENTFERNT - zu volatil
-            # indicators['cci'] = ta.cci(df['high'], df['low'], df['close']).fillna(0).values
+                # ATR - Volatilität
+                indicators['atr'] = ta.atr(df['high'], df['low'], df['close']).fillna(0.01).values
 
-            # Bollinger Bands using pandas-ta
-            bb_data = ta.bbands(df['close']).fillna(method='bfill').fillna(method='ffill')
-            if len(bb_data.columns) >= 3:
-                indicators['bb_upper'] = bb_data.iloc[:, 0].values
-                indicators['bb_middle'] = bb_data.iloc[:, 1].values 
-                indicators['bb_lower'] = bb_data.iloc[:, 2].values
-            else:
-                indicators['bb_upper'] = df['close'].values
-                indicators['bb_middle'] = df['close'].values
-                indicators['bb_lower'] = df['close'].values
+                # ADX mit Fehlerbehandlung
+                try:
+                    adx_data = ta.adx(df['high'], df['low'], df['close']).fillna(20)
+                    if len(adx_data.columns) >= 3:
+                        indicators['adx'] = adx_data.iloc[:, 0].values
+                        indicators['adx_plus'] = adx_data.iloc[:, 1].values
+                        indicators['adx_minus'] = adx_data.iloc[:, 2].values
+                    else:
+                        indicators['adx'] = np.full(len(df), 20)
+                        indicators['adx_plus'] = np.full(len(df), 20)
+                        indicators['adx_minus'] = np.full(len(df), 20)
+                except Exception as e:
+                    logger.warning(f"ADX calculation failed: {e}")
+                    indicators['adx'] = np.full(len(df), 20)
+                    indicators['adx_plus'] = np.full(len(df), 20)
+                    indicators['adx_minus'] = np.full(len(df), 20)
 
-            # Volume Indicators - Nur OBV (bester Volume-Indikator)
-            indicators['obv'] = ta.obv(df['close'], df['volume']).fillna(0).values
-            # indicators['ad'] = ta.ad(df['high'], df['low'], df['close'], df['volume']).fillna(0).values  # ENTFERNT - OBV reicht
-            # indicators['adosc'] = ta.adosc(df['high'], df['low'], df['close'], df['volume']).fillna(0).values  # ENTFERNT - zu komplex
+            except Exception as e:
+                logger.error(f"pandas-ta indicators failed: {e}, falling back to basic indicators")
+                return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
 
-            # ATR - Volatilität (wichtig für Risk Management)
-            indicators['atr'] = ta.atr(df['high'], df['low'], df['close']).fillna(0).values
-
-            # SAR und ADX - ENTFERNT - oft zu viele False Signals
-            # indicators['sar'] = ta.psar(df['high'], df['low'], df['close']).iloc[:, 0].fillna(df['close']).values
-
-            # ADX (Average Directional Index) using pandas-ta
-            adx_data = ta.adx(df['high'], df['low'], df['close']).fillna(20)
-            if len(adx_data.columns) >= 3:
-                indicators['adx'] = adx_data.iloc[:, 0].values
-                indicators['adx_plus'] = adx_data.iloc[:, 1].values
-                indicators['adx_minus'] = adx_data.iloc[:, 2].values
-            else:
-                indicators['adx'] = np.full(len(df), 20)
-                indicators['adx_plus'] = np.full(len(df), 20)
-                indicators['adx_minus'] = np.full(len(df), 20)
-
-            # Current values for easy access
+            # Current values for easy access mit sicherer Extraktion
             current_values = {}
             for key, values in indicators.items():
-                if values is not None and len(values) > 0 and not np.isnan(values[-1]):
-                    current_values[f'current_{key}'] = float(values[-1])
+                if values is not None and len(values) > 0:
+                    try:
+                        last_value = values[-1]
+                        if not np.isnan(last_value) and not np.isinf(last_value):
+                            current_values[f'current_{key}'] = float(last_value)
+                        else:
+                            current_values[f'current_{key}'] = 0.0
+                    except (IndexError, TypeError, ValueError):
+                        current_values[f'current_{key}'] = 0.0
                 else:
                     current_values[f'current_{key}'] = 0.0
 
@@ -770,49 +817,91 @@ class AdvancedTechnicalAnalyzer:
 
         except Exception as e:
             logger.error(f"Error calculating indicators: {str(e)}")
-            return {}
+            # Absolute fallback
+            return AdvancedTechnicalAnalyzer._calculate_basic_indicators(ohlc_data)
     
     @staticmethod
     def _calculate_basic_indicators(ohlc_data):
         """Basic indicators without pandas-ta dependency"""
         try:
+            # Sichere DataFrame-Erstellung
+            if not ohlc_data or len(ohlc_data) < 2:
+                logger.warning("Insufficient OHLC data for indicators")
+                return {}
+            
             df = pd.DataFrame(ohlc_data)
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades']
-            df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+            
+            # Robuste Spalten-Zuordnung
+            if len(df.columns) >= 5:
+                # Standard: [timestamp, open, high, low, close, volume, ...]
+                if len(df.columns) == 9:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades']
+                elif len(df.columns) == 6:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                elif len(df.columns) == 5:
+                    df.columns = ['timestamp', 'open', 'high', 'low', 'close']
+                    df['volume'] = 1000  # Default volume
+                else:
+                    # Flexible assignment for other lengths
+                    expected_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades']
+                    df.columns = expected_cols[:len(df.columns)]
+                    # Fill missing essential columns
+                    if 'volume' not in df.columns:
+                        df['volume'] = 1000
+            else:
+                logger.error(f"DataFrame has only {len(df.columns)} columns, need at least 5")
+                return {}
+            
+            # Ensure numeric types
+            numeric_cols = ['open', 'high', 'low', 'close']
+            if 'volume' in df.columns:
+                numeric_cols.append('volume')
+                
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
             indicators = {}
             close_prices = df['close'].values
             
-            # Simple Moving Averages
+            # Validate we have enough data
+            if len(close_prices) < 2:
+                logger.warning("Not enough price data for indicators")
+                return {}
+            
+            # Simple Moving Averages with length checks
             if len(close_prices) >= 20:
-                indicators['sma_20'] = pd.Series(close_prices).rolling(20).mean().fillna(0).values
+                indicators['sma_20'] = pd.Series(close_prices).rolling(20, min_periods=1).mean().fillna(0).values
             else:
                 indicators['sma_20'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
                 
             if len(close_prices) >= 50:
-                indicators['sma_50'] = pd.Series(close_prices).rolling(50).mean().fillna(0).values
+                indicators['sma_50'] = pd.Series(close_prices).rolling(50, min_periods=1).mean().fillna(0).values
             else:
                 indicators['sma_50'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
                 
             if len(close_prices) >= 200:
-                indicators['sma_200'] = pd.Series(close_prices).rolling(200).mean().fillna(0).values
+                indicators['sma_200'] = pd.Series(close_prices).rolling(200, min_periods=1).mean().fillna(0).values
             else:
                 indicators['sma_200'] = np.full(len(close_prices), close_prices[-1] if len(close_prices) > 0 else 0)
             
             # Simple EMA (approximation)
-            indicators['ema_20'] = pd.Series(close_prices).ewm(span=20).mean().fillna(0).values
-            indicators['ema_50'] = pd.Series(close_prices).ewm(span=50).mean().fillna(0).values
+            indicators['ema_20'] = pd.Series(close_prices).ewm(span=20, min_periods=1).mean().fillna(0).values
+            indicators['ema_50'] = pd.Series(close_prices).ewm(span=50, min_periods=1).mean().fillna(0).values
             
-            # Basic RSI (simplified)
+            # Basic RSI (simplified) with min_periods
             delta = pd.Series(close_prices).diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
+            
+            # Avoid division by zero
+            rs = gain / loss.replace(0, 0.001)
             indicators['rsi_14'] = (100 - (100 / (1 + rs))).fillna(50).values
             
-            # Basic Bollinger Bands
-            sma_20 = pd.Series(close_prices).rolling(20).mean()
-            std_20 = pd.Series(close_prices).rolling(20).std()
+            # Basic Bollinger Bands with min_periods
+            sma_20 = pd.Series(close_prices).rolling(20, min_periods=1).mean()
+            std_20 = pd.Series(close_prices).rolling(20, min_periods=1).std().fillna(close_prices.std() if len(close_prices) > 1 else 0.01)
+            
             indicators['bb_upper'] = (sma_20 + (std_20 * 2)).fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
             indicators['bb_middle'] = sma_20.fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
             indicators['bb_lower'] = (sma_20 - (std_20 * 2)).fillna(close_prices[-1] if len(close_prices) > 0 else 0).values
@@ -827,11 +916,18 @@ class AdvancedTechnicalAnalyzer:
             indicators['adx_plus'] = np.full(len(close_prices), 25)
             indicators['adx_minus'] = np.full(len(close_prices), 25)
             
-            # Current values
+            # Current values with safe extraction
             current_values = {}
             for key, values in indicators.items():
                 if values is not None and len(values) > 0:
-                    current_values[f'current_{key}'] = float(values[-1])
+                    try:
+                        last_value = values[-1]
+                        if not np.isnan(last_value) and not np.isinf(last_value):
+                            current_values[f'current_{key}'] = float(last_value)
+                        else:
+                            current_values[f'current_{key}'] = 0.0
+                    except (IndexError, TypeError, ValueError):
+                        current_values[f'current_{key}'] = 0.0
                 else:
                     current_values[f'current_{key}'] = 0.0
             
