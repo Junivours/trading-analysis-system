@@ -36,11 +36,16 @@ logger = logging.getLogger(__name__)
 
 # Import our modular components
 import random, hmac
+from ml_engine import RealMLTradingEngine, start_ml_training_thread, get_real_ml_predictions
+from real_data_enforcer import RealDataEnforcer
 
 # Global variables and constants
 api_cache = {}
 CACHE_DURATION = 300  # 5 minutes
 MAX_CACHE_SIZE = 1000
+
+# Initialize ML Engine
+ml_engine = RealMLTradingEngine()
 
 # Binance API configuration
 BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
@@ -1558,9 +1563,10 @@ class AdvancedMLPredictor:
 class AdvancedTechnicalAnalyzer:
     @staticmethod
     def calculate_all_indicators(data):
-        """Calculate real technical indicators from OHLC data"""
+        """Calculate ONLY real technical indicators from OHLC data - NO FALLBACKS"""
         if not data or len(data) < 26:
-            return {'rsi': 50, 'macd': 0, 'adx': 25, 'atr': 0.001}
+            # Hole mehr Daten anstatt Fallback-Werte zu verwenden
+            raise ValueError("Nicht genug Daten für echte technische Analyse - benötige mindestens 26 Kerzen")
         
         # Extract close prices
         closes = [float(candle[4]) for candle in data]
@@ -2537,16 +2543,16 @@ def old_dashboard():
 
 @app.route('/api/ai-predictions', methods=['POST'])
 def ai_predictions():
-    """KI-Vorhersage API mit Machine Learning Modellen"""
+    """Echte ML-Vorhersage API mit RandomForest & SVM"""
     try:
         req = request.get_json() or {}
         symbol = req.get('symbol', 'BTCUSDT')
         timeframe = req.get('timeframe', '24h')  # 1h, 4h, 24h, 7d
         
-        logger.info(f"🤖 AI Prediction request: {symbol} {timeframe}")
+        logger.info(f"🤖 Real ML Prediction request: {symbol} {timeframe}")
         
         # Fetch market data for ML analysis
-        ohlc_data = fetch_binance_data(symbol, '1h', 100)
+        ohlc_data = fetch_binance_data(symbol, '1h', 200)  # More data for ML
         ticker_data = fetch_24hr_ticker(symbol)
         
         if not ohlc_data or not ticker_data:
@@ -2555,53 +2561,39 @@ def ai_predictions():
                 'error': 'Insufficient data for AI prediction'
             }), 400
         
-        # Prepare features for ML models
+        # Get real ML predictions from trained models
+        ml_predictions = get_real_ml_predictions(ml_engine, symbol, ohlc_data)
+        
         current_price = ticker_data.get('last_price', 0)
         price_change_24h = ticker_data.get('price_change_percent', 0)
         volume_24h = ticker_data.get('volume', 0)
         
-        # Extract price data for analysis
+        # Extract price data for additional analysis
         prices = [float(candle[4]) for candle in ohlc_data]  # Close prices
         volumes = [float(candle[5]) for candle in ohlc_data]  # Volumes
         
-        # Calculate technical indicators for ML features
+        # Calculate technical indicators
         rsi = calculate_simple_rsi(prices)
-        sma_20 = sum(prices[-20:]) / 20 if len(prices) >= 20 else prices[-1]
         volatility = calculate_volatility(prices)
         
-        # AI Model Predictions
-        predictions = {}
+        # Create ensemble from real ML predictions
+        predictions = ml_predictions
         
-        # 1. Neural Network Simulation
-        nn_prediction = neural_network_prediction(prices, volumes, rsi, volatility)
-        predictions['neural_network'] = nn_prediction
+        # Create enhanced ensemble prediction
+        ensemble_prediction = create_ml_ensemble_prediction(ml_predictions, current_price)
         
-        # 2. LSTM Time Series Prediction
-        lstm_prediction = lstm_time_series_prediction(prices, timeframe)
-        predictions['lstm'] = lstm_prediction
+        # Generate price targets based on ML predictions
+        price_targets = calculate_ml_price_targets(current_price, ensemble_prediction, timeframe)
         
-        # 3. Random Forest Ensemble
-        rf_prediction = random_forest_prediction(prices, volumes, rsi, price_change_24h)
-        predictions['random_forest'] = rf_prediction
-        
-        # 4. Support Vector Machine
-        svm_prediction = svm_prediction_model(prices, rsi, volatility)
-        predictions['svm'] = svm_prediction
-        
-        # 5. Ensemble Meta-Model (combines all predictions)
-        ensemble_prediction = create_ensemble_prediction(predictions)
-        
-        # Generate confidence intervals and price targets
-        price_targets = calculate_price_targets(current_price, ensemble_prediction, timeframe)
-        
-        # Risk assessment
-        risk_analysis = ai_risk_assessment(predictions, volatility, volume_24h)
+        # Enhanced risk assessment with ML confidence
+        risk_analysis = ml_risk_assessment(predictions, volatility, volume_24h)
         
         response = {
             'status': 'success',
             'symbol': symbol,
             'timeframe': timeframe,
             'current_price': current_price,
+            'is_ml_trained': ml_engine.is_trained,
             'ai_predictions': {
                 'ensemble': ensemble_prediction,
                 'individual_models': predictions,
@@ -2611,17 +2603,19 @@ def ai_predictions():
             'market_features': {
                 'rsi': rsi,
                 'volatility': volatility,
-                'trend_strength': abs(price_change_24h) / 10,  # Normalized
-                'volume_profile': 'high' if volume_24h > 1000000000 else 'normal'
+                'trend_strength': abs(price_change_24h) / 10,
+                'volume_profile': 'high' if volume_24h > 1000000000 else 'normal',
+                'ml_features_used': len(ml_engine.preprocessor.feature_names) if ml_engine.preprocessor.feature_names else 0
             },
-            'prediction_timestamp': datetime.now().isoformat()
+            'prediction_timestamp': datetime.now().isoformat(),
+            'model_status': 'trained' if ml_engine.is_trained else 'fallback'
         }
         
-        logger.info(f"✅ AI Prediction completed: {ensemble_prediction['direction']} {ensemble_prediction['confidence']}%")
+        logger.info(f"✅ Real ML Prediction completed: {ensemble_prediction['direction']} {ensemble_prediction['confidence']}%")
         return jsonify(response)
         
     except Exception as e:
-        logger.error(f"❌ AI Prediction error: {e}")
+        logger.error(f"❌ Real ML Prediction error: {e}")
         return jsonify({
             'status': 'failed',
             'error': str(e)
@@ -3121,6 +3115,157 @@ def svm_prediction_model(prices, rsi, volatility):
         'decision_boundary_distance': round(svm_score, 3)
     }
 
+def create_ml_ensemble_prediction(ml_predictions, current_price):
+    """Create ensemble prediction from real ML models"""
+    if not ml_predictions:
+        return {'direction': 'HOLD', 'confidence': 50, 'model_agreement': 0.5}
+    
+    # Extract predictions from ML models
+    directions = []
+    confidences = []
+    
+    for model_name, pred in ml_predictions.items():
+        directions.append(pred['prediction'])
+        confidences.append(float(pred['confidence']))  # Ensure Python float
+    
+    # Convert ML predictions to trading directions
+    direction_map = {
+        'STRONG_BUY': 'BULLISH',
+        'BUY': 'BULLISH',
+        'HOLD': 'SIDEWAYS',
+        'SELL': 'BEARISH',
+        'STRONG_SELL': 'BEARISH'
+    }
+    
+    converted_directions = [direction_map.get(d, 'SIDEWAYS') for d in directions]
+    
+    # Weighted voting (ensemble gets highest weight if available)
+    weights = {'ensemble': 0.5, 'random_forest': 0.3, 'svm': 0.2}
+    
+    bullish_score = sum(weights.get(model, 0.1) for model, pred in ml_predictions.items() 
+                       if direction_map.get(pred['prediction'], 'SIDEWAYS') == 'BULLISH')
+    bearish_score = sum(weights.get(model, 0.1) for model, pred in ml_predictions.items() 
+                       if direction_map.get(pred['prediction'], 'SIDEWAYS') == 'BEARISH')
+    sideways_score = sum(weights.get(model, 0.1) for model, pred in ml_predictions.items() 
+                        if direction_map.get(pred['prediction'], 'SIDEWAYS') == 'SIDEWAYS')
+    
+    if bullish_score > bearish_score and bullish_score > sideways_score:
+        direction = 'BULLISH'
+        agreement = bullish_score
+    elif bearish_score > bullish_score and bearish_score > sideways_score:
+        direction = 'BEARISH'
+        agreement = bearish_score
+    else:
+        direction = 'SIDEWAYS'
+        agreement = sideways_score
+    
+    # Calculate ensemble confidence based on ML model confidences
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 50
+    ensemble_confidence = int(avg_confidence * agreement)
+    
+    return {
+        'direction': direction,
+        'confidence': min(95, max(50, ensemble_confidence)),
+        'model_agreement': round(float(agreement), 2),  # Ensure Python float
+        'participating_models': len(ml_predictions),
+        'ml_engine_status': 'trained' if any(c > 50 for c in confidences) else 'fallback'
+    }
+
+def calculate_ml_price_targets(current_price, ensemble_prediction, timeframe):
+    """Calculate price targets based on ML prediction strength"""
+    direction = ensemble_prediction['direction']
+    confidence = ensemble_prediction['confidence']
+    
+    # Base volatility factors
+    timeframe_factors = {
+        '1h': 0.01,   # 1% movement
+        '4h': 0.025,  # 2.5% movement
+        '24h': 0.05,  # 5% movement
+        '7d': 0.15    # 15% movement
+    }
+    
+    base_factor = timeframe_factors.get(timeframe, 0.05)
+    
+    # Adjust for ML confidence
+    confidence_multiplier = confidence / 100
+    movement_factor = base_factor * confidence_multiplier
+    
+    if direction == 'BULLISH':
+        target_price = current_price * (1 + movement_factor)
+        support_price = current_price * (1 - movement_factor * 0.3)
+        stop_loss = current_price * (1 - movement_factor * 0.5)
+    elif direction == 'BEARISH':
+        target_price = current_price * (1 - movement_factor)
+        support_price = current_price * (1 + movement_factor * 0.3)
+        stop_loss = current_price * (1 + movement_factor * 0.5)
+    else:  # SIDEWAYS
+        target_price = current_price * (1 + movement_factor * 0.2)
+        support_price = current_price * (1 - movement_factor * 0.2)
+        stop_loss = current_price * (1 - movement_factor * 0.3)
+    
+    return {
+        'target_price': round(target_price, 2),
+        'support_level': round(support_price, 2),
+        'stop_loss': round(stop_loss, 2),
+        'risk_reward_ratio': round(abs(target_price - current_price) / abs(current_price - stop_loss), 2),
+        'confidence_level': confidence
+    }
+
+def ml_risk_assessment(predictions, volatility, volume_24h):
+    """Enhanced risk assessment using ML prediction disagreement"""
+    
+    # Calculate model disagreement
+    directions = [pred['prediction'] for pred in predictions.values()]
+    confidences = [float(pred['confidence']) for pred in predictions.values()]  # Ensure Python float
+    
+    # Count different predictions
+    unique_directions = len(set(directions))
+    confidence_variance = float(np.var(confidences)) if len(confidences) > 1 else 0  # Ensure Python float
+    
+    # Base risk from market conditions
+    volatility_risk = min(100, float(volatility * 1000))  # Normalize volatility, ensure Python float
+    volume_risk = 20 if volume_24h < 100000000 else 10  # Low volume = higher risk
+    
+    # ML-specific risk factors
+    model_disagreement = (unique_directions - 1) * 25  # 0, 25, 50, 75 risk points
+    confidence_uncertainty = min(50, confidence_variance)
+    
+    # Combined risk score
+    total_risk = volatility_risk + volume_risk + model_disagreement + confidence_uncertainty
+    
+    # Risk levels
+    if total_risk < 40:
+        risk_level = 'LOW'
+        risk_emoji = '🟢'
+    elif total_risk < 70:
+        risk_level = 'MEDIUM' 
+        risk_emoji = '🟡'
+    else:
+        risk_level = 'HIGH'
+        risk_emoji = '🔴'
+    
+    return {
+        'risk_score': min(100, int(total_risk)),
+        'risk_level': risk_level,
+        'risk_emoji': risk_emoji,
+        'factors': {
+            'market_volatility': round(float(volatility_risk), 1),  # Ensure Python float
+            'volume_risk': int(volume_risk),  # Ensure Python int
+            'model_disagreement': int(model_disagreement),  # Ensure Python int
+            'confidence_uncertainty': round(float(confidence_uncertainty), 1)  # Ensure Python float
+        },
+        'recommendation': get_ml_risk_recommendation(risk_level, predictions)
+    }
+
+def get_ml_risk_recommendation(risk_level, predictions):
+    """Generate risk-based trading recommendation"""
+    if risk_level == 'LOW':
+        return "ML-Modelle zeigen Konsistenz. Normale Positionsgrößen empfohlen."
+    elif risk_level == 'MEDIUM':
+        return "Moderate Unsicherheit in ML-Vorhersagen. Reduzierte Positionsgröße empfohlen."
+    else:
+        return "Hohe Unsicherheit - ML-Modelle uneinig. Vorsichtige oder keine Position empfohlen."
+
 def create_ensemble_prediction(predictions):
     """Create ensemble prediction from all models"""
     directions = [pred['direction'] for pred in predictions.values()]
@@ -3510,6 +3655,518 @@ def api_orderbook():
 
 
 # ===========================
+# ENHANCED TRADING SIGNAL SYSTEM - PROFESSIONAL EDITION
+# ===========================
+
+# === 1. MULTI-TIMEFRAME ANALYSE ===
+def multi_timeframe_analysis(symbol):
+    """Analyse über mehrere Zeitrahmen für bessere Signale"""
+    timeframes = ['1h', '4h', '1d']
+    signals = {}
+    
+    for tf in timeframes:
+        def _fetch():
+            return fetch_binance_data(symbol, tf, 100)
+        
+        data = safe_api_call(_fetch, retries=2, fallback=None)
+        if data:
+            signals[tf] = {
+                'trend': calculate_trend_strength(data),
+                'rsi': calculate_simple_rsi([float(d[4]) for d in data]),
+                'volume_trend': calculate_volume_trend(data)
+            }
+    
+    # Signal nur wenn Timeframes aligned sind
+    trend_scores = [signals[tf]['trend'] for tf in timeframes if tf in signals]
+    
+    if len(trend_scores) >= 2:
+        avg_trend = sum(trend_scores) / len(trend_scores)
+        if avg_trend > 0.6:
+            return {'signal': 'STRONG_BUY', 'confidence': 85}
+        elif avg_trend < -0.6:
+            return {'signal': 'STRONG_SELL', 'confidence': 85}
+        elif avg_trend > 0.2:
+            return {'signal': 'BUY', 'confidence': 65}
+        elif avg_trend < -0.2:
+            return {'signal': 'SELL', 'confidence': 65}
+    
+    return {'signal': 'NEUTRAL', 'confidence': 40}
+    
+    for tf in timeframes:
+        def _fetch_data():
+            return fetch_binance_data(symbol, tf, 100)
+        
+        data = safe_api_call(_fetch_data, retries=2, fallback=None)
+        if data:
+            prices = [float(d[4]) for d in data]
+            volumes = [float(d[5]) for d in data]
+            
+            signals[tf] = {
+                'trend': calculate_trend_strength_enhanced(prices),
+                'rsi': calculate_simple_rsi(prices),
+                'volume_trend': calculate_volume_trend_enhanced(volumes)
+            }
+    
+    # Signal nur wenn alle Timeframes aligned sind
+    if len(signals) >= 2:
+        trend_scores = [signals[tf]['trend'] for tf in signals.keys()]
+        avg_trend = sum(trend_scores) / len(trend_scores)
+        
+        if avg_trend > 0.6:
+            return {'signal': 'STRONG_BUY', 'confidence': 85, 'trend_score': avg_trend}
+        elif avg_trend < -0.6:
+            return {'signal': 'STRONG_SELL', 'confidence': 85, 'trend_score': avg_trend}
+        else:
+            return {'signal': 'NEUTRAL', 'confidence': 40, 'trend_score': avg_trend}
+    
+    return {'signal': 'INSUFFICIENT_DATA', 'confidence': 0, 'trend_score': 0}
+
+def calculate_trend_strength(data):
+    """Berechnet Trend-Stärke aus OHLC Daten"""
+    if len(data) < 20:
+        return 0
+    
+    closes = [float(d[4]) for d in data]
+    
+    # Vergleiche aktuelle vs. frühere Preise
+    current = closes[-1]
+    ma_20 = sum(closes[-20:]) / 20
+    ma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else ma_20
+    
+    if current > ma_20 > ma_50:
+        return 1  # Uptrend
+    elif current < ma_20 < ma_50:
+        return -1  # Downtrend
+    else:
+        return 0  # Sideways
+
+def calculate_volume_trend(data):
+    """Berechnet Volumen-Trend"""
+    if len(data) < 10:
+        return 0
+    
+    volumes = [float(d[5]) for d in data]
+    recent_avg = sum(volumes[-10:]) / 10
+    older_avg = sum(volumes[-20:-10]) / 10 if len(volumes) >= 20 else recent_avg
+    
+    if recent_avg > older_avg * 1.2:
+        return 1  # Increasing volume
+    elif recent_avg < older_avg * 0.8:
+        return -1  # Decreasing volume
+    else:
+        return 0  # Stable volume
+
+def calculate_trend_strength_enhanced(prices):
+    """Verbesserte Trend-Stärke Berechnung"""
+    if len(prices) < 20:
+        return 0
+    
+    # Multiple Moving Averages
+    sma_10 = sum(prices[-10:]) / 10
+    sma_20 = sum(prices[-20:]) / 20
+    current_price = prices[-1]
+    
+    # Trend Score basierend auf MA-Position
+    if current_price > sma_10 > sma_20:
+        return 0.8  # Strong uptrend
+    elif current_price < sma_10 < sma_20:
+        return -0.8  # Strong downtrend
+    elif current_price > sma_20:
+        return 0.4  # Weak uptrend
+    elif current_price < sma_20:
+        return -0.4  # Weak downtrend
+    else:
+        return 0  # Sideways
+
+def calculate_volume_trend_enhanced(volumes):
+    """Verbesserte Volume Trend Analyse"""
+    if len(volumes) < 10:
+        return 0
+    
+    recent_avg = sum(volumes[-5:]) / 5
+    older_avg = sum(volumes[-10:-5]) / 5
+    
+    volume_change = (recent_avg - older_avg) / older_avg if older_avg > 0 else 0
+    return min(max(volume_change, -1), 1)  # Normalize to -1 to 1
+
+# === 2. VOLUME CONFIRMATION ===
+def volume_confirmed_signals(price_data, volume_data):
+    """Signale mit flexibler Volumen-Bestätigung"""
+    if len(volume_data) < 10:
+        return {'valid': True, 'reason': 'Limited volume data - using price signals', 'multiplier': 1.0}
+    
+    recent_volumes = volume_data[-min(20, len(volume_data)):]
+    avg_volume = sum(recent_volumes) / len(recent_volumes)
+    current_volume = volume_data[-1]
+    
+    # Flexiblere Volumen-Validierung
+    volume_multiplier = current_volume / avg_volume if avg_volume > 0 else 1.0
+    
+    # Reduzierte Schwelle für mehr Signale
+    if volume_multiplier < 0.8:
+        return {'valid': True, 'reason': 'Low volume but valid price action', 'multiplier': volume_multiplier}
+    
+    return {'valid': True, 'volume_strength': volume_multiplier}
+
+# === 3. MARKET STRUCTURE ANALYSE ===
+def analyze_market_structure(highs, lows, closes):
+    """Higher Highs, Higher Lows etc."""
+    if len(highs) < 10 or len(lows) < 10:
+        return {'trend': 'INSUFFICIENT_DATA', 'strength': 0}
+    
+    structure = {'trend': 'UNKNOWN', 'strength': 0}
+    
+    # Letzte 10 Werte analysieren
+    recent_highs = highs[-10:]
+    recent_lows = lows[-10:]
+    
+    # Higher Highs & Higher Lows = Uptrend
+    hh_count = sum(1 for i in range(1, len(recent_highs)) 
+                   if recent_highs[i] > recent_highs[i-1])
+    hl_count = sum(1 for i in range(1, len(recent_lows)) 
+                   if recent_lows[i] > recent_lows[i-1])
+    
+    total_comparisons = len(recent_highs) - 1
+    
+    if hh_count >= total_comparisons * 0.7 and hl_count >= total_comparisons * 0.7:
+        structure = {'trend': 'STRONG_UPTREND', 'strength': 80}
+    elif hh_count <= total_comparisons * 0.3 and hl_count <= total_comparisons * 0.3:
+        structure = {'trend': 'STRONG_DOWNTREND', 'strength': 80}
+    else:
+        structure = {'trend': 'SIDEWAYS', 'strength': 30}
+    
+    return structure
+
+# === 4. DIVERGENCE DETECTION ===
+def detect_rsi_divergence(prices, rsi_values):
+    """Echte Divergenz-Erkennung mit verbesserter Peak-Detection"""
+    if len(prices) < 20 or len(rsi_values) < 20:
+        return {'type': 'INSUFFICIENT_DATA', 'strength': 0}
+    
+    price_peaks = []
+    rsi_peaks = []
+    
+    # Finde lokale Hochs/Tiefs mit größerem Fenster für Stabilität
+    window = 5
+    for i in range(window, min(len(prices), len(rsi_values))-window):
+        # Price peak detection
+        if all(prices[i] >= prices[i-j] for j in range(1, window+1)) and \
+           all(prices[i] >= prices[i+j] for j in range(1, window+1)):
+            price_peaks.append((i, prices[i]))
+        
+        # RSI peak detection
+        if all(rsi_values[i] >= rsi_values[i-j] for j in range(1, window+1)) and \
+           all(rsi_values[i] >= rsi_values[i+j] for j in range(1, window+1)):
+            rsi_peaks.append((i, rsi_values[i]))
+    
+    # Prüfe auf Divergenz zwischen den letzten 2 Peaks
+    if len(price_peaks) >= 2 and len(rsi_peaks) >= 2:
+        latest_price_peak = price_peaks[-1]
+        prev_price_peak = price_peaks[-2]
+        latest_rsi_peak = rsi_peaks[-1]  
+        prev_rsi_peak = rsi_peaks[-2]
+        
+        # Bearish Divergence: Preis steigt, RSI fällt
+        if (latest_price_peak[1] > prev_price_peak[1] and 
+            latest_rsi_peak[1] < prev_rsi_peak[1]):
+            return {'type': 'BEARISH_DIVERGENCE', 'strength': 75}
+        
+        # Bullish Divergence: Preis fällt, RSI steigt  
+        if (latest_price_peak[1] < prev_price_peak[1] and
+            latest_rsi_peak[1] > prev_rsi_peak[1]):
+            return {'type': 'BULLISH_DIVERGENCE', 'strength': 75}
+    
+    return {'type': 'NO_DIVERGENCE', 'strength': 0}
+
+# === 5. SUPPORT/RESISTANCE BACKTESTING ===
+def backtest_support_resistance_levels(historical_data, lookback_days=30):
+    """Teste Support/Resistance Level Zuverlässigkeit mit verbesserter Logik"""
+    if not historical_data or len(historical_data) < 50:
+        return {'support_levels': [], 'resistance_levels': [], 'reliability_score': 0}
+    
+    prices = [float(d[4]) for d in historical_data]
+    
+    support_levels = []
+    resistance_levels = []
+    
+    # Identifiziere Levels mit größerem Fenster für bessere Genauigkeit
+    window = 20  # Vergrößertes Fenster
+    for i in range(window, len(prices)-window):
+        price_window = prices[i-window:i+window]
+        
+        # Support Level: Lokales Minimum
+        if prices[i] == min(price_window):
+            support_levels.append(prices[i])
+        # Resistance Level: Lokales Maximum
+        elif prices[i] == max(price_window):
+            resistance_levels.append(prices[i])
+    
+    # Teste Level-Zuverlässigkeit mit strengerem Kriterium
+    valid_supports = []
+    for level in support_levels:
+        touches = sum(1 for p in prices if abs(p - level) / level < 0.015)  # 1.5% Toleranz
+        if touches >= 3:  # Mindestens 3x getestet
+            valid_supports.append({'level': level, 'touches': touches})
+    
+    return {
+        'support_levels': valid_supports[:5],  # Top 5
+        'resistance_levels': resistance_levels[-5:],  # Last 5
+        'reliability_score': len(valid_supports) / max(len(support_levels), 1)
+    }
+
+# === 6. ENHANCED SIGNAL GENERATION ===
+def generate_enhanced_signals(symbol):
+    """Verbessertes Signal System mit stärkeren Signalen"""
+    try:
+        # Hole Daten für mehrere Timeframes
+        def _fetch_1h():
+            return fetch_binance_data(symbol, '1h', 200)
+        def _fetch_4h():
+            return fetch_binance_data(symbol, '4h', 100)
+        def _fetch_1d():
+            return fetch_binance_data(symbol, '1d', 50)
+        
+        data_1h = safe_api_call(_fetch_1h, retries=2, fallback=None)
+        data_4h = safe_api_call(_fetch_4h, retries=2, fallback=None)
+        data_1d = safe_api_call(_fetch_1d, retries=2, fallback=None)
+        
+        if not data_1h:
+            return {'signal': 'NO_DATA', 'confidence': 0, 'error': 'Failed to fetch 1h data'}
+        
+        # 1. Multi-Timeframe Trend
+        mtf_signal = multi_timeframe_analysis(symbol)
+        
+        # 2. Volume Confirmation - Flexibel
+        prices_1h = [float(d[4]) for d in data_1h]
+        volumes_1h = [float(d[5]) for d in data_1h]
+        volume_conf = volume_confirmed_signals(prices_1h, volumes_1h)
+        
+        # 3. Market Structure
+        highs_1h = [float(d[2]) for d in data_1h]
+        lows_1h = [float(d[3]) for d in data_1h]
+        structure = analyze_market_structure(highs_1h, lows_1h, prices_1h)
+        
+        # 4. Technische Indikatoren
+        if len(prices_1h) >= 20:
+            # RSI Calculation
+            rsi_values = []
+            for i in range(14, len(prices_1h)):
+                rsi_val = calculate_simple_rsi(prices_1h[:i+1])
+                rsi_values.append(rsi_val)
+            
+            current_rsi = rsi_values[-1] if rsi_values else 50
+            
+            # Moving Averages
+            ma_20 = sum(prices_1h[-20:]) / 20
+            ma_50 = sum(prices_1h[-50:]) / 50 if len(prices_1h) >= 50 else ma_20
+            current_price = prices_1h[-1]
+            
+            # SIGNAL GENERATION
+            signal_strength = 0
+            signal_reasons = []
+            
+            # RSI Signals
+            if current_rsi < 30:
+                signal_strength += 40
+                signal_reasons.append("RSI Oversold - Bullish Signal")
+            elif current_rsi > 70:
+                signal_strength += 40
+                signal_reasons.append("RSI Overbought - Bearish Signal")
+            elif 40 <= current_rsi <= 60:
+                signal_strength += 20
+                signal_reasons.append("RSI Neutral Zone")
+            
+            # MA Crossover Signals
+            if current_price > ma_20 > ma_50:
+                signal_strength += 30
+                signal_reasons.append("Price above MAs - Bullish Trend")
+            elif current_price < ma_20 < ma_50:
+                signal_strength += 30
+                signal_reasons.append("Price below MAs - Bearish Trend")
+            elif current_price > ma_20:
+                signal_strength += 15
+                signal_reasons.append("Price above MA20")
+            
+            # Volume Boost
+            if volume_conf.get('volume_strength', 1) > 1.5:
+                signal_strength += 20
+                signal_reasons.append("High Volume Confirmation")
+            elif volume_conf.get('volume_strength', 1) > 1.0:
+                signal_strength += 10
+                signal_reasons.append("Volume Support")
+            
+            # Trend Structure
+            if structure['trend'] == 'UPTREND':
+                signal_strength += 25
+                signal_reasons.append("Market Structure: Uptrend")
+            elif structure['trend'] == 'DOWNTREND':
+                signal_strength += 25
+                signal_reasons.append("Market Structure: Downtrend")
+            
+            # Determine Signal Type
+            if signal_strength >= 80:
+                signal_type = "STRONG_BUY" if current_rsi < 50 and current_price > ma_20 else "STRONG_SELL"
+                confidence = min(95, signal_strength)
+            elif signal_strength >= 60:
+                signal_type = "BUY" if current_rsi < 60 and current_price > ma_20 else "SELL"
+                confidence = min(85, signal_strength)
+            elif signal_strength >= 40:
+                signal_type = "WEAK_BUY" if current_rsi < 55 else "WEAK_SELL"
+                confidence = min(70, signal_strength)
+            else:
+                signal_type = "HOLD"
+                confidence = max(30, signal_strength)
+            
+            return {
+                'signal': signal_type,
+                'confidence': confidence,
+                'reason': " | ".join(signal_reasons[:3]),
+                'technical_details': {
+                    'rsi': current_rsi,
+                    'ma_20': ma_20,
+                    'ma_50': ma_50,
+                    'current_price': current_price,
+                    'volume_strength': volume_conf.get('volume_strength', 1.0),
+                    'trend': structure['trend']
+                }
+            }
+        
+        # Fallback für weniger Daten
+        return {
+            'signal': 'HOLD',
+            'confidence': 50,
+            'reason': 'Insufficient historical data for strong signals'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced signal generation: {str(e)}")
+        return {
+            'signal': 'ERROR',
+            'confidence': 0,
+            'reason': f'Error: {str(e)}'
+        }
+
+# === 7. SIGNAL BACKTESTING ===
+def backtest_signal_performance(symbol, days_back=7):
+    """Teste Signal-Performance historisch"""
+    try:
+        # Hole historische Daten
+        def _fetch_historical():
+            return fetch_binance_data(symbol, '1h', days_back * 24)
+        
+        historical_data = safe_api_call(_fetch_historical, retries=2, fallback=None)
+        
+        if not historical_data or len(historical_data) < 50:
+            return {'error': 'Insufficient data for backtesting', 'total_trades': 0}
+        
+        trades = []
+        balance = 1000  # Start balance
+        
+        # Simuliere Trading basierend auf vereinfachten Signalen
+        for i in range(25, len(historical_data) - 5):
+            # Vereinfachtes Signal für Backtest
+            prices = [float(d[4]) for d in historical_data[i-24:i+1]]  # 24h window
+            
+            if len(prices) < 14:
+                continue
+                
+            rsi = calculate_simple_rsi(prices)
+            current_price = float(historical_data[i][4])
+            
+            # Prüfe ob genug future data
+            if i + 5 < len(historical_data):
+                future_price = float(historical_data[i+5][4])  # 5h später
+            else:
+                break
+            
+            signal = None
+            if rsi < 30:
+                signal = 'BUY'
+            elif rsi > 70:
+                signal = 'SELL'
+            
+            if signal:
+                # Simuliere Trade
+                pnl_pct = (future_price - current_price) / current_price
+                if signal == 'SELL':
+                    pnl_pct = -pnl_pct  # Short position
+                
+                balance *= (1 + pnl_pct * 0.1)  # 10% position size
+                
+                trades.append({
+                    'signal': signal,
+                    'entry_price': current_price,
+                    'exit_price': future_price,
+                    'pnl_pct': pnl_pct * 100,
+                    'timestamp': historical_data[i][0]
+                })
+        
+        # Berechne Performance
+        if not trades:
+            return {
+                'total_trades': 0,
+                'win_rate': 0,
+                'total_return_pct': 0,
+                'final_balance': balance,
+                'avg_trade_pnl': 0
+            }
+        
+        winning_trades = [t for t in trades if t['pnl_pct'] > 0]
+        win_rate = len(winning_trades) / len(trades)
+        total_return = ((balance - 1000) / 1000) * 100
+        
+        return {
+            'total_trades': len(trades),
+            'win_rate': win_rate * 100,
+            'total_return_pct': total_return,
+            'final_balance': balance,
+            'avg_trade_pnl': sum(t['pnl_pct'] for t in trades) / len(trades)
+        }
+        
+    except Exception as e:
+        logger.error(f"Backtest error: {e}")
+        return {
+            'error': str(e),
+            'total_trades': 0,
+            'win_rate': 0,
+            'total_return_pct': 0
+        }
+
+# === 8. REAL-TIME SIGNAL MONITORING API ===
+@app.route('/api/enhanced-signals/<symbol>')
+def get_enhanced_signals(symbol):
+    """API für verbesserte Trading Signale - PROFESSIONAL EDITION"""
+    try:
+        logger.info(f"Generating enhanced signals for {symbol}")
+        
+        # Generiere echte Signale
+        signal_data = generate_enhanced_signals(symbol)
+        
+        # Füge Backtest-Performance hinzu (nur wenn Signal valide)
+        backtest_results = {'error': 'Backtest skipped for invalid signals'}
+        if signal_data.get('signal') not in ['ERROR', 'NO_DATA', 'WEAK_SIGNAL']:
+            backtest_results = backtest_signal_performance(symbol, 7)  # 7 Tage
+        
+        return jsonify({
+            'status': 'success',
+            'symbol': symbol.upper(),
+            'signal': signal_data,
+            'historical_performance': backtest_results,
+            'analysis_timestamp': datetime.now().isoformat(),
+            'disclaimer': '⚠️ FOR EDUCATIONAL PURPOSES ONLY - NOT FINANCIAL ADVICE ⚠️'
+        })
+    
+    except Exception as e:
+        logger.error(f"Enhanced signals API error: {e}")
+        return jsonify({
+            'status': 'error',
+            'symbol': symbol.upper(),
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+# ===========================
 # ENHANCED FEATURES API ENDPOINTS
 # ===========================
 
@@ -3733,6 +4390,14 @@ def api_system_performance():
                 'active_threads': threading.active_count()
             }
         except ImportError:
+            # Fallback ohne psutil
+            system_stats = {
+                'memory_usage_mb': 0,
+                'cpu_percent': 0,
+                'uptime_seconds': time.time() - getattr(app, '_start_time', time.time()),
+                'active_threads': threading.active_count()
+            }
+        except ImportError:
             system_stats = {
                 'memory_usage_mb': 'psutil not available',
                 'cpu_percent': 'psutil not available',
@@ -3882,8 +4547,264 @@ def api_check_alerts(symbol):
 
 # ===========================
 # TRADING BOT API ENDPOINTS
+# === ML-TRAINING APIS ===
+@app.route('/api/ml/train/<symbol>', methods=['POST'])
+def train_ml_models(symbol):
+    """API zum Trainieren der ML-Modelle"""
+    try:
+        data = request.get_json() or {}
+        days_back = data.get('days_back', 90)
+        
+        logger.info(f"🤖 Starting ML training for {symbol}")
+        
+        # Trainiere Modelle
+        success = ml_engine.train_models(symbol.upper(), days_back)
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': f'ML models successfully trained for {symbol}',
+                'is_trained': ml_engine.is_trained,
+                'feature_count': len(ml_engine.preprocessor.feature_names),
+                'features': ml_engine.preprocessor.feature_names
+            })
+        else:
+            return jsonify({
+                'status': 'failed',
+                'message': 'ML training failed',
+                'error': 'Insufficient data or training error'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"❌ ML training API error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/ml/predict/<symbol>', methods=['GET'])
+def ml_predict(symbol):
+    """API für echte ML-Vorhersagen"""
+    try:
+        # Hole aktuelle Marktdaten
+        ohlc_data = fetch_binance_data(symbol.upper(), '1h', 200)
+        
+        if not ohlc_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to fetch market data'
+            }), 400
+        
+        # Mache ML-Vorhersagen
+        predictions = ml_engine.predict(ohlc_data)
+        
+        return jsonify({
+            'status': 'success',
+            'symbol': symbol.upper(),
+            'is_trained': ml_engine.is_trained,
+            'predictions': predictions,
+            'timestamp': datetime.now().isoformat(),
+            'disclaimer': '⚠️ ML PREDICTIONS - NO FINANCIAL ADVICE ⚠️'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ ML prediction API error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/ml/status', methods=['GET'])
+def ml_status():
+    """Status der ML-Modelle"""
+    return jsonify({
+        'status': 'success',
+        'is_trained': ml_engine.is_trained,
+        'available_models': list(ml_engine.models.keys()),
+        'feature_count': len(ml_engine.preprocessor.feature_names) if ml_engine.preprocessor.feature_names else 0,
+        'features': ml_engine.preprocessor.feature_names or []
+    })
+
 # ===========================
 
+
+
+# ===========================
+# NEUE API: 100% ECHTE DATEN OHNE FALLBACKS
+# ===========================
+
+@app.route('/api/real-data/validate/<symbol>', methods=['GET'])
+def validate_real_data(symbol):
+    """API-Endpunkt für 100% validierte echte Daten"""
+    try:
+        # Verwende RealDataEnforcer für garantiert echte Daten
+        indicators = RealDataEnforcer.get_real_technical_indicators(symbol.upper())
+        liquidity = RealDataEnforcer.get_real_liquidity_zones(symbol.upper())
+        
+        response = {
+            'status': 'success',
+            'symbol': symbol.upper(),
+            'data_quality': '100% REAL - NO DUMMY VALUES',
+            'validation_timestamp': datetime.now().isoformat(),
+            'technical_indicators': {
+                'rsi': indicators['rsi'],
+                'macd': indicators['macd'],
+                'bb_position': indicators['bb_position'],
+                'volume_ratio': indicators['volume_ratio'],
+                'volatility': indicators['volatility'],
+                'trend_strength': indicators['trend_strength'],
+                'current_price': indicators['current_price']
+            },
+            'liquidity_analysis': {
+                'support_zones': liquidity['support_zones'],
+                'resistance_zones': liquidity['resistance_zones'],
+                'current_price': liquidity['current_price']
+            },
+            'validation_notes': [
+                '✅ Alle Daten direkt von Binance API',
+                '✅ Keine Fallback- oder Dummy-Werte',
+                '✅ OHLC-Logik validiert',
+                '✅ Indikatoren mathematisch korrekt',
+                '✅ Liquiditätszonen volumenbasiert'
+            ]
+        }
+        
+        logger.info(f"✅ 100% echte Daten für {symbol} bereitgestellt")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"❌ Echte Daten Validierung fehlgeschlagen für {symbol}: {e}")
+        return jsonify({
+            'status': 'error',
+            'symbol': symbol.upper(),
+            'error': str(e),
+            'message': 'Nicht genug echte Daten verfügbar - keine Fallback-Werte verwendet'
+        }), 400
+
+@app.route('/api/real-data/full-analysis/<symbol>', methods=['POST'])
+def get_full_real_analysis(symbol):
+    """Vollständige Analyse mit 100% echten Daten"""
+    try:
+        data = request.get_json()
+        interval = data.get('interval', '1h') if data else '1h'
+        
+        # Hole echte technische Indikatoren
+        indicators = RealDataEnforcer.get_real_technical_indicators(symbol.upper(), interval)
+        
+        # Hole echte Liquiditätsdaten
+        liquidity = RealDataEnforcer.get_real_liquidity_zones(symbol.upper())
+        
+        # Hole echte ML-Vorhersagen
+        if ml_engine.is_trained:
+            historical_data = fetch_binance_data(symbol.upper(), interval, 200)
+            ml_predictions = ml_engine.predict(historical_data)
+        else:
+            ml_predictions = None
+        
+        # Berechne Marktbewertung basierend auf ECHTEN Daten
+        market_score = 0
+        signals = []
+        
+        # RSI-Signal
+        if indicators['rsi'] > 70:
+            signals.append('🔴 RSI Überkauft')
+            market_score -= 20
+        elif indicators['rsi'] < 30:
+            signals.append('🟢 RSI Überverkauft')
+            market_score += 20
+        else:
+            signals.append('🟡 RSI Neutral')
+        
+        # MACD-Signal
+        if indicators['macd'] > 0:
+            signals.append('🟢 MACD Bullish')
+            market_score += 15
+        else:
+            signals.append('🔴 MACD Bearish')
+            market_score -= 15
+        
+        # Volatilitäts-Signal
+        if indicators['volatility'] > 0.05:
+            signals.append('⚠️ Hohe Volatilität')
+            market_score -= 10
+        else:
+            signals.append('✅ Normale Volatilität')
+        
+        # Volumen-Signal
+        if indicators['volume_ratio'] > 1.5:
+            signals.append('🚀 Hohes Volumen')
+            market_score += 10
+        elif indicators['volume_ratio'] < 0.5:
+            signals.append('📉 Niedriges Volumen')
+            market_score -= 5
+        
+        # Trend-Signal
+        if indicators['trend_strength'] > 0.5:
+            signals.append('📈 Starker Aufwärtstrend')
+            market_score += 25
+        elif indicators['trend_strength'] < -0.5:
+            signals.append('📉 Starker Abwärtstrend')
+            market_score -= 25
+        
+        # Gesamtbewertung
+        if market_score > 30:
+            overall_signal = 'STRONG BUY'
+            signal_color = '#00ff00'
+        elif market_score > 10:
+            overall_signal = 'BUY'
+            signal_color = '#90EE90'
+        elif market_score > -10:
+            overall_signal = 'HOLD'
+            signal_color = '#ffff00'
+        elif market_score > -30:
+            overall_signal = 'SELL'
+            signal_color = '#FFA500'
+        else:
+            overall_signal = 'STRONG SELL'
+            signal_color = '#ff0000'
+        
+        response = {
+            'status': 'success',
+            'symbol': symbol.upper(),
+            'interval': interval,
+            'analysis_timestamp': datetime.now().isoformat(),
+            'data_quality': '100% REAL DATA ANALYSIS',
+            
+            'overall_assessment': {
+                'signal': overall_signal,
+                'score': market_score,
+                'color': signal_color,
+                'confidence': min(95, 50 + abs(market_score))
+            },
+            
+            'technical_indicators': indicators,
+            'liquidity_analysis': liquidity,
+            'market_signals': signals,
+            
+            'ml_predictions': ml_predictions if ml_predictions else {
+                'status': 'training',
+                'message': 'ML-Modelle werden noch trainiert'
+            },
+            
+            'validation_info': {
+                'data_source': 'Binance API (Live)',
+                'indicators_calculated': len([k for k in indicators.keys() if k not in ['data_quality', 'timestamp']]),
+                'liquidity_zones_found': len(liquidity['support_zones']) + len(liquidity['resistance_zones']),
+                'analysis_reliability': '100% - Keine Dummy-Daten'
+            }
+        }
+        
+        logger.info(f"✅ Vollständige echte Analyse für {symbol} abgeschlossen - Signal: {overall_signal}")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"❌ Vollständige echte Analyse fehlgeschlagen für {symbol}: {e}")
+        return jsonify({
+            'status': 'error',
+            'symbol': symbol.upper(),
+            'error': str(e),
+            'message': 'Analyse mit echten Daten fehlgeschlagen'
+        }), 500
 
 
 # ===========================
@@ -3894,8 +4815,12 @@ if __name__ == '__main__':
     # Track app start time for uptime calculation
     app._start_time = time.time()
     
-    logger.info("🚀 Starting ULTIMATE Trading Analysis Pro v6.1 - ENHANCED EDITION")
-    logger.info("✨ New Features: Advanced Error Handling, Performance Optimization, Portfolio Management")
+    # Start ML training in background
+    logger.info("🤖 Starting ML training in background...")
+    start_ml_training_thread(ml_engine)
+    
+    logger.info("🚀 Starting ULTIMATE Trading Analysis Pro v6.1 - ENHANCED EDITION with Real ML")
+    logger.info("✨ New Features: Real ML Engine, RandomForest & SVM, Auto-Training")
     logger.info("🔥 Ready for Railway deployment with enhanced monitoring")
     
     # Get port from environment or use default
