@@ -438,17 +438,17 @@ class TurboAnalysisEngine:
                 indicators, rsi_analysis, macd_analysis, volume_analysis, trend_analysis
             )
             
-            # Generate detailed trading setup with Entry, TP, SL
+            # Generate detailed trading setup with timeframe-specific Entry, TP, SL
             trading_setup = self._generate_trading_setup(
-                current_price, main_signal, confidence, rsi_analysis, trend_analysis, volume_analysis
+                current_price, main_signal, confidence, rsi_analysis, trend_analysis, volume_analysis, timeframe
             )
             
-            logger.info(f"🎯 Trading Setup Generated: {trading_setup}")
+            logger.info(f"🎯 Trading Setup Generated for {timeframe}: {trading_setup}")
             
             execution_time = time.time() - start_time
             
             logger.info(f"🚀 TURBO Analysis Complete: {symbol} in {execution_time:.3f}s (vs ~2s original)")
-            logger.info(f"📊 Features: {len(chart_patterns)} patterns, {len(ml_predictions)} ML strategies")
+            logger.info(f"📊 Timeframe: {timeframe} | Features: {len(chart_patterns)} patterns, {len(ml_predictions)} ML strategies")
             
             return TurboAnalysisResult(
                 symbol=symbol,
@@ -816,8 +816,9 @@ class TurboAnalysisEngine:
         return main_signal, confidence, quality, recommendation, risk
     
     def _generate_trading_setup(self, current_price: float, main_signal: str, confidence: float, 
-                              rsi_analysis: Dict, trend_analysis: Dict, volume_analysis: Dict) -> Dict[str, Any]:
-        """Generate detailed trading setup with Entry, TP, SL"""
+                              rsi_analysis: Dict, trend_analysis: Dict, volume_analysis: Dict, 
+                              timeframe: str = '1h') -> Dict[str, Any]:
+        """Generate detailed trading setup with timeframe-specific Entry, TP, SL"""
         
         if main_signal == "NEUTRAL":
             return {
@@ -832,31 +833,70 @@ class TurboAnalysisEngine:
                 'details': 'Mixed signals - avoid trading'
             }
         
-        # Calculate dynamic levels based on volatility and confidence
-        volatility_factor = 0.02 if volume_analysis.get('status') in ['HIGH', 'VERY_HIGH'] else 0.015
+        # 🆕 TIMEFRAME-SPECIFIC MULTIPLIERS
+        timeframe_config = {
+            '15m': {
+                'volatility_base': 0.008,    # Smaller moves on 15m
+                'tp_multiplier': 0.8,        # Conservative TP
+                'sl_multiplier': 0.6,        # Tighter SL  
+                'timeframe_desc': '15m scalping',
+                'target_duration': '30m-2h'
+            },
+            '1h': {
+                'volatility_base': 0.015,    # Base volatility
+                'tp_multiplier': 1.0,        # Standard TP
+                'sl_multiplier': 1.0,        # Standard SL
+                'timeframe_desc': '1h trading',
+                'target_duration': '2-8h'
+            },
+            '4h': {
+                'volatility_base': 0.025,    # Higher moves on 4h
+                'tp_multiplier': 1.8,        # Bigger TP targets
+                'sl_multiplier': 1.4,        # Wider SL
+                'timeframe_desc': '4h swing',
+                'target_duration': '1-3 days'
+            },
+            '1d': {
+                'volatility_base': 0.035,    # Largest moves on daily
+                'tp_multiplier': 2.5,        # Much bigger targets
+                'sl_multiplier': 1.8,        # Much wider SL
+                'timeframe_desc': 'Daily swing',
+                'target_duration': '3-10 days'
+            }
+        }
+        
+        # Get timeframe-specific configuration
+        tf_config = timeframe_config.get(timeframe, timeframe_config['1h'])
+        
+        # Calculate dynamic levels based on timeframe, volatility and confidence
+        base_volatility = tf_config['volatility_base']
+        volume_multiplier = 1.3 if volume_analysis.get('status') in ['HIGH', 'VERY_HIGH'] else 1.0
+        volatility_factor = base_volatility * volume_multiplier
         confidence_multiplier = confidence / 100
         
         if main_signal == "LONG":
-            # Entry slightly below current price for better fill
-            entry_price = current_price * 0.999  # 0.1% below current
+            # Entry slightly below current price for better fill (timeframe adjusted)
+            entry_offset = 0.0005 if timeframe == '15m' else 0.001  # Smaller offset for scalping
+            entry_price = current_price * (1 - entry_offset)
             
-            # Take Profit based on confidence and trend strength
+            # 🆕 TIMEFRAME-SPECIFIC TP/SL CALCULATION
+            # Take Profit based on timeframe, confidence and trend strength
             if confidence >= 80:
-                tp_distance = volatility_factor * 2.5 * confidence_multiplier  # Strong signal = bigger target
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
             elif confidence >= 70:
-                tp_distance = volatility_factor * 2.0 * confidence_multiplier
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
             else:
-                tp_distance = volatility_factor * 1.5 * confidence_multiplier
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
             
             take_profit = entry_price * (1 + tp_distance)
             
-            # Stop Loss - tighter for high confidence
+            # Stop Loss - timeframe adjusted
             if confidence >= 80:
-                sl_distance = volatility_factor * 0.8  # Tight SL for high confidence
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7  # Tight SL for high confidence
             elif confidence >= 70:
-                sl_distance = volatility_factor * 1.0
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
             else:
-                sl_distance = volatility_factor * 1.2  # Wider SL for lower confidence
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1  # Wider SL for lower confidence
             
             stop_loss = entry_price * (1 - sl_distance)
             
@@ -865,45 +905,58 @@ class TurboAnalysisEngine:
             reward_amount = take_profit - entry_price
             risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
             
-            # Position size based on confidence
-            if confidence >= 80:
-                position_size = "3-5%"
-            elif confidence >= 70:
-                position_size = "2-3%"
-            else:
-                position_size = "1-2%"
+            # Timeframe-specific position sizing
+            if timeframe == '15m':
+                if confidence >= 80:
+                    position_size = "2-3%"  # Smaller for scalping
+                elif confidence >= 70:
+                    position_size = "1-2%"
+                else:
+                    position_size = "0.5-1%"
+            elif timeframe == '4h' or timeframe == '1d':
+                if confidence >= 80:
+                    position_size = "5-8%"  # Larger for swing trades
+                elif confidence >= 70:
+                    position_size = "3-5%"
+                else:
+                    position_size = "2-3%"
+            else:  # 1h default
+                if confidence >= 80:
+                    position_size = "3-5%"
+                elif confidence >= 70:
+                    position_size = "2-3%"
+                else:
+                    position_size = "1-2%"
             
-            # Timeframe target
-            if confidence >= 80:
-                timeframe_target = "4-12 hours"
-            elif confidence >= 70:
-                timeframe_target = "6-24 hours"
-            else:
-                timeframe_target = "12-48 hours"
+            timeframe_target = tf_config['target_duration']
             
             details = f"Strong bullish setup. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
             
-        else:  # SHORT
-            # Entry slightly above current price
-            entry_price = current_price * 1.001  # 0.1% above current
+            details = f"Strong bullish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
             
+        else:  # SHORT
+            # Entry slightly above current price (timeframe adjusted)
+            entry_offset = 0.0005 if timeframe == '15m' else 0.001
+            entry_price = current_price * (1 + entry_offset)
+            
+            # 🆕 TIMEFRAME-SPECIFIC TP/SL CALCULATION
             # Take Profit
             if confidence >= 80:
-                tp_distance = volatility_factor * 2.5 * confidence_multiplier
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
             elif confidence >= 70:
-                tp_distance = volatility_factor * 2.0 * confidence_multiplier
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
             else:
-                tp_distance = volatility_factor * 1.5 * confidence_multiplier
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
             
             take_profit = entry_price * (1 - tp_distance)
             
-            # Stop Loss
+            # Stop Loss - timeframe adjusted
             if confidence >= 80:
-                sl_distance = volatility_factor * 0.8
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7
             elif confidence >= 70:
-                sl_distance = volatility_factor * 1.0
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
             else:
-                sl_distance = volatility_factor * 1.2
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1
             
             stop_loss = entry_price * (1 + sl_distance)
             
@@ -912,23 +965,32 @@ class TurboAnalysisEngine:
             reward_amount = entry_price - take_profit
             risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
             
-            # Position size
-            if confidence >= 80:
-                position_size = "3-5%"
-            elif confidence >= 70:
-                position_size = "2-3%"
-            else:
-                position_size = "1-2%"
+            # Timeframe-specific position sizing
+            if timeframe == '15m':
+                if confidence >= 80:
+                    position_size = "2-3%"  # Smaller for scalping
+                elif confidence >= 70:
+                    position_size = "1-2%"
+                else:
+                    position_size = "0.5-1%"
+            elif timeframe == '4h' or timeframe == '1d':
+                if confidence >= 80:
+                    position_size = "5-8%"  # Larger for swing trades
+                elif confidence >= 70:
+                    position_size = "3-5%"
+                else:
+                    position_size = "2-3%"
+            else:  # 1h default
+                if confidence >= 80:
+                    position_size = "3-5%"
+                elif confidence >= 70:
+                    position_size = "2-3%"
+                else:
+                    position_size = "1-2%"
             
-            # Timeframe target
-            if confidence >= 80:
-                timeframe_target = "4-12 hours"
-            elif confidence >= 70:
-                timeframe_target = "6-24 hours"
-            else:
-                timeframe_target = "12-48 hours"
+            timeframe_target = tf_config['target_duration']
             
-            details = f"Strong bearish setup. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+            details = f"Strong bearish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
         
         return {
             'signal': main_signal,
@@ -940,7 +1002,13 @@ class TurboAnalysisEngine:
             'position_size': position_size,
             'timeframe_target': timeframe_target,
             'details': details,
-            'confidence_level': confidence
+            'confidence_level': confidence,
+            # 🆕 Enhanced details
+            'timeframe': timeframe,
+            'timeframe_description': tf_config['timeframe_desc'],
+            'volatility_factor': round(volatility_factor * 100, 2),  # As percentage
+            'tp_distance_pct': round(tp_distance * 100, 2),
+            'sl_distance_pct': round(sl_distance * 100, 2)
         }
     
     def _get_fallback_result(self, symbol: str, timeframe: str) -> TurboAnalysisResult:
@@ -968,23 +1036,31 @@ class TurboAnalysisEngine:
     # ==========================================
     
     def _detect_chart_patterns_turbo(self, df: pd.DataFrame, timeframe: str, current_price: float) -> List[Dict]:
-        """Fast chart pattern detection"""
+        """Enhanced chart pattern detection with advanced patterns"""
         patterns = []
         
         try:
             if len(df) < 20:
                 return patterns
             
-            # Quick pattern detection
+            # Basic pattern detection (existing)
             patterns.extend(self._detect_candlestick_patterns_turbo(df))
             patterns.extend(self._detect_trend_patterns_turbo(df, current_price))
             patterns.extend(self._detect_support_resistance_turbo(df, current_price))
             
+            # 🆕 ADVANCED PATTERNS - with timeframe-specific TP/SL
+            if len(df) >= 30:  # Only if we have enough data
+                advanced_detector = AdvancedPatternDetector()
+                advanced_patterns = advanced_detector.detect_advanced_patterns(df, timeframe, current_price)
+                patterns.extend(advanced_patterns)
+                
+                logger.info(f"🎯 Advanced patterns found: {len(advanced_patterns)} for {timeframe}")
+            
             # Sort by confidence
             patterns.sort(key=lambda p: p.get('confidence', 0), reverse=True)
             
-            logger.info(f"📊 Chart patterns detected: {len(patterns)}")
-            return patterns[:10]  # Top 10 patterns
+            logger.info(f"📊 Total patterns detected: {len(patterns)} ({timeframe})")
+            return patterns[:12]  # Top 12 patterns (increased from 10)
             
         except Exception as e:
             logger.error(f"Chart pattern detection error: {e}")
@@ -1389,6 +1465,405 @@ class TurboAnalysisEngine:
                 'description': 'Liquidation analysis unavailable',
                 'total_levels': 0
             }
+
+# ==========================================
+# 📈 ADVANCED CHART PATTERNS ENGINE
+# ==========================================
+
+class AdvancedPatternDetector:
+    """Advanced Chart Pattern Detection with Timeframe-Specific TP/SL"""
+    
+    def __init__(self):
+        # Timeframe-specific multipliers for TP/SL calculation
+        self.timeframe_multipliers = {
+            '15m': {'tp_base': 0.5, 'sl_base': 0.3, 'volatility_adj': 1.2},
+            '1h': {'tp_base': 1.0, 'sl_base': 0.5, 'volatility_adj': 1.0},  # Base
+            '4h': {'tp_base': 2.0, 'sl_base': 0.8, 'volatility_adj': 0.8},
+            '1d': {'tp_base': 3.5, 'sl_base': 1.2, 'volatility_adj': 0.6}
+        }
+    
+    def detect_advanced_patterns(self, df: pd.DataFrame, timeframe: str, current_price: float) -> List[Dict]:
+        """Detect advanced chart patterns with timeframe-specific calculations"""
+        patterns = []
+        
+        try:
+            if len(df) < 50:  # Need enough data for advanced patterns
+                return patterns
+            
+            # Extract OHLC data
+            highs = df['high'].values
+            lows = df['low'].values
+            closes = df['close'].values
+            opens = df['open'].values
+            
+            # 1. Triangle Patterns
+            triangle_patterns = self._detect_triangle_patterns(highs, lows, closes, timeframe, current_price)
+            patterns.extend(triangle_patterns)
+            
+            # 2. Head and Shoulders
+            head_shoulder_patterns = self._detect_head_shoulders(highs, lows, closes, timeframe, current_price)
+            patterns.extend(head_shoulder_patterns)
+            
+            # 3. Double Top/Bottom
+            double_patterns = self._detect_double_patterns(highs, lows, closes, timeframe, current_price)
+            patterns.extend(double_patterns)
+            
+            # 4. Flag and Pennant
+            flag_patterns = self._detect_flag_pennant(highs, lows, closes, opens, timeframe, current_price)
+            patterns.extend(flag_patterns)
+            
+            # Sort by confidence and return top patterns
+            patterns.sort(key=lambda p: p.get('confidence', 0), reverse=True)
+            
+            logger.info(f"🎯 Advanced patterns detected: {len(patterns)} for {timeframe}")
+            return patterns[:8]  # Top 8 patterns
+            
+        except Exception as e:
+            logger.error(f"Advanced pattern detection error: {e}")
+            return []
+    
+    def _detect_triangle_patterns(self, highs, lows, closes, timeframe: str, current_price: float) -> List[Dict]:
+        """Detect triangle patterns (Ascending, Descending, Symmetrical)"""
+        patterns = []
+        
+        if len(highs) < 30:
+            return patterns
+        
+        # Look for triangle patterns in recent data
+        recent_highs = highs[-20:]
+        recent_lows = lows[-20:]
+        
+        # Find trend lines
+        high_trend = np.polyfit(range(len(recent_highs)), recent_highs, 1)
+        low_trend = np.polyfit(range(len(recent_lows)), recent_lows, 1)
+        
+        high_slope = high_trend[0]
+        low_slope = low_trend[0]
+        
+        # Calculate TP/SL based on timeframe
+        tf_mult = self.timeframe_multipliers.get(timeframe, self.timeframe_multipliers['1h'])
+        base_range = (np.max(recent_highs) - np.min(recent_lows)) / current_price
+        
+        # Ascending Triangle (flat resistance, rising support)
+        if abs(high_slope) < 0.1 * tf_mult['volatility_adj'] and low_slope > 0.05 * tf_mult['volatility_adj']:
+            resistance_level = np.max(recent_highs)
+            tp_target = current_price * (1 + base_range * tf_mult['tp_base'])
+            sl_level = current_price * (1 - base_range * tf_mult['sl_base'])
+            
+            patterns.append({
+                'name': 'Ascending Triangle',
+                'type': 'BULLISH_CONTINUATION',
+                'confidence': 75,
+                'direction': 'LONG',
+                'timeframe': timeframe,
+                'timeframe_target': self._get_timeframe_target(timeframe),
+                'entry': current_price,
+                'take_profit': round(tp_target, 2),
+                'stop_loss': round(sl_level, 2),
+                'key_level': round(resistance_level, 2),
+                'description': f'Ascending triangle on {timeframe} - breakout above ${resistance_level:.2f} expected',
+                'strength': 'HIGH',
+                'pattern_details': {
+                    'resistance': resistance_level,
+                    'support_slope': low_slope,
+                    'width': base_range * 100
+                }
+            })
+        
+        # Descending Triangle (declining resistance, flat support)
+        elif high_slope < -0.05 * tf_mult['volatility_adj'] and abs(low_slope) < 0.1 * tf_mult['volatility_adj']:
+            support_level = np.min(recent_lows)
+            tp_target = current_price * (1 - base_range * tf_mult['tp_base'])
+            sl_level = current_price * (1 + base_range * tf_mult['sl_base'])
+            
+            patterns.append({
+                'name': 'Descending Triangle',
+                'type': 'BEARISH_CONTINUATION',
+                'confidence': 75,
+                'direction': 'SHORT',
+                'timeframe': timeframe,
+                'timeframe_target': self._get_timeframe_target(timeframe),
+                'entry': current_price,
+                'take_profit': round(tp_target, 2),
+                'stop_loss': round(sl_level, 2),
+                'key_level': round(support_level, 2),
+                'description': f'Descending triangle on {timeframe} - breakdown below ${support_level:.2f} expected',
+                'strength': 'HIGH',
+                'pattern_details': {
+                    'support': support_level,
+                    'resistance_slope': high_slope,
+                    'width': base_range * 100
+                }
+            })
+        
+        # Symmetrical Triangle (converging lines)
+        elif high_slope < -0.02 and low_slope > 0.02 and abs(high_slope + low_slope) < 0.05:
+            apex_distance = len(recent_highs) - abs((recent_highs[-1] - recent_lows[-1]) / (high_slope - low_slope))
+            
+            if apex_distance > 5:  # Pattern still valid
+                tp_target_long = current_price * (1 + base_range * tf_mult['tp_base'])
+                tp_target_short = current_price * (1 - base_range * tf_mult['tp_base'])
+                sl_range = base_range * tf_mult['sl_base']
+                
+                patterns.append({
+                    'name': 'Symmetrical Triangle',
+                    'type': 'NEUTRAL_BREAKOUT',
+                    'confidence': 70,
+                    'direction': 'BREAKOUT',
+                    'timeframe': timeframe,
+                    'timeframe_target': self._get_timeframe_target(timeframe),
+                    'entry': current_price,
+                    'take_profit_long': round(tp_target_long, 2),
+                    'take_profit_short': round(tp_target_short, 2),
+                    'stop_loss_range': round(sl_range * current_price, 2),
+                    'description': f'Symmetrical triangle on {timeframe} - breakout in either direction expected',
+                    'strength': 'MEDIUM',
+                    'pattern_details': {
+                        'apex_distance': apex_distance,
+                        'convergence_rate': abs(high_slope + low_slope),
+                        'width': base_range * 100
+                    }
+                })
+        
+        return patterns
+    
+    def _detect_head_shoulders(self, highs, lows, closes, timeframe: str, current_price: float) -> List[Dict]:
+        """Detect Head and Shoulders patterns"""
+        patterns = []
+        
+        if len(highs) < 40:
+            return patterns
+        
+        # Use recent data for pattern detection
+        recent_data = highs[-30:]
+        
+        # Find local peaks
+        peaks = []
+        for i in range(2, len(recent_data) - 2):
+            if (recent_data[i] > recent_data[i-1] and recent_data[i] > recent_data[i+1] and
+                recent_data[i] > recent_data[i-2] and recent_data[i] > recent_data[i+2]):
+                peaks.append((i, recent_data[i]))
+        
+        if len(peaks) >= 3:
+            # Sort peaks by height
+            peaks.sort(key=lambda x: x[1], reverse=True)
+            
+            # Check for Head and Shoulders pattern
+            head = peaks[0]
+            potential_shoulders = [p for p in peaks[1:] if p[1] > head[1] * 0.85]  # Within 15% of head
+            
+            if len(potential_shoulders) >= 2:
+                left_shoulder = min(potential_shoulders, key=lambda x: x[0])
+                right_shoulder = max(potential_shoulders, key=lambda x: x[0])
+                
+                # Validate pattern structure
+                if left_shoulder[0] < head[0] < right_shoulder[0]:
+                    # Calculate neckline (approximate)
+                    neckline = (left_shoulder[1] + right_shoulder[1]) / 2 * 0.95
+                    
+                    tf_mult = self.timeframe_multipliers.get(timeframe, self.timeframe_multipliers['1h'])
+                    pattern_height = head[1] - neckline
+                    
+                    tp_target = neckline - (pattern_height * tf_mult['tp_base'])
+                    sl_level = current_price * (1 + 0.02 * tf_mult['sl_base'])  # 2% above current
+                    
+                    patterns.append({
+                        'name': 'Head and Shoulders',
+                        'type': 'BEARISH_REVERSAL',
+                        'confidence': 80,
+                        'direction': 'SHORT',
+                        'timeframe': timeframe,
+                        'timeframe_target': self._get_timeframe_target(timeframe),
+                        'entry': current_price,
+                        'take_profit': round(tp_target, 2),
+                        'stop_loss': round(sl_level, 2),
+                        'key_level': round(neckline, 2),
+                        'description': f'Head and Shoulders on {timeframe} - target ${tp_target:.2f} below neckline',
+                        'strength': 'VERY_HIGH',
+                        'pattern_details': {
+                            'head_price': head[1],
+                            'neckline': neckline,
+                            'pattern_height': pattern_height,
+                            'shoulder_symmetry': abs(left_shoulder[1] - right_shoulder[1]) / head[1]
+                        }
+                    })
+        
+        return patterns
+    
+    def _detect_double_patterns(self, highs, lows, closes, timeframe: str, current_price: float) -> List[Dict]:
+        """Detect Double Top and Double Bottom patterns"""
+        patterns = []
+        
+        if len(highs) < 30:
+            return patterns
+        
+        tf_mult = self.timeframe_multipliers.get(timeframe, self.timeframe_multipliers['1h'])
+        
+        # Double Top Detection
+        recent_highs = highs[-25:]
+        high_peaks = []
+        
+        for i in range(3, len(recent_highs) - 3):
+            if (recent_highs[i] > recent_highs[i-1] and recent_highs[i] > recent_highs[i+1] and
+                recent_highs[i] > recent_highs[i-2] and recent_highs[i] > recent_highs[i+2]):
+                high_peaks.append((i, recent_highs[i]))
+        
+        # Look for double top
+        if len(high_peaks) >= 2:
+            for i in range(len(high_peaks) - 1):
+                peak1 = high_peaks[i]
+                peak2 = high_peaks[i + 1]
+                
+                # Check if peaks are similar in height (within 2%)
+                if abs(peak1[1] - peak2[1]) / max(peak1[1], peak2[1]) < 0.02:
+                    # Find valley between peaks
+                    valley_start = peak1[0]
+                    valley_end = peak2[0]
+                    valley_low = min(recent_highs[valley_start:valley_end])
+                    
+                    pattern_height = max(peak1[1], peak2[1]) - valley_low
+                    tp_target = valley_low - (pattern_height * tf_mult['tp_base'])
+                    sl_level = max(peak1[1], peak2[1]) * (1 + 0.01 * tf_mult['sl_base'])
+                    
+                    patterns.append({
+                        'name': 'Double Top',
+                        'type': 'BEARISH_REVERSAL',
+                        'confidence': 78,
+                        'direction': 'SHORT',
+                        'timeframe': timeframe,
+                        'timeframe_target': self._get_timeframe_target(timeframe),
+                        'entry': current_price,
+                        'take_profit': round(tp_target, 2),
+                        'stop_loss': round(sl_level, 2),
+                        'key_level': round(valley_low, 2),
+                        'description': f'Double Top on {timeframe} - breakdown below ${valley_low:.2f} expected',
+                        'strength': 'HIGH',
+                        'pattern_details': {
+                            'peak1': peak1[1],
+                            'peak2': peak2[1],
+                            'valley': valley_low,
+                            'symmetry': abs(peak1[1] - peak2[1]) / max(peak1[1], peak2[1])
+                        }
+                    })
+                    break
+        
+        # Double Bottom Detection
+        recent_lows = lows[-25:]
+        low_valleys = []
+        
+        for i in range(3, len(recent_lows) - 3):
+            if (recent_lows[i] < recent_lows[i-1] and recent_lows[i] < recent_lows[i+1] and
+                recent_lows[i] < recent_lows[i-2] and recent_lows[i] < recent_lows[i+2]):
+                low_valleys.append((i, recent_lows[i]))
+        
+        # Look for double bottom
+        if len(low_valleys) >= 2:
+            for i in range(len(low_valleys) - 1):
+                valley1 = low_valleys[i]
+                valley2 = low_valleys[i + 1]
+                
+                # Check if valleys are similar in depth (within 2%)
+                if abs(valley1[1] - valley2[1]) / max(valley1[1], valley2[1]) < 0.02:
+                    # Find peak between valleys
+                    peak_start = valley1[0]
+                    peak_end = valley2[0]
+                    peak_high = max(recent_lows[peak_start:peak_end])
+                    
+                    pattern_height = peak_high - min(valley1[1], valley2[1])
+                    tp_target = peak_high + (pattern_height * tf_mult['tp_base'])
+                    sl_level = min(valley1[1], valley2[1]) * (1 - 0.01 * tf_mult['sl_base'])
+                    
+                    patterns.append({
+                        'name': 'Double Bottom',
+                        'type': 'BULLISH_REVERSAL',
+                        'confidence': 78,
+                        'direction': 'LONG',
+                        'timeframe': timeframe,
+                        'timeframe_target': self._get_timeframe_target(timeframe),
+                        'entry': current_price,
+                        'take_profit': round(tp_target, 2),
+                        'stop_loss': round(sl_level, 2),
+                        'key_level': round(peak_high, 2),
+                        'description': f'Double Bottom on {timeframe} - breakout above ${peak_high:.2f} expected',
+                        'strength': 'HIGH',
+                        'pattern_details': {
+                            'valley1': valley1[1],
+                            'valley2': valley2[1],
+                            'peak': peak_high,
+                            'symmetry': abs(valley1[1] - valley2[1]) / min(valley1[1], valley2[1])
+                        }
+                    })
+                    break
+        
+        return patterns
+    
+    def _detect_flag_pennant(self, highs, lows, closes, opens, timeframe: str, current_price: float) -> List[Dict]:
+        """Detect Flag and Pennant patterns"""
+        patterns = []
+        
+        if len(closes) < 20:
+            return patterns
+        
+        tf_mult = self.timeframe_multipliers.get(timeframe, self.timeframe_multipliers['1h'])
+        
+        # Look for strong price movement followed by consolidation
+        recent_closes = closes[-15:]
+        
+        # Check for strong initial move (flagpole)
+        if len(recent_closes) >= 10:
+            flagpole_start = recent_closes[0]
+            flagpole_end = recent_closes[5]
+            consolidation_data = recent_closes[5:]
+            
+            flagpole_move = (flagpole_end - flagpole_start) / flagpole_start
+            
+            # Strong move threshold (3%+ for flags)
+            if abs(flagpole_move) > 0.03 * tf_mult['volatility_adj']:
+                # Check for consolidation after strong move
+                consolidation_range = (max(consolidation_data) - min(consolidation_data)) / np.mean(consolidation_data)
+                
+                # Flag pattern (rectangular consolidation)
+                if consolidation_range < 0.02 * tf_mult['volatility_adj']:  # Tight consolidation
+                    direction = 'LONG' if flagpole_move > 0 else 'SHORT'
+                    flagpole_height = abs(flagpole_end - flagpole_start)
+                    
+                    if direction == 'LONG':
+                        tp_target = current_price + (flagpole_height * tf_mult['tp_base'])
+                        sl_level = min(consolidation_data) * (1 - 0.01 * tf_mult['sl_base'])
+                    else:
+                        tp_target = current_price - (flagpole_height * tf_mult['tp_base'])
+                        sl_level = max(consolidation_data) * (1 + 0.01 * tf_mult['sl_base'])
+                    
+                    patterns.append({
+                        'name': f'{"Bull" if direction == "LONG" else "Bear"} Flag',
+                        'type': f'{"BULLISH" if direction == "LONG" else "BEARISH"}_CONTINUATION',
+                        'confidence': 72,
+                        'direction': direction,
+                        'timeframe': timeframe,
+                        'timeframe_target': self._get_timeframe_target(timeframe),
+                        'entry': current_price,
+                        'take_profit': round(tp_target, 2),
+                        'stop_loss': round(sl_level, 2),
+                        'description': f'{direction} flag on {timeframe} - continuation pattern',
+                        'strength': 'MEDIUM',
+                        'pattern_details': {
+                            'flagpole_move_pct': flagpole_move * 100,
+                            'consolidation_range_pct': consolidation_range * 100,
+                            'flagpole_height': flagpole_height
+                        }
+                    })
+        
+        return patterns
+    
+    def _get_timeframe_target(self, timeframe: str) -> str:
+        """Get expected timeframe for pattern completion"""
+        timeframe_targets = {
+            '15m': '2-4 hours',
+            '1h': '6-12 hours', 
+            '4h': '1-3 days',
+            '1d': '1-2 weeks'
+        }
+        return timeframe_targets.get(timeframe, '6-12 hours')
 
 # ==========================================
 # 🌐 FLASK APPLICATION
