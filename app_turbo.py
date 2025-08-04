@@ -97,6 +97,8 @@ class TurboAnalysisResult:
     smc_patterns: List[Dict] = field(default_factory=list)
     ml_predictions: Dict[str, Any] = field(default_factory=dict)
     liquidation_data: Dict[str, Any] = field(default_factory=dict)
+    # 🆕 Support/Resistance Analysis
+    sr_analysis: Dict[str, Any] = field(default_factory=dict)
 
 # ==========================================
 # 🚀 TURBO PERFORMANCE ENGINE
@@ -428,10 +430,16 @@ class TurboAnalysisEngine:
                 
                 # 🆕 Get S/R results with error handling
                 try:
+                    logger.info(f"🔍 Getting S/R results from parallel execution...")
+                    logger.info(f"🔍 S/R Future Status: {sr_future}")
                     sr_levels = sr_future.result()
                     logger.info(f"✅ S/R analysis completed: {len(sr_levels.get('all_resistance', []))} resistance, {len(sr_levels.get('all_support', []))} support")
+                    logger.info(f"🔍 S/R Levels Debug: {sr_levels}")
                 except Exception as e:
                     logger.error(f"❌ S/R analysis failed: {e}")
+                    logger.error(f"❌ Exception details: {str(e)}")
+                    import traceback
+                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
                     sr_levels = PrecisionSREngine()._get_fallback_levels(current_price)
                 
                 # No SMC patterns - removed for cleaner analysis
@@ -480,6 +488,8 @@ class TurboAnalysisEngine:
                 smc_patterns=[],  # SMC removed for cleaner analysis
                 ml_predictions=ml_predictions,
                 liquidation_data=liquidation_data,
+                # 🆕 S/R Analysis with detailed information
+                sr_analysis=self._format_sr_analysis(sr_levels, current_price, timeframe),
                 execution_time=execution_time
             )
             
@@ -1029,182 +1039,147 @@ class TurboAnalysisEngine:
             'sl_method': f"Standard SL ({timeframe} timeframe)",
             'sr_strength': 'N/A'
         }
+    
+    def _get_timeframe_config(self, timeframe: str) -> Dict[str, Any]:
+        """Get timeframe configuration"""
         timeframe_config = {
             '15m': {
-                'volatility_base': 0.008,    # Smaller moves on 15m
-                'tp_multiplier': 0.8,        # Conservative TP
-                'sl_multiplier': 0.6,        # Tighter SL  
+                'volatility_base': 0.008,
+                'tp_multiplier': 0.8,
+                'sl_multiplier': 0.6,
                 'timeframe_desc': '15m scalping',
                 'target_duration': '30m-2h'
             },
             '1h': {
-                'volatility_base': 0.015,    # Base volatility
-                'tp_multiplier': 1.0,        # Standard TP
-                'sl_multiplier': 1.0,        # Standard SL
+                'volatility_base': 0.015,
+                'tp_multiplier': 1.0,
+                'sl_multiplier': 1.0,
                 'timeframe_desc': '1h trading',
                 'target_duration': '2-8h'
             },
             '4h': {
-                'volatility_base': 0.025,    # Higher moves on 4h
-                'tp_multiplier': 1.8,        # Bigger TP targets
-                'sl_multiplier': 1.4,        # Wider SL
+                'volatility_base': 0.025,
+                'tp_multiplier': 1.8,
+                'sl_multiplier': 1.4,
                 'timeframe_desc': '4h swing',
                 'target_duration': '1-3 days'
             },
             '1d': {
-                'volatility_base': 0.035,    # Largest moves on daily
-                'tp_multiplier': 2.5,        # Much bigger targets
-                'sl_multiplier': 1.8,        # Much wider SL
+                'volatility_base': 0.035,
+                'tp_multiplier': 2.5,
+                'sl_multiplier': 1.8,
                 'timeframe_desc': 'Daily swing',
                 'target_duration': '3-10 days'
             }
         }
-        
-        # Get timeframe-specific configuration
-        tf_config = timeframe_config.get(timeframe, timeframe_config['1h'])
-        
-        # Calculate dynamic levels based on timeframe, volatility and confidence
-        base_volatility = tf_config['volatility_base']
-        volume_multiplier = 1.3 if volume_analysis.get('status') in ['HIGH', 'VERY_HIGH'] else 1.0
-        volatility_factor = base_volatility * volume_multiplier
-        confidence_multiplier = confidence / 100
-        
-        if main_signal == "LONG":
-            # Entry slightly below current price for better fill (timeframe adjusted)
-            entry_offset = 0.0005 if timeframe == '15m' else 0.001  # Smaller offset for scalping
-            entry_price = current_price * (1 - entry_offset)
-            
-            # 🆕 TIMEFRAME-SPECIFIC TP/SL CALCULATION
-            # Take Profit based on timeframe, confidence and trend strength
+        return timeframe_config.get(timeframe, timeframe_config['1h'])
+    
+    def _calculate_position_size(self, confidence: float, timeframe: str) -> str:
+        """Calculate position size based on confidence and timeframe"""
+        if timeframe == '15m':
             if confidence >= 80:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
+                return "2-3%"
             elif confidence >= 70:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
+                return "1-2%"
             else:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
-            
-            take_profit = entry_price * (1 + tp_distance)
-            
-            # Stop Loss - timeframe adjusted
+                return "0.5-1%"
+        elif timeframe in ['4h', '1d']:
             if confidence >= 80:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7  # Tight SL for high confidence
+                return "5-8%"
             elif confidence >= 70:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
+                return "3-5%"
             else:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1  # Wider SL for lower confidence
-            
-            stop_loss = entry_price * (1 - sl_distance)
-            
-            # Risk/Reward
-            risk_amount = entry_price - stop_loss
-            reward_amount = take_profit - entry_price
-            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
-            
-            # Timeframe-specific position sizing
-            if timeframe == '15m':
-                if confidence >= 80:
-                    position_size = "2-3%"  # Smaller for scalping
-                elif confidence >= 70:
-                    position_size = "1-2%"
-                else:
-                    position_size = "0.5-1%"
-            elif timeframe == '4h' or timeframe == '1d':
-                if confidence >= 80:
-                    position_size = "5-8%"  # Larger for swing trades
-                elif confidence >= 70:
-                    position_size = "3-5%"
-                else:
-                    position_size = "2-3%"
-            else:  # 1h default
-                if confidence >= 80:
-                    position_size = "3-5%"
-                elif confidence >= 70:
-                    position_size = "2-3%"
-                else:
-                    position_size = "1-2%"
-            
-            timeframe_target = tf_config['target_duration']
-            
-            details = f"Strong bullish setup. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
-            
-            details = f"Strong bullish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
-            
-        else:  # SHORT
-            # Entry slightly above current price (timeframe adjusted)
-            entry_offset = 0.0005 if timeframe == '15m' else 0.001
-            entry_price = current_price * (1 + entry_offset)
-            
-            # 🆕 TIMEFRAME-SPECIFIC TP/SL CALCULATION
-            # Take Profit
+                return "2-3%"
+        else:  # 1h default
             if confidence >= 80:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
+                return "3-5%"
             elif confidence >= 70:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
+                return "2-3%"
             else:
-                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
-            
-            take_profit = entry_price * (1 - tp_distance)
-            
-            # Stop Loss - timeframe adjusted
-            if confidence >= 80:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7
-            elif confidence >= 70:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
-            else:
-                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1
-            
-            stop_loss = entry_price * (1 + sl_distance)
-            
-            # Risk/Reward
-            risk_amount = stop_loss - entry_price
-            reward_amount = entry_price - take_profit
-            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
-            
-            # Timeframe-specific position sizing
-            if timeframe == '15m':
-                if confidence >= 80:
-                    position_size = "2-3%"  # Smaller for scalping
-                elif confidence >= 70:
-                    position_size = "1-2%"
-                else:
-                    position_size = "0.5-1%"
-            elif timeframe == '4h' or timeframe == '1d':
-                if confidence >= 80:
-                    position_size = "5-8%"  # Larger for swing trades
-                elif confidence >= 70:
-                    position_size = "3-5%"
-                else:
-                    position_size = "2-3%"
-            else:  # 1h default
-                if confidence >= 80:
-                    position_size = "3-5%"
-                elif confidence >= 70:
-                    position_size = "2-3%"
-                else:
-                    position_size = "1-2%"
-            
-            timeframe_target = tf_config['target_duration']
-            
-            details = f"Strong bearish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+                return "1-2%"
+    
+    def _format_sr_analysis(self, sr_levels: Dict[str, Any], current_price: float, timeframe: str) -> Dict[str, Any]:
+        """🆕 Format S/R analysis for detailed display"""
+        if not sr_levels or not isinstance(sr_levels, dict):
+            return {
+                'available': False,
+                'summary': 'Support/Resistance analysis not available',
+                'timeframe': timeframe
+            }
         
-        return {
-            'signal': main_signal,
-            'action': f"Enter {main_signal} position",
-            'entry': round(entry_price, 2),
-            'take_profit': round(take_profit, 2),
-            'stop_loss': round(stop_loss, 2),
-            'risk_reward': round(risk_reward, 2),
-            'position_size': position_size,
-            'timeframe_target': timeframe_target,
-            'details': details,
-            'confidence_level': confidence,
-            # 🆕 Enhanced details
+        analysis = {
+            'available': True,
             'timeframe': timeframe,
-            'timeframe_description': tf_config['timeframe_desc'],
-            'volatility_factor': round(volatility_factor * 100, 2),  # As percentage
-            'tp_distance_pct': round(tp_distance * 100, 2),
-            'sl_distance_pct': round(sl_distance * 100, 2)
+            'current_price': current_price,
+            'summary': '',
+            'key_levels': {},
+            'all_levels': {
+                'support': [],
+                'resistance': []
+            }
         }
+        
+        # Format key support level
+        key_support = sr_levels.get('key_support')
+        if key_support:
+            support_info = {
+                'price': key_support['price'],
+                'strength': key_support['strength'],
+                'touches': key_support['touches'],
+                'distance_pct': key_support['distance_pct'],
+                'calculation': f"{key_support['touches']} touches × 20% + 40% = {key_support['strength']}%",
+                'description': f"Support bei ${key_support['price']:.2f} wurde {key_support['touches']}x berührt - {key_support['strength']}% Stärke - {key_support['distance_pct']:.1f}% unter current price (${current_price:.0f})"
+            }
+            analysis['key_levels']['support'] = support_info
+        
+        # Format key resistance level  
+        key_resistance = sr_levels.get('key_resistance')
+        if key_resistance:
+            resistance_info = {
+                'price': key_resistance['price'],
+                'strength': key_resistance['strength'],
+                'touches': key_resistance['touches'],
+                'distance_pct': key_resistance['distance_pct'],
+                'calculation': f"{key_resistance['touches']} touches × 20% + 40% = {key_resistance['strength']}%",
+                'description': f"Resistance bei ${key_resistance['price']:.2f} wurde {key_resistance['touches']}x berührt - {key_resistance['strength']}% Stärke - {key_resistance['distance_pct']:.1f}% über current price (${current_price:.0f})"
+            }
+            analysis['key_levels']['resistance'] = resistance_info
+        
+        # Format all support levels
+        all_support = sr_levels.get('all_support', [])
+        for support in all_support[:3]:  # Top 3 support levels
+            analysis['all_levels']['support'].append({
+                'price': support['price'],
+                'strength': support['strength'],
+                'touches': support['touches'],
+                'distance_pct': support['distance_pct'],
+                'description': f"${support['price']:.2f} ({support['touches']}x berührt, {support['strength']}% stark, {support['distance_pct']:.1f}% entfernt)"
+            })
+        
+        # Format all resistance levels
+        all_resistance = sr_levels.get('all_resistance', [])
+        for resistance in all_resistance[:3]:  # Top 3 resistance levels
+            analysis['all_levels']['resistance'].append({
+                'price': resistance['price'],
+                'strength': resistance['strength'],
+                'touches': resistance['touches'],
+                'distance_pct': resistance['distance_pct'],
+                'description': f"${resistance['price']:.2f} ({resistance['touches']}x berührt, {resistance['strength']}% stark, {resistance['distance_pct']:.1f}% entfernt)"
+            })
+        
+        # Create summary
+        summary_parts = []
+        if key_support:
+            summary_parts.append(f"Key Support: ${key_support['price']:.2f} ({key_support['strength']}% stark)")
+        if key_resistance:
+            summary_parts.append(f"Key Resistance: ${key_resistance['price']:.2f} ({key_resistance['strength']}% stark)")
+        
+        if not summary_parts:
+            analysis['summary'] = f"Keine starken S/R Levels gefunden für {timeframe}"
+        else:
+            analysis['summary'] = " | ".join(summary_parts)
+        
+        return analysis
     
     def _get_fallback_result(self, symbol: str, timeframe: str) -> TurboAnalysisResult:
         """Fallback result in case of error"""
@@ -2451,6 +2426,8 @@ def analyze():
             'smc_patterns': result.smc_patterns,
             'ml_predictions': result.ml_predictions,
             'liquidation_data': result.liquidation_data,
+            # 🆕 Detailed Support/Resistance Analysis
+            'sr_analysis': result.sr_analysis,
             'execution_time': result.execution_time
         }
         
