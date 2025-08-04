@@ -2190,9 +2190,12 @@ if __name__ == '__main__':
     print("🔧 Status: TURBO PRODUCTION READY - Performance First!")
     print("=" * 80)
     
+    # Railway deployment support
+    port = int(os.environ.get('PORT', 5001))
+    
     app.run(
         host='0.0.0.0',
-        port=5001,  # Different port to avoid conflict
-        debug=True,
+        port=port,
+        debug=False,  # Production mode for Railway
         threaded=True
     )
