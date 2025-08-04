@@ -88,14 +88,15 @@ class TurboAnalysisResult:
     volume_analysis: Dict[str, Any]
     trend_analysis: Dict[str, Any]
     
-    # Popup Sections
+    # Performance
+    execution_time: float
+    
+    # Optional fields with defaults (MUST be at the end)
+    trading_setup: Dict[str, Any] = field(default_factory=dict)
     chart_patterns: List[Dict] = field(default_factory=list)
     smc_patterns: List[Dict] = field(default_factory=list)
     ml_predictions: Dict[str, Any] = field(default_factory=dict)
     liquidation_data: Dict[str, Any] = field(default_factory=dict)
-    
-    # Performance
-    execution_time: float = 0.0
 
 # ==========================================
 # 🚀 TURBO PERFORMANCE ENGINE
@@ -437,6 +438,13 @@ class TurboAnalysisEngine:
                 indicators, rsi_analysis, macd_analysis, volume_analysis, trend_analysis
             )
             
+            # Generate detailed trading setup with Entry, TP, SL
+            trading_setup = self._generate_trading_setup(
+                current_price, main_signal, confidence, rsi_analysis, trend_analysis, volume_analysis
+            )
+            
+            logger.info(f"🎯 Trading Setup Generated: {trading_setup}")
+            
             execution_time = time.time() - start_time
             
             logger.info(f"🚀 TURBO Analysis Complete: {symbol} in {execution_time:.3f}s (vs ~2s original)")
@@ -452,6 +460,7 @@ class TurboAnalysisEngine:
                 signal_quality=quality,
                 recommendation=recommendation,
                 risk_level=risk,
+                trading_setup=trading_setup,
                 rsi_analysis=rsi_analysis,
                 macd_analysis=macd_analysis,
                 volume_analysis=volume_analysis,
@@ -806,6 +815,134 @@ class TurboAnalysisEngine:
         
         return main_signal, confidence, quality, recommendation, risk
     
+    def _generate_trading_setup(self, current_price: float, main_signal: str, confidence: float, 
+                              rsi_analysis: Dict, trend_analysis: Dict, volume_analysis: Dict) -> Dict[str, Any]:
+        """Generate detailed trading setup with Entry, TP, SL"""
+        
+        if main_signal == "NEUTRAL":
+            return {
+                'signal': 'NEUTRAL',
+                'action': 'Wait for better setup',
+                'entry': 0,
+                'take_profit': 0,
+                'stop_loss': 0,
+                'risk_reward': 0,
+                'position_size': '0%',
+                'timeframe_target': 'N/A',
+                'details': 'Mixed signals - avoid trading'
+            }
+        
+        # Calculate dynamic levels based on volatility and confidence
+        volatility_factor = 0.02 if volume_analysis.get('status') in ['HIGH', 'VERY_HIGH'] else 0.015
+        confidence_multiplier = confidence / 100
+        
+        if main_signal == "LONG":
+            # Entry slightly below current price for better fill
+            entry_price = current_price * 0.999  # 0.1% below current
+            
+            # Take Profit based on confidence and trend strength
+            if confidence >= 80:
+                tp_distance = volatility_factor * 2.5 * confidence_multiplier  # Strong signal = bigger target
+            elif confidence >= 70:
+                tp_distance = volatility_factor * 2.0 * confidence_multiplier
+            else:
+                tp_distance = volatility_factor * 1.5 * confidence_multiplier
+            
+            take_profit = entry_price * (1 + tp_distance)
+            
+            # Stop Loss - tighter for high confidence
+            if confidence >= 80:
+                sl_distance = volatility_factor * 0.8  # Tight SL for high confidence
+            elif confidence >= 70:
+                sl_distance = volatility_factor * 1.0
+            else:
+                sl_distance = volatility_factor * 1.2  # Wider SL for lower confidence
+            
+            stop_loss = entry_price * (1 - sl_distance)
+            
+            # Risk/Reward
+            risk_amount = entry_price - stop_loss
+            reward_amount = take_profit - entry_price
+            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
+            
+            # Position size based on confidence
+            if confidence >= 80:
+                position_size = "3-5%"
+            elif confidence >= 70:
+                position_size = "2-3%"
+            else:
+                position_size = "1-2%"
+            
+            # Timeframe target
+            if confidence >= 80:
+                timeframe_target = "4-12 hours"
+            elif confidence >= 70:
+                timeframe_target = "6-24 hours"
+            else:
+                timeframe_target = "12-48 hours"
+            
+            details = f"Strong bullish setup. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+            
+        else:  # SHORT
+            # Entry slightly above current price
+            entry_price = current_price * 1.001  # 0.1% above current
+            
+            # Take Profit
+            if confidence >= 80:
+                tp_distance = volatility_factor * 2.5 * confidence_multiplier
+            elif confidence >= 70:
+                tp_distance = volatility_factor * 2.0 * confidence_multiplier
+            else:
+                tp_distance = volatility_factor * 1.5 * confidence_multiplier
+            
+            take_profit = entry_price * (1 - tp_distance)
+            
+            # Stop Loss
+            if confidence >= 80:
+                sl_distance = volatility_factor * 0.8
+            elif confidence >= 70:
+                sl_distance = volatility_factor * 1.0
+            else:
+                sl_distance = volatility_factor * 1.2
+            
+            stop_loss = entry_price * (1 + sl_distance)
+            
+            # Risk/Reward
+            risk_amount = stop_loss - entry_price
+            reward_amount = entry_price - take_profit
+            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
+            
+            # Position size
+            if confidence >= 80:
+                position_size = "3-5%"
+            elif confidence >= 70:
+                position_size = "2-3%"
+            else:
+                position_size = "1-2%"
+            
+            # Timeframe target
+            if confidence >= 80:
+                timeframe_target = "4-12 hours"
+            elif confidence >= 70:
+                timeframe_target = "6-24 hours"
+            else:
+                timeframe_target = "12-48 hours"
+            
+            details = f"Strong bearish setup. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+        
+        return {
+            'signal': main_signal,
+            'action': f"Enter {main_signal} position",
+            'entry': round(entry_price, 2),
+            'take_profit': round(take_profit, 2),
+            'stop_loss': round(stop_loss, 2),
+            'risk_reward': round(risk_reward, 2),
+            'position_size': position_size,
+            'timeframe_target': timeframe_target,
+            'details': details,
+            'confidence_level': confidence
+        }
+    
     def _get_fallback_result(self, symbol: str, timeframe: str) -> TurboAnalysisResult:
         """Fallback result in case of error"""
         return TurboAnalysisResult(
@@ -822,7 +959,8 @@ class TurboAnalysisEngine:
             macd_analysis={'macd': 0, 'signal': 0, 'histogram': 0, 'macd_signal': 'NEUTRAL', 'color': '#6b7280', 'description': 'MACD data unavailable', 'strength': 'LOW'},
             volume_analysis={'status': 'NORMAL', 'color': '#6b7280', 'description': 'Volume data unavailable'},
             trend_analysis={'trend': 'SIDEWAYS', 'color': '#6b7280', 'description': 'Trend data unavailable', 'strength': 'LOW'},
-            execution_time=0.1
+            execution_time=0.1,
+            trading_setup={}
         )
     
     # ==========================================
@@ -1330,6 +1468,7 @@ def analyze():
             'signal_quality': result.signal_quality,
             'recommendation': result.recommendation,
             'risk_level': result.risk_level,
+            'trading_setup': result.trading_setup,
             'rsi_analysis': result.rsi_analysis,
             'macd_analysis': result.macd_analysis,
             'volume_analysis': result.volume_analysis,
@@ -1841,6 +1980,67 @@ def get_turbo_dashboard_html():
                 const signalClass = `signal-${data.main_signal.toLowerCase()}`;
                 const signalEmoji = data.main_signal === 'LONG' ? '🚀' : data.main_signal === 'SHORT' ? '📉' : '⚡';
                 
+                // Trading Setup Section
+                let tradingSetupHtml = '';
+                if (data.trading_setup && data.trading_setup.signal !== 'NEUTRAL') {
+                    const setup = data.trading_setup;
+                    const setupColor = setup.signal === 'LONG' ? '#10b981' : '#ef4444';
+                    
+                    tradingSetupHtml = `
+                        <div class="trading-setup" style="background: linear-gradient(135deg, ${setupColor}15, ${setupColor}05); border: 1px solid ${setupColor}30; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <h3 style="color: ${setupColor}; margin-bottom: 1rem; font-size: 1.3rem;">
+                                🎯 Trading Setup - ${setup.signal}
+                            </h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Entry Price</div>
+                                    <div style="font-size: 1.2rem; color: ${setupColor};">$${setup.entry}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Take Profit</div>
+                                    <div style="font-size: 1.2rem; color: #10b981;">$${setup.take_profit}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Stop Loss</div>
+                                    <div style="font-size: 1.2rem; color: #ef4444;">$${setup.stop_loss}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Risk/Reward</div>
+                                    <div style="font-size: 1.2rem; color: #8b5cf6;">1:${setup.risk_reward}</div>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid ${setupColor}20;">
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Position Size</div>
+                                    <div style="color: #f59e0b;">${setup.position_size}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Time Target</div>
+                                    <div style="color: #06b6d4;">${setup.timeframe_target}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Confidence</div>
+                                    <div style="color: #10b981;">${setup.confidence_level}%</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid ${setupColor}20; font-style: italic; color: #cbd5e1;">
+                                ${setup.details}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    tradingSetupHtml = `
+                        <div class="trading-setup" style="background: linear-gradient(135deg, #6b728015, #6b728005); border: 1px solid #6b728030; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <h3 style="color: #6b7280; margin-bottom: 1rem; font-size: 1.3rem;">
+                                ⚡ Trading Setup - NEUTRAL
+                            </h3>
+                            <div style="color: #9ca3af; text-align: center; padding: 1rem;">
+                                No clear trading setup available. Wait for better market conditions.
+                            </div>
+                        </div>
+                    `;
+                }
+                
                 const html = `
                     <div class="signal-display">
                         <div class="price-display">
@@ -1859,6 +2059,8 @@ def get_turbo_dashboard_html():
                             ${data.recommendation}
                         </div>
                     </div>
+
+                    ${tradingSetupHtml}
 
                     <div class="analysis-grid">
                         <div class="analysis-item">
