@@ -400,7 +400,7 @@ class TurboAnalysisEngine:
             current_price = float(df['close'].iloc[-1])
             
             # Parallel processing for performance - CORE FEATURES IN PARALLEL!
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=6) as executor:  # Increased from 5 to 6
                 # Core indicators (priority)
                 indicators_future = executor.submit(self._calculate_core_indicators, df)
                 
@@ -416,12 +416,23 @@ class TurboAnalysisEngine:
                 # Liquidation Analysis (parallel)
                 liquidation_future = executor.submit(self._analyze_liquidation_turbo, symbol, current_price)
                 
+                # 🆕 PRECISION SUPPORT/RESISTANCE ANALYSIS (parallel)
+                sr_future = executor.submit(self._analyze_precision_sr, df, timeframe, current_price)
+                
                 # Wait for core results
                 indicators = indicators_future.result()
                 volume_analysis = volume_future.result()
                 trend_analysis = trend_future.result()
                 chart_patterns = patterns_future.result()
                 liquidation_data = liquidation_future.result()
+                
+                # 🆕 Get S/R results with error handling
+                try:
+                    sr_levels = sr_future.result()
+                    logger.info(f"✅ S/R analysis completed: {len(sr_levels.get('all_resistance', []))} resistance, {len(sr_levels.get('all_support', []))} support")
+                except Exception as e:
+                    logger.error(f"❌ S/R analysis failed: {e}")
+                    sr_levels = PrecisionSREngine()._get_fallback_levels(current_price)
                 
                 # No SMC patterns - removed for cleaner analysis
                 smc_patterns = []
@@ -438,12 +449,12 @@ class TurboAnalysisEngine:
                 indicators, rsi_analysis, macd_analysis, volume_analysis, trend_analysis
             )
             
-            # Generate detailed trading setup with timeframe-specific Entry, TP, SL
+            # Generate detailed trading setup with timeframe-specific + S/R-based Entry, TP, SL
             trading_setup = self._generate_trading_setup(
-                current_price, main_signal, confidence, rsi_analysis, trend_analysis, volume_analysis, timeframe
+                current_price, main_signal, confidence, rsi_analysis, trend_analysis, volume_analysis, timeframe, sr_levels
             )
             
-            logger.info(f"🎯 Trading Setup Generated for {timeframe}: {trading_setup}")
+            logger.info(f"🎯 Enhanced Trading Setup Generated for {timeframe}: {trading_setup}")
             
             execution_time = time.time() - start_time
             
@@ -725,6 +736,21 @@ class TurboAnalysisEngine:
                 'current_price': df['close'].iloc[-1]
             }
     
+    def _analyze_precision_sr(self, df: pd.DataFrame, timeframe: str, current_price: float) -> Dict[str, Any]:
+        """🆕 Analyze precision Support/Resistance levels"""
+        logger.info(f"🔍 Starting precision S/R analysis for {timeframe} at ${current_price}")
+        try:
+            sr_engine = PrecisionSREngine()
+            sr_levels = sr_engine.find_precision_levels(df, timeframe, current_price)
+            
+            logger.info(f"🎯 S/R Analysis: Found {len(sr_levels.get('all_resistance', []))} resistance, {len(sr_levels.get('all_support', []))} support levels")
+            
+            return sr_levels
+            
+        except Exception as e:
+            logger.error(f"❌ Precision S/R analysis error: {e}")
+            return PrecisionSREngine()._get_fallback_levels(current_price)
+    
     def _generate_turbo_signal(self, indicators, rsi_analysis, macd_analysis, volume_analysis, trend_analysis) -> Tuple[str, float, str, str, float]:
         """Generate main signal with improved logic"""
         score = 0
@@ -817,8 +843,8 @@ class TurboAnalysisEngine:
     
     def _generate_trading_setup(self, current_price: float, main_signal: str, confidence: float, 
                               rsi_analysis: Dict, trend_analysis: Dict, volume_analysis: Dict, 
-                              timeframe: str = '1h') -> Dict[str, Any]:
-        """Generate detailed trading setup with timeframe-specific Entry, TP, SL"""
+                              timeframe: str = '1h', sr_levels: Optional[Dict] = None) -> Dict[str, Any]:
+        """🆕 Enhanced trading setup with precision Support/Resistance-based TP/SL"""
         
         if main_signal == "NEUTRAL":
             return {
@@ -833,7 +859,176 @@ class TurboAnalysisEngine:
                 'details': 'Mixed signals - avoid trading'
             }
         
-        # 🆕 TIMEFRAME-SPECIFIC MULTIPLIERS
+        # 🆕 PRECISION S/R INTEGRATION
+        if sr_levels:
+            sr_engine = PrecisionSREngine()
+            precision_tpsl = sr_engine.calculate_precision_tpsl(
+                current_price, main_signal, confidence, sr_levels, timeframe
+            )
+            
+            # Use precision calculation if available
+            if precision_tpsl['precision_used']:
+                logger.info(f"🎯 Using precision S/R-based TP/SL: {precision_tpsl['tp_method']} | {precision_tpsl['sl_method']}")
+                
+                # Get timeframe config for position sizing
+                tf_config = self._get_timeframe_config(timeframe)
+                position_size = self._calculate_position_size(confidence, timeframe)
+                
+                return {
+                    'signal': main_signal,
+                    'action': f"Enter {main_signal} position",
+                    'entry': precision_tpsl['entry'],
+                    'take_profit': precision_tpsl['take_profit'],
+                    'stop_loss': precision_tpsl['stop_loss'],
+                    'risk_reward': precision_tpsl['risk_reward'],
+                    'position_size': position_size,
+                    'timeframe_target': tf_config['target_duration'],
+                    'details': f"🎯 Precision setup on {tf_config['timeframe_desc']} using S/R levels",
+                    'confidence_level': confidence,
+                    'timeframe': timeframe,
+                    'timeframe_description': tf_config['timeframe_desc'],
+                    # 🆕 Enhanced S/R details
+                    'sr_based': True,
+                    'tp_method': precision_tpsl['tp_method'],
+                    'sl_method': precision_tpsl['sl_method'],
+                    'sr_strength': precision_tpsl['sr_strength']
+                }
+        
+        # 🆕 FALLBACK TO STANDARD CALCULATION (existing logic preserved)
+        logger.info(f"📊 Using standard timeframe-based TP/SL for {timeframe}")
+        
+        
+        # 🆕 TIMEFRAME-SPECIFIC MULTIPLIERS (existing logic)
+        timeframe_config = {
+            '15m': {
+                'volatility_base': 0.008,    # Smaller moves on 15m
+                'tp_multiplier': 0.8,        # Conservative TP
+                'sl_multiplier': 0.6,        # Tighter SL  
+                'timeframe_desc': '15m scalping',
+                'target_duration': '30m-2h'
+            },
+            '1h': {
+                'volatility_base': 0.015,    # Base volatility
+                'tp_multiplier': 1.0,        # Standard TP
+                'sl_multiplier': 1.0,        # Standard SL
+                'timeframe_desc': '1h trading',
+                'target_duration': '2-8h'
+            },
+            '4h': {
+                'volatility_base': 0.025,    # Higher moves on 4h
+                'tp_multiplier': 1.8,        # Bigger TP targets
+                'sl_multiplier': 1.4,        # Wider SL
+                'timeframe_desc': '4h swing',
+                'target_duration': '1-3 days'
+            },
+            '1d': {
+                'volatility_base': 0.035,    # Largest moves on daily
+                'tp_multiplier': 2.5,        # Much bigger targets
+                'sl_multiplier': 1.8,        # Much wider SL
+                'timeframe_desc': 'Daily swing',
+                'target_duration': '3-10 days'
+            }
+        }
+        
+        # Get timeframe-specific configuration
+        tf_config = timeframe_config.get(timeframe, timeframe_config['1h'])
+        
+        # Calculate dynamic levels based on timeframe, volatility and confidence
+        base_volatility = tf_config['volatility_base']
+        volume_multiplier = 1.3 if volume_analysis.get('status') in ['HIGH', 'VERY_HIGH'] else 1.0
+        volatility_factor = base_volatility * volume_multiplier
+        confidence_multiplier = confidence / 100
+        
+        if main_signal == "LONG":
+            # Entry slightly below current price for better fill (timeframe adjusted)
+            entry_offset = 0.0005 if timeframe == '15m' else 0.001  # Smaller offset for scalping
+            entry_price = current_price * (1 - entry_offset)
+            
+            # Take Profit based on timeframe, confidence and trend strength
+            if confidence >= 80:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
+            elif confidence >= 70:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
+            else:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
+            
+            take_profit = entry_price * (1 + tp_distance)
+            
+            # Stop Loss - timeframe adjusted
+            if confidence >= 80:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7  # Tight SL for high confidence
+            elif confidence >= 70:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
+            else:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1  # Wider SL for lower confidence
+            
+            stop_loss = entry_price * (1 - sl_distance)
+            
+            # Risk/Reward
+            risk_amount = entry_price - stop_loss
+            reward_amount = take_profit - entry_price
+            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
+            
+            # Timeframe-specific position sizing
+            position_size = self._calculate_position_size(confidence, timeframe)
+            
+            details = f"Standard bullish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+            
+        else:  # SHORT
+            # Entry slightly above current price (timeframe adjusted)
+            entry_offset = 0.0005 if timeframe == '15m' else 0.001
+            entry_price = current_price * (1 + entry_offset)
+            
+            # Take Profit
+            if confidence >= 80:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.5 * confidence_multiplier
+            elif confidence >= 70:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 2.0 * confidence_multiplier
+            else:
+                tp_distance = volatility_factor * tf_config['tp_multiplier'] * 1.5 * confidence_multiplier
+            
+            take_profit = entry_price * (1 - tp_distance)
+            
+            # Stop Loss - timeframe adjusted
+            if confidence >= 80:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.7
+            elif confidence >= 70:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 0.9
+            else:
+                sl_distance = volatility_factor * tf_config['sl_multiplier'] * 1.1
+            
+            stop_loss = entry_price * (1 + sl_distance)
+            
+            # Risk/Reward
+            risk_amount = stop_loss - entry_price
+            reward_amount = entry_price - take_profit
+            risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
+            
+            # Timeframe-specific position sizing
+            position_size = self._calculate_position_size(confidence, timeframe)
+            
+            details = f"Standard bearish setup on {tf_config['timeframe_desc']}. RSI: {rsi_analysis.get('level', 'Unknown')}, Trend: {trend_analysis.get('trend', 'Unknown')}"
+        
+        # 🆕 ENHANCED RETURN WITH STANDARD CALCULATION
+        return {
+            'signal': main_signal,
+            'action': f"Enter {main_signal} position",
+            'entry': round(entry_price, 2),
+            'take_profit': round(take_profit, 2),
+            'stop_loss': round(stop_loss, 2),
+            'risk_reward': round(risk_reward, 2),
+            'position_size': position_size,
+            'timeframe_target': tf_config['target_duration'],
+            'details': details,
+            'confidence_level': confidence,
+            'timeframe': timeframe,
+            'timeframe_description': tf_config['timeframe_desc'],
+            # Standard calculation markers
+            'sr_based': False,
+            'tp_method': f"Standard TP ({timeframe} timeframe)",
+            'sl_method': f"Standard SL ({timeframe} timeframe)",
+            'sr_strength': 'N/A'
+        }
         timeframe_config = {
             '15m': {
                 'volatility_base': 0.008,    # Smaller moves on 15m
@@ -1465,6 +1660,310 @@ class TurboAnalysisEngine:
                 'description': 'Liquidation analysis unavailable',
                 'total_levels': 0
             }
+
+# ==========================================
+# 🎯 PRECISION SUPPORT/RESISTANCE ENGINE
+# ==========================================
+
+class PrecisionSREngine:
+    """Precision Support/Resistance Detection for Enhanced TP/SL"""
+    
+    def __init__(self):
+        # Timeframe-specific parameters for S/R detection
+        self.timeframe_config = {
+            '15m': {'lookback': 50, 'min_touches': 2, 'tolerance': 0.003},    # 0.3% tolerance for 15m
+            '1h': {'lookback': 100, 'min_touches': 3, 'tolerance': 0.005},    # 0.5% tolerance for 1h 
+            '4h': {'lookback': 200, 'min_touches': 3, 'tolerance': 0.008},    # 0.8% tolerance for 4h
+            '1d': {'lookback': 300, 'min_touches': 4, 'tolerance': 0.012}     # 1.2% tolerance for daily
+        }
+    
+    def find_precision_levels(self, df: pd.DataFrame, timeframe: str, current_price: float) -> Dict[str, Any]:
+        """Find precision support and resistance levels"""
+        
+        config = self.timeframe_config.get(timeframe, self.timeframe_config['1h'])
+        lookback = min(config['lookback'], len(df))
+        
+        if lookback < 20:
+            return self._get_fallback_levels(current_price)
+        
+        # Get recent data
+        recent_data = df.tail(lookback)
+        highs = recent_data['high'].values
+        lows = recent_data['low'].values
+        closes = recent_data['close'].values
+        
+        # Find pivot points
+        resistance_levels = self._find_resistance_levels(highs, closes, config, current_price)
+        support_levels = self._find_support_levels(lows, closes, config, current_price)
+        
+        # Get the most relevant levels
+        key_resistance = self._get_key_level(resistance_levels, current_price, 'above')
+        key_support = self._get_key_level(support_levels, current_price, 'below')
+        
+        return {
+            'key_resistance': key_resistance,
+            'key_support': key_support,
+            'all_resistance': resistance_levels[:5],  # Top 5 resistance levels
+            'all_support': support_levels[:5],        # Top 5 support levels
+            'timeframe': timeframe,
+            'current_price': current_price
+        }
+    
+    def _find_resistance_levels(self, highs: np.ndarray, closes: np.ndarray, config: dict, current_price: float) -> List[Dict]:
+        """Find resistance levels using pivot analysis"""
+        levels = []
+        tolerance = config['tolerance']
+        min_touches = config['min_touches']
+        
+        # Find local peaks
+        peaks = []
+        for i in range(2, len(highs) - 2):
+            if (highs[i] > highs[i-1] and highs[i] > highs[i+1] and 
+                highs[i] > highs[i-2] and highs[i] > highs[i+2]):
+                peaks.append((i, highs[i]))
+        
+        # Group peaks by price level
+        price_clusters = {}
+        for idx, price in peaks:
+            # Only consider peaks above current price
+            if price > current_price * 1.001:  # At least 0.1% above current
+                cluster_key = round(price / (current_price * tolerance)) * (current_price * tolerance)
+                if cluster_key not in price_clusters:
+                    price_clusters[cluster_key] = []
+                price_clusters[cluster_key].append((idx, price))
+        
+        # Evaluate clusters for resistance strength
+        for cluster_price, touches in price_clusters.items():
+            if len(touches) >= min_touches:
+                # Calculate strength based on touches and proximity
+                strength = min(100, len(touches) * 20 + 40)  # Base 40%, +20% per touch
+                
+                # Calculate average price of cluster
+                avg_price = sum(price for _, price in touches) / len(touches)
+                distance_pct = ((avg_price - current_price) / current_price) * 100
+                
+                # Recent touches get higher priority
+                recent_touches = sum(1 for idx, _ in touches if idx > len(highs) * 0.7)
+                
+                levels.append({
+                    'price': round(avg_price, 2),
+                    'strength': strength,
+                    'touches': len(touches),
+                    'distance_pct': round(distance_pct, 2),
+                    'recent_touches': recent_touches,
+                    'type': 'resistance',
+                    'timeframe': config
+                })
+        
+        # Sort by strength and proximity
+        levels.sort(key=lambda x: (x['strength'], -x['distance_pct']), reverse=True)
+        return levels
+    
+    def _find_support_levels(self, lows: np.ndarray, closes: np.ndarray, config: dict, current_price: float) -> List[Dict]:
+        """Find support levels using pivot analysis"""
+        levels = []
+        tolerance = config['tolerance']
+        min_touches = config['min_touches']
+        
+        # Find local valleys
+        valleys = []
+        for i in range(2, len(lows) - 2):
+            if (lows[i] < lows[i-1] and lows[i] < lows[i+1] and 
+                lows[i] < lows[i-2] and lows[i] < lows[i+2]):
+                valleys.append((i, lows[i]))
+        
+        # Group valleys by price level
+        price_clusters = {}
+        for idx, price in valleys:
+            # Only consider valleys below current price
+            if price < current_price * 0.999:  # At least 0.1% below current
+                cluster_key = round(price / (current_price * tolerance)) * (current_price * tolerance)
+                if cluster_key not in price_clusters:
+                    price_clusters[cluster_key] = []
+                price_clusters[cluster_key].append((idx, price))
+        
+        # Evaluate clusters for support strength
+        for cluster_price, touches in price_clusters.items():
+            if len(touches) >= min_touches:
+                # Calculate strength based on touches and proximity
+                strength = min(100, len(touches) * 20 + 40)  # Base 40%, +20% per touch
+                
+                # Calculate average price of cluster
+                avg_price = sum(price for _, price in touches) / len(touches)
+                distance_pct = ((current_price - avg_price) / current_price) * 100
+                
+                # Recent touches get higher priority
+                recent_touches = sum(1 for idx, _ in touches if idx > len(lows) * 0.7)
+                
+                levels.append({
+                    'price': round(avg_price, 2),
+                    'strength': strength,
+                    'touches': len(touches),
+                    'distance_pct': round(distance_pct, 2),
+                    'recent_touches': recent_touches,
+                    'type': 'support',
+                    'timeframe': config
+                })
+        
+        # Sort by strength and proximity
+        levels.sort(key=lambda x: (x['strength'], -x['distance_pct']), reverse=True)
+        return levels
+    
+    def _get_key_level(self, levels: List[Dict], current_price: float, direction: str) -> Optional[Dict]:
+        """Get the most relevant support or resistance level"""
+        if not levels:
+            return None
+        
+        # Filter levels by reasonable distance (not too far)
+        reasonable_levels = []
+        for level in levels:
+            if direction == 'above':
+                # Resistance: within 10% above current price
+                if level['distance_pct'] <= 10:
+                    reasonable_levels.append(level)
+            else:
+                # Support: within 10% below current price  
+                if level['distance_pct'] <= 10:
+                    reasonable_levels.append(level)
+        
+        # Return strongest reasonable level or closest strong level
+        if reasonable_levels:
+            return reasonable_levels[0]
+        elif levels:
+            return levels[0]
+        else:
+            return None
+    
+    def _get_fallback_levels(self, current_price: float) -> Dict[str, Any]:
+        """Fallback when insufficient data"""
+        return {
+            'key_resistance': {
+                'price': round(current_price * 1.03, 2),
+                'strength': 50,
+                'touches': 1,
+                'distance_pct': 3.0,
+                'type': 'resistance'
+            },
+            'key_support': {
+                'price': round(current_price * 0.97, 2),
+                'strength': 50,
+                'touches': 1,
+                'distance_pct': 3.0,
+                'type': 'support'
+            },
+            'all_resistance': [],
+            'all_support': [],
+            'timeframe': 'unknown',
+            'current_price': current_price
+        }
+    
+    def calculate_precision_tpsl(self, current_price: float, signal: str, confidence: float, 
+                                sr_levels: Dict, timeframe: str) -> Dict[str, Any]:
+        """Calculate precision TP/SL based on Support/Resistance levels"""
+        
+        key_resistance = sr_levels.get('key_resistance')
+        key_support = sr_levels.get('key_support')
+        
+        # Base calculation factors
+        confidence_factor = confidence / 100
+        
+        if signal == "LONG":
+            # Entry slightly below current for better fill
+            entry_price = current_price * 0.999
+            
+            # TP: Use key resistance if available, otherwise standard calculation
+            if key_resistance and key_resistance['strength'] >= 60:
+                # Strong resistance - target just before it
+                take_profit = key_resistance['price'] * 0.995  # 0.5% before resistance
+                tp_method = f"Resistance-based TP at ${key_resistance['price']:.2f} ({key_resistance['strength']}% strength)"
+            else:
+                # Standard TP calculation with timeframe adjustment
+                tp_distance = self._get_standard_tp_distance(timeframe, confidence_factor)
+                take_profit = entry_price * (1 + tp_distance)
+                tp_method = f"Standard TP ({timeframe} timeframe)"
+            
+            # SL: Use key support if available, otherwise standard calculation
+            if key_support and key_support['strength'] >= 60:
+                # Strong support - SL below it
+                stop_loss = key_support['price'] * 0.995  # 0.5% below support
+                sl_method = f"Support-based SL below ${key_support['price']:.2f} ({key_support['strength']}% strength)"
+            else:
+                # Standard SL calculation
+                sl_distance = self._get_standard_sl_distance(timeframe, confidence_factor)
+                stop_loss = entry_price * (1 - sl_distance)
+                sl_method = f"Standard SL ({timeframe} timeframe)"
+        
+        else:  # SHORT
+            # Entry slightly above current for better fill
+            entry_price = current_price * 1.001
+            
+            # TP: Use key support if available
+            if key_support and key_support['strength'] >= 60:
+                # Strong support - target just above it
+                take_profit = key_support['price'] * 1.005  # 0.5% above support
+                tp_method = f"Support-based TP at ${key_support['price']:.2f} ({key_support['strength']}% strength)"
+            else:
+                # Standard TP calculation
+                tp_distance = self._get_standard_tp_distance(timeframe, confidence_factor)
+                take_profit = entry_price * (1 - tp_distance)
+                tp_method = f"Standard TP ({timeframe} timeframe)"
+            
+            # SL: Use key resistance if available
+            if key_resistance and key_resistance['strength'] >= 60:
+                # Strong resistance - SL above it
+                stop_loss = key_resistance['price'] * 1.005  # 0.5% above resistance
+                sl_method = f"Resistance-based SL above ${key_resistance['price']:.2f} ({key_resistance['strength']}% strength)"
+            else:
+                # Standard SL calculation
+                sl_distance = self._get_standard_sl_distance(timeframe, confidence_factor)
+                stop_loss = entry_price * (1 + sl_distance)
+                sl_method = f"Standard SL ({timeframe} timeframe)"
+        
+        # Calculate risk/reward
+        if signal == "LONG":
+            risk_amount = entry_price - stop_loss
+            reward_amount = take_profit - entry_price
+        else:
+            risk_amount = stop_loss - entry_price
+            reward_amount = entry_price - take_profit
+        
+        risk_reward = reward_amount / risk_amount if risk_amount > 0 else 0
+        
+        return {
+            'entry': round(entry_price, 2),
+            'take_profit': round(take_profit, 2),
+            'stop_loss': round(stop_loss, 2),
+            'risk_reward': round(risk_reward, 2),
+            'tp_method': tp_method,
+            'sl_method': sl_method,
+            'precision_used': bool(key_resistance or key_support),
+            'sr_strength': {
+                'resistance': key_resistance['strength'] if key_resistance else 0,
+                'support': key_support['strength'] if key_support else 0
+            }
+        }
+    
+    def _get_standard_tp_distance(self, timeframe: str, confidence_factor: float) -> float:
+        """Standard TP distance calculation"""
+        base_distances = {
+            '15m': 0.008,
+            '1h': 0.015,
+            '4h': 0.025,
+            '1d': 0.035
+        }
+        base = base_distances.get(timeframe, 0.015)
+        return base * (1.5 + confidence_factor)  # 1.5x to 2.5x base
+    
+    def _get_standard_sl_distance(self, timeframe: str, confidence_factor: float) -> float:
+        """Standard SL distance calculation"""
+        base_distances = {
+            '15m': 0.005,
+            '1h': 0.008,
+            '4h': 0.012,
+            '1d': 0.018
+        }
+        base = base_distances.get(timeframe, 0.008)
+        return base * (1.2 - confidence_factor * 0.3)  # Tighter SL for higher confidence
 
 # ==========================================
 # 📈 ADVANCED CHART PATTERNS ENGINE
