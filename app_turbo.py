@@ -2390,12 +2390,86 @@ def get_realtime_data(symbol):
 
 @app.route('/')
 def dashboard():
-    """Turbo dashboard with clean design"""
+    """Enhanced dashboard with S/R analysis"""
     return render_template_string(get_turbo_dashboard_html())
+
+@app.route('/api/analyze_turbo')
+def analyze_turbo():
+    """Enhanced turbo analysis endpoint with detailed S/R"""
+    try:
+        symbol = request.args.get('symbol', 'BTCUSDT').upper()
+        timeframe = request.args.get('timeframe', '1h')
+        
+        # Initialize analysis engine
+        engine = TurboAnalysisEngine()
+        
+        # Run enhanced analysis
+        result = engine.analyze_symbol_turbo(symbol, timeframe)
+        
+        # Return comprehensive response
+        return jsonify({
+            'symbol': result.symbol,
+            'current_price': result.current_price,
+            'timestamp': result.timestamp.isoformat(),
+            'timeframe': result.timeframe,
+            'main_signal': result.main_signal,
+            'confidence': result.confidence,
+            'signal_quality': result.signal_quality,
+            'recommendation': result.recommendation,
+            'risk_level': result.risk_level,
+            'trading_setup': result.trading_setup,
+            'rsi_analysis': result.rsi_analysis,
+            'macd_analysis': result.macd_analysis,
+            'volume_analysis': result.volume_analysis,
+            'trend_analysis': result.trend_analysis,
+            'chart_patterns': result.chart_patterns,
+            'ml_predictions': result.ml_predictions,
+            'liquidation_data': result.liquidation_data,
+            'sr_analysis': result.sr_analysis,  # 🆕 Enhanced S/R Analysis
+            'execution_time': result.execution_time,
+            'performance_metrics': {
+                'speed_improvement': f"{2.0/result.execution_time:.1f}x faster",
+                'cache_enabled': True,
+                'parallel_processing': True
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Enhanced turbo analysis error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sr_analysis/<symbol>')
+def get_sr_analysis(symbol):
+    """Dedicated S/R analysis endpoint"""
+    try:
+        timeframe = request.args.get('timeframe', '1h')
+        symbol = symbol.upper()
+        
+        # Get cached data
+        engine = TurboAnalysisEngine()
+        df = engine.performance_engine._get_cached_ohlcv(symbol, timeframe, 150)
+        current_price = float(df['close'].iloc[-1])
+        
+        # Analyze S/R levels
+        sr_levels = engine._analyze_precision_sr(df, timeframe, current_price)
+        sr_analysis = engine._format_sr_analysis(sr_levels, current_price, timeframe)
+        
+        return jsonify({
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'current_price': current_price,
+            'sr_levels': sr_levels,
+            'sr_analysis': sr_analysis,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"S/R analysis error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Turbo analysis endpoint"""
+    """Legacy turbo analysis endpoint"""
     try:
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT').upper()
@@ -2491,14 +2565,14 @@ def get_liquidation(symbol):
         return jsonify({'error': str(e)}), 500
 
 def get_turbo_dashboard_html():
-    """Clean, performance-optimized dashboard"""
+    """Enhanced dashboard with advanced S/R analysis integration"""
     return '''
     <!DOCTYPE html>
     <html lang="de">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>🚀 ULTIMATE TRADING V3 - TURBO</title>
+        <title>🚀 ULTIMATE TRADING V3 - Enhanced S/R Dashboard</title>
         <style>
             * {
                 margin: 0;
@@ -2883,23 +2957,18 @@ def get_turbo_dashboard_html():
                 document.getElementById('mainContent').innerHTML = `
                     <div class="loading">
                         <div class="spinner"></div>
-                        <div style="margin-left: 1rem;">Turbo analysis for ${symbol} on ${timeframe}...</div>
+                        <div style="margin-left: 1rem;">Enhanced turbo analysis for ${symbol} on ${timeframe}...</div>
+                        <div style="margin-left: 1rem; margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.8;">
+                            ⚡ Running parallel processing with S/R analysis...
+                        </div>
                     </div>
                 `;
                 
                 try {
                     const startTime = performance.now();
                     
-                    const response = await fetch('/api/analyze', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            symbol: symbol,
-                            timeframe: timeframe
-                        })
-                    });
+                    // Use new enhanced API endpoint
+                    const response = await fetch(`/api/analyze_turbo?symbol=${symbol}&timeframe=${timeframe}`);
                     
                     const data = await response.json();
                     const endTime = performance.now();
@@ -2910,7 +2979,7 @@ def get_turbo_dashboard_html():
                     }
                     
                     currentData = data;
-                    displayTurboResults(data, clientTime);
+                    displayEnhancedResults(data, clientTime);
                     updatePerformanceMetrics(data.execution_time, clientTime);
                     
                 } catch (error) {
@@ -2927,7 +2996,276 @@ def get_turbo_dashboard_html():
                 }
             }
 
-            function displayTurboResults(data, clientTime) {
+            function displayEnhancedResults(data, clientTime) {
+                const signalClass = `signal-${data.main_signal.toLowerCase()}`;
+                const signalEmoji = data.main_signal === 'LONG' ? '🚀' : data.main_signal === 'SHORT' ? '📉' : '⚡';
+                
+                // 🆕 Enhanced S/R Section
+                let srAnalysisHtml = '';
+                if (data.sr_analysis && data.sr_analysis.available) {
+                    const sr = data.sr_analysis;
+                    
+                    srAnalysisHtml = `
+                        <div class="sr-analysis" style="background: linear-gradient(135deg, #3b82f615, #8b5cf605); border: 1px solid #3b82f630; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <h3 style="color: #3b82f6; margin-bottom: 1rem; font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem;">
+                                🎯 S/R Analysis - ${sr.timeframe} 
+                                <span style="background: rgba(59, 130, 246, 0.2); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem;">
+                                    ENHANCED
+                                </span>
+                            </h3>
+                            
+                            <!-- Summary -->
+                            <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                                <strong>📋 Summary:</strong> ${sr.summary}
+                            </div>
+                            
+                            <!-- Key Levels Grid -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <!-- Key Support -->
+                                ${sr.key_levels.support ? `
+                                    <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; padding: 1rem;">
+                                        <h4 style="color: #10b981; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                            💎 Key Support
+                                        </h4>
+                                        <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
+                                            $${sr.key_levels.support.price.toFixed(2)}
+                                        </div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.5rem;">
+                                            ${sr.key_levels.support.touches}x berührt - ${sr.key_levels.support.strength}% Stärke
+                                        </div>
+                                        <div style="font-size: 0.8rem; opacity: 0.8;">
+                                            📊 ${sr.key_levels.support.calculation}
+                                        </div>
+                                        <div style="font-size: 0.8rem; opacity: 0.8;">
+                                            📍 ${sr.key_levels.support.distance_pct.toFixed(1)}% unter current price
+                                        </div>
+                                    </div>
+                                ` : `
+                                    <div style="background: rgba(107, 114, 128, 0.1); border: 1px solid #6b7280; border-radius: 8px; padding: 1rem; text-align: center; opacity: 0.6;">
+                                        <h4 style="color: #6b7280; margin-bottom: 0.5rem;">💎 Key Support</h4>
+                                        <div>Kein starker Support gefunden</div>
+                                    </div>
+                                `}
+                                
+                                <!-- Key Resistance -->
+                                ${sr.key_levels.resistance ? `
+                                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 1rem;">
+                                        <h4 style="color: #ef4444; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                            💎 Key Resistance
+                                        </h4>
+                                        <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
+                                            $${sr.key_levels.resistance.price.toFixed(2)}
+                                        </div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.5rem;">
+                                            ${sr.key_levels.resistance.touches}x berührt - ${sr.key_levels.resistance.strength}% Stärke
+                                        </div>
+                                        <div style="font-size: 0.8rem; opacity: 0.8;">
+                                            📊 ${sr.key_levels.resistance.calculation}
+                                        </div>
+                                        <div style="font-size: 0.8rem; opacity: 0.8;">
+                                            📍 ${sr.key_levels.resistance.distance_pct.toFixed(1)}% über current price
+                                        </div>
+                                    </div>
+                                ` : `
+                                    <div style="background: rgba(107, 114, 128, 0.1); border: 1px solid #6b7280; border-radius: 8px; padding: 1rem; text-align: center; opacity: 0.6;">
+                                        <h4 style="color: #6b7280; margin-bottom: 0.5rem;">💎 Key Resistance</h4>
+                                        <div>Kein starker Resistance gefunden</div>
+                                    </div>
+                                `}
+                            </div>
+                            
+                            <!-- All Levels -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <!-- Support Levels -->
+                                <div>
+                                    <h4 style="color: #10b981; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                        🟢 Support Levels
+                                    </h4>
+                                    ${sr.all_levels.support.map(support => `
+                                        <div style="background: rgba(16, 185, 129, 0.05); border-left: 3px solid #10b981; padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 4px;">
+                                            <div style="font-weight: 600;">$${support.price.toFixed(2)}</div>
+                                            <div style="font-size: 0.8rem; opacity: 0.8;">${support.description}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <!-- Resistance Levels -->
+                                <div>
+                                    <h4 style="color: #ef4444; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                        🔴 Resistance Levels
+                                    </h4>
+                                    ${sr.all_levels.resistance.map(resistance => `
+                                        <div style="background: rgba(239, 68, 68, 0.05); border-left: 3px solid #ef4444; padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 4px;">
+                                            <div style="font-weight: 600;">$${resistance.price.toFixed(2)}</div>
+                                            <div style="font-size: 0.8rem; opacity: 0.8;">${resistance.description}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    srAnalysisHtml = `
+                        <div class="sr-analysis" style="background: rgba(107, 114, 128, 0.1); border: 1px solid #6b7280; border-radius: 12px; padding: 1.5rem; margin: 1rem 0; text-align: center;">
+                            <h3 style="color: #6b7280; margin-bottom: 1rem;">🎯 S/R Analysis</h3>
+                            <div style="opacity: 0.8;">S/R analysis not available for this timeframe</div>
+                        </div>
+                    `;
+                }
+                
+                // Trading Setup Section (Enhanced)
+                let tradingSetupHtml = '';
+                if (data.trading_setup && data.trading_setup.signal !== 'NEUTRAL') {
+                    const setup = data.trading_setup;
+                    const setupColor = setup.signal === 'LONG' ? '#10b981' : '#ef4444';
+                    const srBadge = setup.sr_based ? 
+                        '<span style="background: rgba(59, 130, 246, 0.2); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem; color: #3b82f6;">S/R BASED</span>' : 
+                        '<span style="background: rgba(156, 163, 175, 0.2); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem; color: #9ca3af;">STANDARD</span>';
+                    
+                    tradingSetupHtml = `
+                        <div class="trading-setup" style="background: linear-gradient(135deg, ${setupColor}15, ${setupColor}05); border: 1px solid ${setupColor}30; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <h3 style="color: ${setupColor}; margin-bottom: 1rem; font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem;">
+                                🎯 Trading Setup - ${setup.signal} ${srBadge}
+                            </h3>
+                            
+                            <!-- Setup Methods -->
+                            ${setup.sr_based ? `
+                                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem;">
+                                    <strong>🎯 TP Method:</strong> ${setup.tp_method}<br>
+                                    <strong>🛡️ SL Method:</strong> ${setup.sl_method}<br>
+                                    <strong>💪 S/R Strength:</strong> ${setup.sr_strength}
+                                </div>
+                            ` : ''}
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Entry Price</div>
+                                    <div style="font-size: 1.2rem; color: ${setupColor};">$${setup.entry}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Take Profit</div>
+                                    <div style="font-size: 1.2rem; color: #10b981;">$${setup.take_profit}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Stop Loss</div>
+                                    <div style="font-size: 1.2rem; color: #ef4444;">$${setup.stop_loss}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Risk/Reward</div>
+                                    <div style="font-size: 1.2rem; color: #8b5cf6;">1:${setup.risk_reward}</div>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid ${setupColor}20;">
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Position Size</div>
+                                    <div style="color: #f59e0b;">${setup.position_size}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Time Target</div>
+                                    <div style="color: #06b6d4;">${setup.timeframe_target}</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.5rem;">Confidence</div>
+                                    <div style="color: #10b981;">${setup.confidence_level}%</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid ${setupColor}20; font-style: italic; color: #cbd5e1;">
+                                ${setup.details}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    tradingSetupHtml = `
+                        <div class="trading-setup" style="background: linear-gradient(135deg, #6b728015, #6b728005); border: 1px solid #6b728030; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <h3 style="color: #6b7280; margin-bottom: 1rem; font-size: 1.3rem;">
+                                ⚡ Trading Setup - NEUTRAL
+                            </h3>
+                            <div style="color: #9ca3af; text-align: center; padding: 1rem;">
+                                No clear trading setup available. Wait for better market conditions.
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                const html = `
+                    <div class="signal-display">
+                        <div class="price-display">
+                            ${data.symbol}: $${Number(data.current_price).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </div>
+                        <div class="signal-badge ${signalClass}">
+                            ${signalEmoji} ${data.main_signal}
+                        </div>
+                        <div style="font-size: 1.1rem; margin-bottom: 1rem;">
+                            Confidence: ${data.confidence.toFixed(1)}% | Quality: ${data.signal_quality}
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${data.confidence}%"></div>
+                        </div>
+                        <div style="font-size: 0.9rem; opacity: 0.9;">
+                            ${data.recommendation}
+                        </div>
+                    </div>
+
+                    ${srAnalysisHtml}
+                    ${tradingSetupHtml}
+
+                    <div class="analysis-grid">
+                        <div class="analysis-item">
+                            <div class="analysis-title">
+                                <span class="status-indicator" style="background-color: ${data.rsi_analysis.color}"></span>
+                                📊 RSI Analysis
+                            </div>
+                            <div style="font-size: 1.2rem; font-weight: 600; color: ${data.rsi_analysis.color}; margin-bottom: 0.5rem;">
+                                ${data.rsi_analysis.value.toFixed(1)} - ${data.rsi_analysis.level.replace('_', ' ')}
+                            </div>
+                            <div style="font-size: 0.9rem; opacity: 0.9;">
+                                ${data.rsi_analysis.description}
+                            </div>
+                        </div>
+
+                        <div class="analysis-item">
+                            <div class="analysis-title">
+                                <span class="status-indicator" style="background-color: ${data.macd_analysis.color}"></span>
+                                📈 MACD Analysis
+                            </div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: ${data.macd_analysis.color}; margin-bottom: 0.5rem;">
+                                ${data.macd_analysis.macd_signal.replace('_', ' ')}
+                            </div>
+                            <div style="font-size: 0.9rem; opacity: 0.9;">
+                                ${data.macd_analysis.description}
+                            </div>
+                        </div>
+
+                        <div class="analysis-item">
+                            <div class="analysis-title">
+                                <span class="status-indicator" style="background-color: ${data.volume_analysis.color}"></span>
+                                📊 Volume Analysis
+                            </div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: ${data.volume_analysis.color}; margin-bottom: 0.5rem;">
+                                ${data.volume_analysis.status.replace('_', ' ')}
+                            </div>
+                            <div style="font-size: 0.9rem; opacity: 0.9;">
+                                ${data.volume_analysis.description}
+                            </div>
+                        </div>
+
+                        <div class="analysis-item">
+                            <div class="analysis-title">
+                                <span class="status-indicator" style="background-color: ${data.trend_analysis.color}"></span>
+                                📈 Trend Analysis
+                            </div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: ${data.trend_analysis.color}; margin-bottom: 0.5rem;">
+                                ${data.trend_analysis.trend.replace('_', ' ')}
+                            </div>
+                            <div style="font-size: 0.9rem; opacity: 0.9;">
+                                ${data.trend_analysis.description}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('mainContent').innerHTML = html;
+            }
                 const signalClass = `signal-${data.main_signal.toLowerCase()}`;
                 const signalEmoji = data.main_signal === 'LONG' ? '🚀' : data.main_signal === 'SHORT' ? '📉' : '⚡';
                 
