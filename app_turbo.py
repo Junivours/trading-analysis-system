@@ -310,7 +310,7 @@ class TurboPerformanceEngine:
             
             params = {
                 'symbol': symbol,
-                'interval': interval_map.get(timeframe, '4h'),
+                'interval': interval_map.get(timeframe, '1h'),
                 'limit': limit
             }
             
@@ -403,7 +403,7 @@ class TurboAnalysisEngine:
     def __init__(self):
         self.performance_engine = TurboPerformanceEngine()
         
-    def analyze_symbol_turbo(self, symbol: str, timeframe: str = '4h') -> TurboAnalysisResult:
+    def analyze_symbol_turbo(self, symbol: str, timeframe: str = '1h') -> TurboAnalysisResult:
         """TURBO analysis - 5x faster than original with ALL FEATURES"""
         start_time = time.time()
         
