@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+venv/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Railway
+railway.json
+
+# VSCode
+.vscode/
