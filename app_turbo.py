@@ -31,8 +31,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Load environment variables
 load_dotenv()
 
-# 🚀 Performance Cache
-CACHE_DURATION = 30  # seconds
+# 🚀 Performance Cache - LIVE DATA OPTIMIZED
+CACHE_DURATION = 5  # Reduced to 5 seconds for live data!
 price_cache = {}
 cache_lock = threading.Lock()
 
@@ -285,8 +285,8 @@ binance_fetcher = BinanceDataFetcher()
 class TurboPerformanceEngine:
     def __init__(self):
         self.cache = {}
-        self.cache_timeout = 25  # Reduced from 30 to 25 seconds
-        self.realtime_cache_timeout = 3  # Reduced from 5 to 3 seconds
+        self.cache_timeout = 5   # LIVE DATA: Reduced from 25 to 5 seconds
+        self.realtime_cache_timeout = 1  # ULTRA LIVE: Reduced from 3 to 1 second
         self.executor = ThreadPoolExecutor(max_workers=6)  # Increased workers
         
     @lru_cache(maxsize=150)  # Increased cache size
@@ -299,7 +299,7 @@ class TurboPerformanceEngine:
         with cache_lock:
             if cache_key in price_cache:
                 cached_data, cache_time = price_cache[cache_key]
-                if current_time - cache_time < self.cache_timeout:
+                if current_time - cache_time < CACHE_DURATION:  # Use global CACHE_DURATION (5s)
                     logger.info(f"⚡ Using global cache for {symbol} (age: {current_time - cache_time:.1f}s)")
                     return cached_data
         
@@ -2487,6 +2487,38 @@ def get_sr_analysis(symbol):
         
     except Exception as e:
         logger.error(f"S/R analysis error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/indicators/<symbol>')
+def get_indicators(symbol):
+    """🆕 TEST: Live indicators endpoint für RSI verification"""
+    try:
+        timeframe = request.args.get('timeframe', '1h')
+        symbol = symbol.upper()
+        
+        # Get live data
+        engine = TurboAnalysisEngine()
+        df = engine.performance_engine._get_cached_ohlcv(symbol, timeframe, 150)
+        current_price = float(df['close'].iloc[-1])
+        
+        # Calculate indicators
+        indicators = engine._calculate_core_indicators(df)
+        rsi_analysis = engine._create_rsi_analysis(indicators, current_price)
+        macd_analysis = engine._create_macd_analysis(indicators, current_price)
+        
+        return jsonify({
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'current_price': current_price,
+            'indicators': indicators,
+            'rsi_analysis': rsi_analysis,
+            'macd_analysis': macd_analysis,
+            'timestamp': datetime.now().isoformat(),
+            'data_age_seconds': 'Live data with 5s cache'
+        })
+        
+    except Exception as e:
+        logger.error(f"Indicators error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/analyze', methods=['POST'])
