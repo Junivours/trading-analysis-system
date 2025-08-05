@@ -30,7 +30,7 @@ class AdvancedPatternEngine:
     """🔬 Advanced Pattern Recognition like your colleague's dashboard"""
     
     def __init__(self):
-        self.min_pattern_confidence = 45.0
+        self.min_pattern_confidence = 40.0  # Gelockert von 45.0
         self.patterns_detected = []
     
     def detect_all_patterns(self, df: pd.DataFrame, current_price: float, symbol: str) -> List[TradingPattern]:

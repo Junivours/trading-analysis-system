@@ -13,33 +13,31 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
+            background: #0a0a0a;
+            color: #e5e5e5;
             min-height: 100vh;
             overflow-x: hidden;
         }
 
         .header {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 20px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            padding: 25px;
             text-align: center;
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid #333;
         }
 
         .header h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-            background: linear-gradient(45deg, #ffd89b, #19547b);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-size: 2.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #ffffff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
 
         .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
+            font-size: 1rem;
+            color: #aaa;
+            font-weight: 300;
         }
 
         .container {
@@ -79,23 +77,22 @@
 
         .form-control {
             padding: 12px 15px;
-            border: 2px solid rgba(255, 255, 255, 0.2);
+            border: 2px solid #333;
             border-radius: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+            color: #e5e5e5;
             font-size: 1rem;
-            backdrop-filter: blur(5px);
             transition: all 0.3s ease;
         }
 
         .form-control:focus {
             outline: none;
-            border-color: #4CAF50;
-            box-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
+            border-color: #555;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
         }
 
         .form-control::placeholder {
-            color: rgba(255, 255, 255, 0.6);
+            color: #888;
         }
 
         .btn {
@@ -106,18 +103,19 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
         }
 
         .btn-primary {
-            background: linear-gradient(45deg, #4CAF50, #45a049);
-            color: white;
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+            background: linear-gradient(135deg, #2a2a2a 0%, #404040 100%);
+            color: #e5e5e5;
+            border: 1px solid #555;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            background: linear-gradient(135deg, #333 0%, #505050 100%);
         }
 
         .btn-primary:disabled {
@@ -134,17 +132,18 @@
         }
 
         .dashboard-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
+            background: linear-gradient(145deg, #1a1a1a 0%, #2a2a2a 100%);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
         }
 
         .dashboard-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+            border-color: #444;
         }
 
         .card-header {
@@ -173,21 +172,21 @@
         }
 
         .badge-long {
-            background: rgba(76, 175, 80, 0.2);
-            color: #4CAF50;
-            border: 1px solid #4CAF50;
+            background: rgba(46, 125, 50, 0.3);
+            color: #66bb6a;
+            border: 1px solid #4caf50;
         }
 
         .badge-short {
-            background: rgba(244, 67, 54, 0.2);
-            color: #F44336;
-            border: 1px solid #F44336;
+            background: rgba(211, 47, 47, 0.3);
+            color: #ef5350;
+            border: 1px solid #f44336;
         }
 
         .badge-neutral {
-            background: rgba(158, 158, 158, 0.2);
-            color: #9E9E9E;
-            border: 1px solid #9E9E9E;
+            background: rgba(117, 117, 117, 0.3);
+            color: #bdbdbd;
+            border: 1px solid #757575;
         }
 
         .metric-grid {
@@ -200,15 +199,17 @@
         .metric {
             text-align: center;
             padding: 15px;
-            background: rgba(255, 255, 255, 0.05);
+            background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
             border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid #333;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
         }
 
         .metric-value {
             font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 5px;
+            color: #e5e5e5;
         }
 
         .metric-label {
@@ -216,6 +217,7 @@
             opacity: 0.8;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            color: #aaa;
         }
 
         .sr-analysis {
@@ -483,7 +485,7 @@
                 <div class="form-group">
                     <label>&nbsp;</label>
                     <button id="analyzeBtn" class="btn btn-primary" onclick="runEnhancedAnalysis()">
-                        🚀 Analyze
+                        🚀✨ Analyze Market
                     </button>
                 </div>
             </div>
@@ -491,12 +493,12 @@
 
         <div id="loadingSection" class="loading" style="display: none;">
             <div class="spinner"></div>
-            <h3>Analyzing Market Data...</h3>
-            <p>Processing advanced S/R levels, patterns, and ML predictions</p>
+            <h3>🔍📊 Analyzing Market Data...</h3>
+            <p>⚡ Processing advanced S/R levels, patterns, and ML predictions</p>
         </div>
 
         <div id="errorSection" class="error" style="display: none;">
-            <h3>❌ Analysis Error</h3>
+            <h3>⚠️💥 Analysis Error</h3>
             <p id="errorMessage">An error occurred during analysis</p>
         </div>
 
@@ -506,7 +508,7 @@
                 <div class="dashboard-card">
                     <div class="card-header">
                         <div class="card-title">
-                            🎯 Main Signal
+                            🎯💡 Main Signal
                         </div>
                         <div id="mainSignalBadge" class="badge"></div>
                     </div>
@@ -618,6 +620,20 @@
         let isAnalyzing = false;
         let currentData = null;
 
+        // Utility function for consistent number formatting (max 3 decimal places)
+        function formatNumber(number, maxDecimals = 3) {
+            if (typeof number !== 'number') return number;
+            
+            // Handle very small numbers that might need more precision for readability
+            if (Math.abs(number) < 0.001 && number !== 0) {
+                return number.toFixed(6); // Show more decimals for very small numbers
+            }
+            
+            // For regular numbers, use max 3 decimals but remove trailing zeros
+            const formatted = number.toFixed(maxDecimals);
+            return parseFloat(formatted).toString();
+        }
+
         async function runEnhancedAnalysis() {
             if (isAnalyzing) return;
             
@@ -627,7 +643,7 @@
             
             // Update UI
             document.getElementById('analyzeBtn').disabled = true;
-            document.getElementById('analyzeBtn').textContent = '🔄 Analyzing...';
+            document.getElementById('analyzeBtn').textContent = '🔄⚡ Analyzing...';
             document.getElementById('loadingSection').style.display = 'block';
             document.getElementById('errorSection').style.display = 'none';
             document.getElementById('resultsSection').style.display = 'none';
@@ -654,16 +670,16 @@
             } finally {
                 isAnalyzing = false;
                 document.getElementById('analyzeBtn').disabled = false;
-                document.getElementById('analyzeBtn').textContent = '🚀 Analyze';
+                document.getElementById('analyzeBtn').textContent = '🚀✨ Analyze Market';
             }
         }
 
         function updateDashboard(data) {
             // Main Signal
             document.getElementById('currentPrice').textContent = `$${data.current_price.toLocaleString()}`;
-            document.getElementById('confidence').textContent = `${data.confidence.toFixed(1)}%`;
+            document.getElementById('confidence').textContent = `${formatNumber(data.confidence, 1)}%`;
             document.getElementById('signalQuality').textContent = data.signal_quality;
-            document.getElementById('riskLevel').textContent = `${data.risk_level.toFixed(1)}%`;
+            document.getElementById('riskLevel').textContent = `${formatNumber(data.risk_level, 1)}%`;
             document.getElementById('recommendation').innerHTML = data.recommendation;
 
             // Main Signal Badge
@@ -671,9 +687,9 @@
             signalBadge.textContent = data.main_signal;
             signalBadge.className = `badge badge-${data.main_signal.toLowerCase()}`;
 
-            // Technical Indicators
-            document.getElementById('rsiValue').textContent = data.rsi_analysis.value.toFixed(1);
-            document.getElementById('macdValue').textContent = data.macd_analysis.macd.toFixed(4);
+            // Technical Indicators  
+            document.getElementById('rsiValue').textContent = formatNumber(data.rsi_analysis.value, 1);
+            document.getElementById('macdValue').textContent = formatNumber(data.macd_analysis.macd, 3);
             document.getElementById('volumeStatus').textContent = data.volume_analysis.status;
             document.getElementById('trendDirection').textContent = data.trend_analysis.trend;
 
@@ -717,7 +733,7 @@
                         <div class="level-price">💎 ${keySupport.description}</div>
                         <div class="level-details">
                             📊 ${keySupport.calculation}<br>
-                            📍 Distance: ${keySupport.distance_pct.toFixed(1)}%
+                            📍 Distance: ${formatNumber(keySupport.distance_pct, 1)}%
                         </div>
                     </div>
                 `;
@@ -726,7 +742,7 @@
             srData.all_levels.support.forEach(support => {
                 supportContainer.innerHTML += `
                     <div class="level-item support">
-                        <div class="level-price">$${support.price.toFixed(2)}</div>
+                        <div class="level-price">$${formatNumber(support.price, 2)}</div>
                         <div class="level-details">${support.description}</div>
                     </div>
                 `;
@@ -743,7 +759,7 @@
                         <div class="level-price">💎 ${keyResistance.description}</div>
                         <div class="level-details">
                             📊 ${keyResistance.calculation}<br>
-                            📍 Distance: ${keyResistance.distance_pct.toFixed(1)}%
+                            📍 Distance: ${formatNumber(keyResistance.distance_pct, 1)}%
                         </div>
                     </div>
                 `;
@@ -752,7 +768,7 @@
             srData.all_levels.resistance.forEach(resistance => {
                 resistanceContainer.innerHTML += `
                     <div class="level-item resistance">
-                        <div class="level-price">$${resistance.price.toFixed(2)}</div>
+                        <div class="level-price">$${formatNumber(resistance.price, 2)}</div>
                         <div class="level-details">${resistance.description}</div>
                     </div>
                 `;
@@ -792,7 +808,7 @@
                             <div class="setup-label">Stop Loss</div>
                         </div>
                         <div class="setup-item">
-                            <div class="setup-value">${setup.risk_reward.toFixed(2)}:1</div>
+                            <div class="setup-value">${formatNumber(setup.risk_reward, 2)}:1</div>
                             <div class="setup-label">Risk/Reward</div>
                         </div>
                         <div class="setup-item">
