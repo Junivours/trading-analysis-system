@@ -1,0 +1,4 @@
+{
+  "start": "python app_turbo.py",
+  "build": "pip install -r requirements.txt"
+}
