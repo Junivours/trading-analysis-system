@@ -1,6 +1,0 @@
-{
-  "start": "python app_turbo.py",
-  "build": {
-    "command": "pip install -r requirements.txt"
-  }
-}

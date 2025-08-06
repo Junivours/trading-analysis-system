@@ -31,8 +31,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Load environment variables
 load_dotenv()
 
-# 🚀 Performance Cache - LIVE DATA OPTIMIZED  
-CACHE_DURATION = 2  # Reduced to 2 seconds for LIVE data!
+# 🚀 Performance Cache - LIVE DATA OPTIMIZED
+CACHE_DURATION = 5  # Reduced to 5 seconds for live data!
 price_cache = {}
 cache_lock = threading.Lock()
 
@@ -289,15 +289,21 @@ class TurboPerformanceEngine:
         self.realtime_cache_timeout = 1  # ULTRA LIVE: Reduced from 3 to 1 second
         self.executor = ThreadPoolExecutor(max_workers=6)  # Increased workers
         
+    @lru_cache(maxsize=150)  # Increased cache size
     def _get_cached_ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame:
-        """🔥 LIVE DATA ONLY - NO PERSISTENT CACHE - Direct Binance fetch"""
+        """Ultra-fast cached OHLCV data fetching - 90% faster"""
         cache_key = f"{symbol}_{timeframe}_{limit}"
         current_time = time.time()
         
-        # 🔥 FORCE LIVE DATA - Skip all caching for testing
-        logger.info(f"🔥 FORCING LIVE DATA FETCH for {symbol} - No cache used!")
+        # Check global cache first
+        with cache_lock:
+            if cache_key in price_cache:
+                cached_data, cache_time = price_cache[cache_key]
+                if current_time - cache_time < CACHE_DURATION:  # Use global CACHE_DURATION (5s)
+                    logger.info(f"⚡ Using global cache for {symbol} (age: {current_time - cache_time:.1f}s)")
+                    return cached_data
         
-        # Fetch fresh data directly from Binance
+        # Fetch new data using enhanced Binance fetcher
         try:
             url = f"{BINANCE_SPOT_URL}/klines"
             interval_map = {'15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d'}
@@ -328,16 +334,16 @@ class TurboPerformanceEngine:
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df = df[numeric_columns + ['timestamp']].copy()  # Keep only needed columns
             
-            # 🔍 DEBUG: Log current price for troubleshooting
-            current_price = float(df['close'].iloc[-1])
-            logger.info(f"� LIVE DATA FETCHED: {symbol} = ${current_price:.2f} at {datetime.now()} (timeframe: {timeframe})")
+            # Cache in both local and global cache for better performance
+            with cache_lock:
+                price_cache[cache_key] = (df, current_time)
+            self.cache[cache_key] = (df, current_time)
             
-            # 🔥 NO CACHING FOR TESTING - Return fresh data immediately
+            logger.info(f"⚡ Fresh data cached for {symbol} ({len(df)} candles)")
             return df
             
         except Exception as e:
-            logger.error(f"🚨 CRITICAL: OHLCV fetch error for {symbol}: {e}")
-            logger.error(f"🚨 URL: {url}, Params: {params}")
+            logger.error(f"OHLCV fetch error for {symbol}: {e}")
             return self._get_fallback_data(symbol)
     
     def get_enhanced_market_data(self, symbol: str) -> dict:
@@ -588,17 +594,11 @@ class TurboAnalysisEngine:
         indicators = {}
         
         try:
-            # 🔧 FIXED RSI (14-period) - TradingView Compatible with Wilder's Smoothing
+            # RSI (14-period)
             delta = df['close'].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            
-            # Use Wilder's smoothing (EWM with alpha=1/14) like TradingView
-            alpha = 1.0 / 14
-            avg_gain = gain.ewm(alpha=alpha, adjust=False).mean()
-            avg_loss = loss.ewm(alpha=alpha, adjust=False).mean()
-            
-            rs = avg_gain / avg_loss
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
             indicators['rsi'] = float(100 - (100 / (1 + rs.iloc[-1])))
             
             # MACD (12, 26, 9)
@@ -2721,33 +2721,6 @@ def dashboard():
     """Enhanced dashboard with S/R analysis"""
     return render_template_string(get_turbo_dashboard_html())
 
-@app.route('/api/clear_cache', methods=['POST'])
-def clear_cache():
-    """🔥 Clear all caches for live data"""
-    try:
-        # Clear global cache
-        with cache_lock:
-            price_cache.clear()
-        
-        # Clear performance engine cache
-        turbo_engine.performance_engine.cache.clear()
-        
-        # 🔥 CRITICAL: Clear LRU cache was causing the 162 stuck price!
-        # The @lru_cache decorator was removed, but clear anyway for safety
-        if hasattr(turbo_engine.performance_engine._get_cached_ohlcv, 'cache_clear'):
-            turbo_engine.performance_engine._get_cached_ohlcv.cache_clear()
-        
-        logger.info("🔥 ALL CACHES CLEARED - Next request will fetch 100% fresh data from Binance!")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'All caches cleared - Live data enforced',
-            'timestamp': datetime.now().isoformat()
-        })
-    except Exception as e:
-        logger.error(f"Cache clear error: {e}")
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/analyze_turbo')
 def analyze_turbo():
     """Enhanced turbo analysis endpoint with detailed S/R"""
@@ -3420,20 +3393,12 @@ def get_turbo_dashboard_html():
                         </div>
                         <select id="timeframeSelect">
                             <option value="15m">15m</option>
-                            <option value="1h">1h</option>
-                            <option value="4h" selected>4h</option>
+                            <option value="1h" selected>1h</option>
+                            <option value="4h">4h</option>
                             <option value="1d">1d</option>
                         </select>
                         <button class="analyze-btn" onclick="runTurboAnalysis()" id="analyzeBtn">
                             📊 Turbo Analyze
-                        </button>
-                        <button class="analyze-btn" onclick="clearCache()" id="clearCacheBtn" style="
-                            background: linear-gradient(135deg, #dc2626, #ef4444); 
-                            margin-left: 10px; 
-                            padding: 0.75rem 1rem; 
-                            font-size: 0.9rem;
-                        ">
-                            🔥 Clear Cache
                         </button>
                     </div>
                 </div>
@@ -3487,6 +3452,16 @@ def get_turbo_dashboard_html():
         </div>
 
         <script>
+
+
+
+                            </div>
+                        </h3>
+                    </div>
+                    
+                    <!-- � TOP TIER MAJORS -->
+                    <div class="coin-category">
+        <script>
             let isAnalyzing = false;
             let currentData = null;
 
@@ -3500,8 +3475,6 @@ def get_turbo_dashboard_html():
                 
                 const symbol = document.getElementById('symbolInput').value.toUpperCase() || 'BTCUSDT';
                 const timeframe = document.getElementById('timeframeSelect').value;
-                
-                console.log('🔍 Selected timeframe:', timeframe);
                 
                 document.getElementById('mainContent').innerHTML = `
                     <div class="loading">
@@ -3551,45 +3524,6 @@ def get_turbo_dashboard_html():
                     isAnalyzing = false;
                     analyzeBtn.disabled = false;
                     analyzeBtn.innerHTML = '📊 Turbo Analyze';
-                }
-            }
-
-            async function clearCache() {
-                try {
-                    const clearBtn = document.getElementById('clearCacheBtn');
-                    clearBtn.disabled = true;
-                    clearBtn.innerHTML = '🔥 Clearing...';
-                    
-                    const response = await fetch('/api/clear_cache', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.status === 'success') {
-                        clearBtn.innerHTML = '✅ Cleared!';
-                        setTimeout(() => {
-                            clearBtn.innerHTML = '🔥 Clear Cache';
-                            clearBtn.disabled = false;
-                        }, 2000);
-                        
-                        // Show success message
-                        document.getElementById('mainContent').innerHTML = `
-                            <div style="text-align: center; color: #10b981; padding: 2rem;">
-                                ✅ Cache cleared! Next analysis will fetch live data.
-                            </div>
-                        `;
-                    } else {
-                        throw new Error(result.message || 'Cache clear failed');
-                    }
-                } catch (error) {
-                    console.error('Cache clear error:', error);
-                    document.getElementById('clearCacheBtn').innerHTML = '❌ Error';
-                    setTimeout(() => {
-                        document.getElementById('clearCacheBtn').innerHTML = '🔥 Clear Cache';
-                        document.getElementById('clearCacheBtn').disabled = false;
-                    }, 2000);
                 }
             }
 
@@ -4097,7 +4031,7 @@ function renderMLTrainPopup(data) {
                         html += '<div class="item bearish"><h3>🔴 Long Liquidations (Below Current Price)</h3>';
                         longLiqs.forEach(liq => {
                             html += `
-                                <p><strong>${liq.leverage}x:</strong> \\$${liq.price.toFixed(2)} 
+                                <p><strong>${liq.leverage}x:</strong> $${liq.price.toFixed(2)} 
                                 (${liq.distance_pct.toFixed(1)}% below) - ${liq.intensity}</p>
                             `;
                         });
@@ -4108,7 +4042,7 @@ function renderMLTrainPopup(data) {
                         html += '<div class="item bullish"><h3>🟢 Short Liquidations (Above Current Price)</h3>';
                         shortLiqs.forEach(liq => {
                             html += `
-                                <p><strong>${liq.leverage}x:</strong> \\$${liq.price.toFixed(2)} 
+                                <p><strong>${liq.leverage}x:</strong> $${liq.price.toFixed(2)} 
                                 (${liq.distance_pct.toFixed(1)}% above) - ${liq.intensity}</p>
                             `;
                         });
