@@ -7,4 +7,4 @@ echo "🧠 AI Framework: JAX/Flax Neural Networks"
 echo "📊 Data Source: Live Binance API"
 
 # Run the Flask application
-exec python app_turbo.py
+exec python app_production.py

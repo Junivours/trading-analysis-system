@@ -27,4 +27,4 @@ USER trader
 EXPOSE 5001
 
 # Start application (Railway optimized)
-CMD ["python", "app_turbo.py"]
+CMD ["python", "app_production.py"]
