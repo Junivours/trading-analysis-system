@@ -146,9 +146,9 @@ if JAX_AVAILABLE:
             
             batch_size, seq_len, input_size = x.shape
             
-            # Initialize states
-            carry1 = lstm1.initialize_carry(jax.random.PRNGKey(0), (batch_size,), self.hidden_size)
-            carry2 = lstm2.initialize_carry(jax.random.PRNGKey(1), (batch_size,), self.hidden_size)
+            # Initialize states - FIXED: Only pass batch_size tuple
+            carry1 = lstm1.initialize_carry(jax.random.PRNGKey(0), (batch_size,))
+            carry2 = lstm2.initialize_carry(jax.random.PRNGKey(1), (batch_size,))
             
             outputs = []
             
@@ -4639,33 +4639,24 @@ def get_turbo_dashboard_html():
                             <option value="4h" selected>4h</option>
                             <option value="1d">1d</option>
                         </select>
-                        <button class="analyze-btn" onclick="runTurboAnalysis()" id="analyzeBtn">
-                            📊 Turbo Analyze
+                        <button class="analyze-btn" onclick="runSmartAnalysis()" id="analyzeBtn">
+                            🧠 Smart Analysis
                         </button>
-                        <button class="analyze-btn" onclick="trainJAXModel()" id="trainBtn" style="
+                        <button class="analyze-btn" onclick="trainAIModel()" id="trainBtn" style="
                             background: linear-gradient(135deg, #f59e0b, #f97316); 
                             margin-left: 10px; 
                             padding: 0.75rem 1rem; 
                             font-size: 0.9rem;
-                            position: relative;
                         ">
-                            🔥 Train JAX AI
+                            🔥 Train AI
                         </button>
-                        <button class="analyze-btn" onclick="checkTrainingStatus()" id="statusBtn" style="
-                            background: linear-gradient(135deg, #8b5cf6, #a855f7); 
-                            margin-left: 10px; 
-                            padding: 0.75rem 1rem; 
-                            font-size: 0.9rem;
-                        ">
-                            📊 AI Status
-                        </button>
-                        <button class="analyze-btn" onclick="clearCache()" id="clearCacheBtn" style="
+                        <button class="analyze-btn" onclick="showLiquidationLevels()" id="liquidationBtn" style="
                             background: linear-gradient(135deg, #dc2626, #ef4444); 
                             margin-left: 10px; 
                             padding: 0.75rem 1rem; 
                             font-size: 0.9rem;
                         ">
-                            🔥 Clear Cache
+                            � Liquidations
                         </button>
                     </div>
                 </div>
@@ -4695,13 +4686,21 @@ def get_turbo_dashboard_html():
                         ">
                             🔥 JAX AI Analysis
                         </div>
-                        <div class="popup-btn" onclick="openPopup('jax_train')" style="
-                            background: linear-gradient(135deg, #10b981, #059669); 
+                        <div class="popup-btn" onclick="trainAIModel()" style="
+                            background: linear-gradient(135deg, #f59e0b, #f97316); 
                             color: white; 
                             border: 1px solid rgba(255,255,255,0.2);
                             font-weight: 700;
                         ">
-                            🧠 Train JAX Model
+                            🧠 Train AI Model
+                        </div>
+                        <div class="popup-btn" onclick="showLiquidationLevels()" style="
+                            background: linear-gradient(135deg, #dc2626, #ef4444); 
+                            color: white; 
+                            border: 1px solid rgba(255,255,255,0.2);
+                            font-weight: 700;
+                        ">
+                            💀 Liquidations
                         </div>
                     </div>
                 </div>
@@ -4721,13 +4720,14 @@ def get_turbo_dashboard_html():
             let isAnalyzing = false;
             let currentData = null;
 
-            async function runTurboAnalysis() {
+            // 🧠 INTELLIGENT ANALYSIS - All-in-One
+            async function runSmartAnalysis() {
                 if (isAnalyzing) return;
                 
                 isAnalyzing = true;
                 const analyzeBtn = document.getElementById('analyzeBtn');
                 analyzeBtn.disabled = true;
-                analyzeBtn.innerHTML = '⚡ Analyzing...';
+                analyzeBtn.innerHTML = '🧠 Analyzing...';
                 
                 const symbol = document.getElementById('symbolInput').value.toUpperCase() || 'BTCUSDT';
                 const timeframe = document.getElementById('timeframeSelect').value;
@@ -4737,9 +4737,9 @@ def get_turbo_dashboard_html():
                 document.getElementById('mainContent').innerHTML = `
                     <div class="loading">
                         <div class="spinner"></div>
-                        <div style="margin-left: 1rem;">Enhanced turbo analysis for ${symbol} on ${timeframe}...</div>
+                        <div style="margin-left: 1rem;">🧠 Smart analysis for ${symbol} on ${timeframe}...</div>
                         <div style="margin-left: 1rem; margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.8;">
-                            ⚡ Running parallel processing with S/R analysis...
+                            ⚡ AI + Market Data + Technical Analysis + S/R Levels
                         </div>
                     </div>
                 `;
@@ -4747,7 +4747,6 @@ def get_turbo_dashboard_html():
                 try {
                     const startTime = performance.now();
                     
-                    // Use enhanced API endpoint with POST method
                     const response = await fetch('/api/analyze', {
                         method: 'POST',
                         headers: {
@@ -4755,7 +4754,8 @@ def get_turbo_dashboard_html():
                         },
                         body: JSON.stringify({
                             symbol: symbol,
-                            timeframe: timeframe
+                            timeframe: timeframe,
+                            smart_mode: true
                         })
                     });
                     
@@ -4781,7 +4781,7 @@ def get_turbo_dashboard_html():
                 } finally {
                     isAnalyzing = false;
                     analyzeBtn.disabled = false;
-                    analyzeBtn.innerHTML = '📊 Turbo Analyze';
+                    analyzeBtn.innerHTML = '🧠 Smart Analysis';
                 }
             }
 
@@ -4824,7 +4824,182 @@ def get_turbo_dashboard_html():
                 }
             }
 
-            // 🔥 JAX AI TRAINING FUNCTIONS
+            // 🔥 INTELLIGENT AI TRAINING - One-Click
+            async function trainAIModel() {
+                try {
+                    const trainBtn = document.getElementById('trainBtn');
+                    const symbol = document.getElementById('symbolInput').value.toUpperCase() || 'BTCUSDT';
+                    const timeframe = document.getElementById('timeframeSelect').value;
+                    
+                    // Check AI status first
+                    const statusResponse = await fetch('/api/train_status');
+                    const status = await statusResponse.json();
+                    
+                    if (!status.jax_available) {
+                        document.getElementById('mainContent').innerHTML = `
+                            <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                                ❌ JAX AI not available. Please check installation.
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    // Button state
+                    trainBtn.disabled = true;
+                    trainBtn.innerHTML = '🔥 Training...';
+                    
+                    // Show intelligent training progress
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; padding: 2rem;">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                            </div>
+                            <h2 style="color: #f59e0b; margin-top: 1rem;">🔥 AI Training in Progress</h2>
+                            <p style="color: #6b7280;">Symbol: ${symbol} | Timeframe: ${timeframe}</p>
+                            <div style="background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                                🧠 JAX Transformer+LSTM learning from real market data...
+                            </div>
+                            <div style="margin-top: 1rem; color: #6b7280; font-size: 0.9rem;">
+                                This may take 30-60 seconds. Please wait...
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Start training
+                    const response = await fetch(`/api/train_ml/${symbol}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            timeframe: timeframe,
+                            epochs: 30  // Reduced for faster training
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        trainBtn.innerHTML = '✅ Trained!';
+                        displayTrainingResults(result);
+                    } else {
+                        throw new Error(result.message || 'Training failed');
+                    }
+                    
+                } catch (error) {
+                    console.error('Training error:', error);
+                    document.getElementById('trainBtn').innerHTML = '❌ Failed';
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                            ❌ Training Failed: ${error.message}
+                            <div style="margin-top: 1rem; font-size: 0.9rem; color: #6b7280;">
+                                Try again or check the console for details.
+                            </div>
+                        </div>
+                    `;
+                } finally {
+                    setTimeout(() => {
+                        document.getElementById('trainBtn').innerHTML = '🔥 Train AI';
+                        document.getElementById('trainBtn').disabled = false;
+                    }, 3000);
+                }
+            }
+
+            // 💀 INTELLIGENT LIQUIDATION LEVELS
+            async function showLiquidationLevels() {
+                try {
+                    const liquidationBtn = document.getElementById('liquidationBtn');
+                    const symbol = document.getElementById('symbolInput').value.toUpperCase() || 'BTCUSDT';
+                    
+                    liquidationBtn.disabled = true;
+                    liquidationBtn.innerHTML = '💀 Loading...';
+                    
+                    // Show liquidation progress
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; padding: 2rem;">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                            </div>
+                            <h2 style="color: #dc2626; margin-top: 1rem;">💀 Liquidation Analysis</h2>
+                            <p style="color: #6b7280;">Analyzing ${symbol} liquidation levels...</p>
+                            <div style="background: rgba(220, 38, 38, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                                🔍 Scanning 16 leverage levels for liquidation cascades
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Fetch liquidation data
+                    const response = await fetch(`/api/liquidation/${symbol}`);
+                    const data = await response.json();
+                    
+                    liquidationBtn.innerHTML = '✅ Loaded';
+                    displayLiquidationResults(data);
+                    
+                } catch (error) {
+                    console.error('Liquidation error:', error);
+                    document.getElementById('liquidationBtn').innerHTML = '❌ Error';
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                            ❌ Liquidation Analysis Failed: ${error.message}
+                        </div>
+                    `;
+                } finally {
+                    setTimeout(() => {
+                        document.getElementById('liquidationBtn').innerHTML = '💀 Liquidations';
+                        document.getElementById('liquidationBtn').disabled = false;
+                    }, 2000);
+                }
+            }
+
+            function displayLiquidationResults(data) {
+                const html = generateLiquidationHTML(data);
+                document.getElementById('mainContent').innerHTML = html;
+            }
+
+            function generateLiquidationHTML(data) {
+                if (!data || !data.levels) {
+                    return `
+                        <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                            ❌ No liquidation data available
+                        </div>
+                    `;
+                }
+                
+                let html = `
+                    <div style="padding: 2rem;">
+                        <h1 style="color: #dc2626; text-align: center; margin-bottom: 2rem;">
+                            💀 Liquidation Heat Map - ${data.symbol || 'CRYPTO'}
+                        </h1>
+                        
+                        <div style="background: rgba(220, 38, 38, 0.1); border: 1px solid #dc262630; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #dc2626; margin-bottom: 1rem;">🎯 Critical Levels</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                `;
+                
+                // Display top liquidation levels
+                if (data.levels && Array.isArray(data.levels)) {
+                    data.levels.slice(0, 8).forEach(level => {
+                        const riskColor = level.leverage >= 50 ? '#dc2626' : level.leverage >= 20 ? '#f59e0b' : '#10b981';
+                        html += `
+                            <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; border-left: 4px solid ${riskColor};">
+                                <div style="font-weight: bold; color: ${riskColor};">${level.leverage}x Leverage</div>
+                                <div style="color: #6b7280;">Price: $${level.price?.toFixed(2) || 'N/A'}</div>
+                                <div style="color: #6b7280;">Distance: ${level.distance_pct?.toFixed(2) || 'N/A'}%</div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += `
+                            </div>
+                        </div>
+                        
+                        <div style="text-align: center; color: #6b7280;">
+                            💡 Red = High Risk | Yellow = Medium Risk | Green = Low Risk
+                        </div>
+                    </div>
+                `;
+                
+                return html;
+            }
             async function trainJAXModel() {
                 try {
                     const trainBtn = document.getElementById('trainBtn');
