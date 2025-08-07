@@ -2135,10 +2135,14 @@ def jax_training():
 # ========================================================================================
 
 if __name__ == '__main__':
-    print("🚀 ULTIMATE TRADING V3 - Professional System Starting...")
-    print("📊 Fundamental Analysis: 70% Weight")
-    print("📈 Technical Analysis: 20% Weight") 
-    print("🤖 ML Confirmation: 10% Weight")
-    print("=" * 50)
+    port = int(os.environ.get('PORT', 5000))
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("🚀 ULTIMATE TRADING SYSTEM")
+    print("📊 Professional Trading Analysis")
+    print(f"⚡ Server starting on port: {port}")
+    
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False
+    )
