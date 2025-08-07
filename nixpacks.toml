@@ -1,0 +1,20 @@
+# 🚀 Railway Nixpacks Configuration for JAX AI Trading System
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.11"
+NIXPACKS_INSTALL_CACHE_DIR = "/tmp/cache"
+
+[phases.setup]
+nixPkgs = ["python311", "gcc", "pkg-config"]
+
+[phases.install]
+cmds = [
+    "pip install --upgrade pip",
+    "pip install --no-cache-dir -r requirements.txt"
+]
+
+[phases.build]
+cmds = ["echo 'JAX AI Trading System - Build Complete'"]
+
+[start]
+cmd = "python app_turbo.py"
