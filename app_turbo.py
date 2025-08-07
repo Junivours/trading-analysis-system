@@ -368,6 +368,173 @@ if JAX_AVAILABLE:
                 'confidence': 0.5,
                 'probabilities': {'LONG': 0.33, 'NEUTRAL': 0.34, 'SHORT': 0.33}
             }
+        
+        @jax.jit
+        def train_step(self, state, batch_x, batch_y):
+            """🔥 SINGLE TRAINING STEP WITH GRADIENT DESCENT"""
+            
+            def loss_fn(params):
+                logits, confidence = state.apply_fn(params, batch_x, training=True)
+                
+                # Cross-entropy loss for classification
+                labels_onehot = jax.nn.one_hot(batch_y, num_classes=3)
+                ce_loss = -jnp.mean(jnp.sum(labels_onehot * jax.nn.log_softmax(logits), axis=-1))
+                
+                # Confidence regularization (encourage high confidence for correct predictions)
+                predicted_class = jnp.argmax(logits, axis=-1)
+                correct_predictions = (predicted_class == batch_y).astype(jnp.float32)
+                confidence_loss = -jnp.mean(correct_predictions * jnp.log(confidence.squeeze() + 1e-8))
+                
+                # L2 regularization
+                l2_loss = 0.001 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_util.tree_leaves(params))
+                
+                total_loss = ce_loss + 0.1 * confidence_loss + l2_loss
+                
+                return total_loss, {
+                    'ce_loss': ce_loss,
+                    'confidence_loss': confidence_loss,
+                    'l2_loss': l2_loss,
+                    'accuracy': jnp.mean(predicted_class == batch_y)
+                }
+            
+            # Compute gradients
+            grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+            (loss, metrics), grads = grad_fn(state.params)
+            
+            # Apply gradients with gradient clipping
+            grads = jax.tree_map(lambda g: jnp.clip(g, -1.0, 1.0), grads)
+            
+            # Update state
+            state = state.apply_gradients(grads=grads)
+            
+            return state, loss, metrics
+        
+        def train(self, X, y, epochs=50, batch_size=32, learning_rate=1e-3, validation_split=0.2):
+            """🚀 FULL TRAINING PIPELINE WITH REAL GRADIENTS"""
+            try:
+                logger.info(f"🔥 Starting JAX training: {epochs} epochs, {X.shape[0]} samples")
+                
+                # Create training state
+                self.state = self.create_train_state(learning_rate)
+                
+                # Train/validation split
+                split_idx = int(len(X) * (1 - validation_split))
+                X_train, X_val = X[:split_idx], X[split_idx:]
+                y_train, y_val = y[:split_idx], y[split_idx:]
+                
+                # Training metrics storage
+                train_losses = []
+                val_accuracies = []
+                best_val_acc = 0.0
+                best_params = None
+                
+                # Training loop
+                for epoch in range(epochs):
+                    epoch_losses = []
+                    epoch_accuracies = []
+                    
+                    # Shuffle training data
+                    indices = jnp.array(np.random.permutation(len(X_train)))
+                    X_train_shuffled = X_train[indices]
+                    y_train_shuffled = y_train[indices]
+                    
+                    # Mini-batch training
+                    for i in range(0, len(X_train), batch_size):
+                        batch_x = X_train_shuffled[i:i+batch_size]
+                        batch_y = y_train_shuffled[i:i+batch_size]
+                        
+                        if len(batch_x) < batch_size:
+                            continue  # Skip incomplete batches
+                        
+                        # Training step
+                        self.state, loss, metrics = self.train_step(self.state, batch_x, batch_y)
+                        
+                        epoch_losses.append(float(loss))
+                        epoch_accuracies.append(float(metrics['accuracy']))
+                    
+                    # Validation evaluation
+                    if len(X_val) > 0:
+                        val_logits, val_confidence = self.state.apply_fn(
+                            self.state.params, X_val, training=False
+                        )
+                        val_predictions = jnp.argmax(val_logits, axis=-1)
+                        val_acc = float(jnp.mean(val_predictions == y_val))
+                        val_accuracies.append(val_acc)
+                        
+                        # Save best model
+                        if val_acc > best_val_acc:
+                            best_val_acc = val_acc
+                            best_params = self.state.params
+                    
+                    # Logging every 10 epochs
+                    if epoch % 10 == 0 or epoch == epochs - 1:
+                        avg_loss = np.mean(epoch_losses) if epoch_losses else 0.0
+                        avg_acc = np.mean(epoch_accuracies) if epoch_accuracies else 0.0
+                        val_acc_str = f", Val Acc: {val_accuracies[-1]:.3f}" if val_accuracies else ""
+                        
+                        logger.info(f"🎯 Epoch {epoch+1}/{epochs}: Loss: {avg_loss:.4f}, "
+                                   f"Train Acc: {avg_acc:.3f}{val_acc_str}")
+                    
+                    train_losses.extend(epoch_losses)
+                
+                # Restore best parameters
+                if best_params is not None:
+                    self.state = self.state.replace(params=best_params)
+                
+                self.is_trained = True
+                
+                # Training summary
+                final_stats = {
+                    'epochs_trained': epochs,
+                    'final_train_loss': float(np.mean(train_losses[-10:])) if train_losses else 0.0,
+                    'best_val_accuracy': best_val_acc,
+                    'total_samples': len(X),
+                    'training_samples': len(X_train),
+                    'validation_samples': len(X_val) if len(X_val) > 0 else 0
+                }
+                
+                logger.info(f"🔥 JAX Training Complete! Best Val Accuracy: {best_val_acc:.3f}")
+                return final_stats
+                
+            except Exception as e:
+                logger.error(f"❌ Training failed: {e}")
+                self.is_trained = False
+                return None
+        
+        def evaluate(self, X, y):
+            """📊 Evaluate model performance"""
+            if not self.is_trained:
+                return None
+            
+            try:
+                logits, confidence = self.state.apply_fn(
+                    self.state.params, X, training=False
+                )
+                
+                predictions = jnp.argmax(logits, axis=-1)
+                accuracy = float(jnp.mean(predictions == y))
+                
+                # Per-class accuracy
+                class_accuracies = {}
+                for class_idx in range(3):
+                    class_mask = (y == class_idx)
+                    if jnp.sum(class_mask) > 0:
+                        class_acc = float(jnp.mean(predictions[class_mask] == y[class_mask]))
+                        class_name = ['LONG', 'NEUTRAL', 'SHORT'][class_idx]
+                        class_accuracies[class_name] = class_acc
+                
+                avg_confidence = float(jnp.mean(confidence))
+                
+                return {
+                    'overall_accuracy': accuracy,
+                    'class_accuracies': class_accuracies,
+                    'average_confidence': avg_confidence,
+                    'total_samples': len(X)
+                }
+                
+            except Exception as e:
+                logger.error(f"❌ Evaluation failed: {e}")
+                return None
 
     # Initialize JAX AI
     jax_ai = JAXTradingAI()
@@ -3467,70 +3634,182 @@ turbo_engine = None  # Will be initialized after class definitions
 
 @app.route('/api/train_ml/<symbol>', methods=['POST'])
 def train_ml_api(symbol):
-    """🔥 Train JAX-powered AI model for trading signals"""
-    from datetime import datetime
+    """🔥 Train JAX-powered AI model with REAL Binance data"""
     try:
-        # Enhanced request processing
         timestamp = datetime.now().isoformat()
         timeframe = request.json.get('timeframe', '4h') if request.is_json else '4h'
+        epochs = request.json.get('epochs', 50) if request.is_json else 50
         
-        logger.info(f"🔥 Starting Ultimate Trading V4 AI training for {symbol}")
+        logger.info(f"🔥 Starting JAX-AI training for {symbol} on {timeframe}")
         
-        # Initialize results structure
-        ml_results = {}
-        backtest_results = {}
-        analysis_results = {}
-        
-        # Train AI model with JAX/TensorFlow
-        if hasattr(turbo_engine, 'train_ml_model'):
-            ml_results = turbo_engine.train_ml_model(symbol, timeframe)
-            logger.info(f"✅ Model training completed: {ml_results.get('model_type', 'Unknown')}")
-        else:
-            ml_results = {
-                'status': 'error', 
-                'message': 'ML training engine not available',
-                'symbol': symbol, 
-                'timeframe': timeframe
-            }
-
-        # Enhanced backtest with AI predictions
-        if hasattr(turbo_engine, 'run_backtest'):
-            backtest_results = turbo_engine.run_backtest(symbol, timeframe)
-        else:
-            # Simulate advanced backtest results
-            backtest_results = {
-                'status': 'simulated',
+        if not JAX_AVAILABLE or jax_ai is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'JAX not available for training',
                 'symbol': symbol,
-                'timeframe': timeframe,
-                'total_trades': np.random.randint(50, 200),
-                'win_rate': round(np.random.uniform(60, 85), 2),
-                'profit_factor': round(np.random.uniform(1.2, 2.5), 2),
-                'max_drawdown': round(np.random.uniform(5, 15), 2),
-                'sharpe_ratio': round(np.random.uniform(1.0, 2.5), 2),
-                'details': 'AI-enhanced backtest simulation'
+                'timestamp': timestamp
+            })
+        
+        # ✅ STEP 1: Fetch REAL historical data
+        logger.info("📊 Fetching historical data from Binance...")
+        try:
+            data_fetcher = BinanceDataFetcher()
+            df = data_fetcher.fetch_klines(symbol, timeframe, limit=1000)
+            
+            if df is None or len(df) < 100:
+                raise ValueError("Insufficient data for training")
+                
+            logger.info(f"✅ Fetched {len(df)} candles for training")
+            
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Data fetch failed: {str(e)}',
+                'symbol': symbol,
+                'timestamp': timestamp
+            })
+        
+        # ✅ STEP 2: Prepare training data
+        logger.info("🔧 Preparing training sequences...")
+        try:
+            X, y = jax_ai.prepare_training_data(df, sequence_length=50)
+            
+            if len(X) < 50:
+                raise ValueError("Not enough sequences for training")
+                
+            logger.info(f"✅ Prepared {len(X)} training sequences")
+            
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Data preparation failed: {str(e)}',
+                'symbol': symbol,
+                'timestamp': timestamp
+            })
+        
+        # ✅ STEP 3: REAL JAX TRAINING with gradients!
+        logger.info(f"🚀 Starting JAX training: {epochs} epochs...")
+        training_start = time.time()
+        
+        try:
+            training_stats = jax_ai.train(
+                X, y, 
+                epochs=epochs, 
+                batch_size=32, 
+                learning_rate=1e-3,
+                validation_split=0.2
+            )
+            
+            training_time = time.time() - training_start
+            
+            if training_stats is None:
+                raise ValueError("Training failed to complete")
+                
+            logger.info(f"🔥 Training completed in {training_time:.2f}s")
+            
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Training failed: {str(e)}',
+                'symbol': symbol,
+                'timestamp': timestamp
+            })
+        
+        # ✅ STEP 4: Evaluate model
+        logger.info("📊 Evaluating trained model...")
+        try:
+            eval_stats = jax_ai.evaluate(X, y)
+            
+        except Exception as e:
+            logger.warning(f"Evaluation failed: {e}")
+            eval_stats = None
+        
+        # ✅ STEP 5: Test prediction on latest data
+        try:
+            latest_sequence = X[-1:] if len(X) > 0 else None
+            if latest_sequence is not None:
+                prediction = jax_ai.predict(latest_sequence)
+            else:
+                prediction = None
+        except Exception as e:
+            logger.warning(f"Test prediction failed: {e}")
+            prediction = None
+        
+        # 🎯 SUCCESS RESPONSE
+        response = {
+            'status': 'success',
+            'message': f'JAX-AI training completed successfully!',
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'timestamp': timestamp,
+            'training_time': round(training_time, 2),
+            
+            # Training Results
+            'training_stats': training_stats,
+            'evaluation': eval_stats,
+            
+            # Data Info
+            'data_info': {
+                'total_candles': len(df),
+                'training_sequences': len(X),
+                'features_per_sequence': X.shape[-1] if len(X) > 0 else 0,
+                'sequence_length': X.shape[1] if len(X) > 0 else 0
+            },
+            
+            # Live Prediction Test
+            'live_prediction': prediction,
+            
+            # Model Status
+            'model_status': {
+                'is_trained': jax_ai.is_trained,
+                'model_type': 'JAX Transformer+LSTM Hybrid',
+                'architecture': 'Multi-head attention + LSTM temporal dynamics',
+                'ready_for_live_trading': jax_ai.is_trained
             }
+        }
+        
+        logger.info(f"🔥 JAX Training API completed successfully for {symbol}")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"❌ Training API error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Training API failed: {str(e)}',
+            'symbol': symbol,
+            'timestamp': datetime.now().isoformat()
+        })
 
-        # Standard analysis with AI enhancement
-        if hasattr(turbo_engine, 'analyze_symbol_turbo'):
-            analysis_result = turbo_engine.analyze_symbol_turbo(symbol, timeframe)
-            # Convert TurboAnalysisResult to dict
-            analysis_results = {
-                'main_signal': analysis_result.main_signal,
-                'confidence': analysis_result.confidence,
-                'recommendation': analysis_result.recommendation,
-                'risk_level': analysis_result.risk_level,
-                'signal_quality': analysis_result.signal_quality,
-                'current_price': analysis_result.current_price,
-                'timeframe': analysis_result.timeframe,
-                'execution_time': analysis_result.execution_time
+@app.route('/api/train_status', methods=['GET'])
+def get_training_status():
+    """📊 Get current JAX-AI training status"""
+    try:
+        if not JAX_AVAILABLE or jax_ai is None:
+            return jsonify({
+                'jax_available': False,
+                'message': 'JAX not installed or available'
+            })
+        
+        return jsonify({
+            'jax_available': True,
+            'model_trained': jax_ai.is_trained,
+            'model_type': 'JAX Transformer+LSTM Hybrid',
+            'scaler_fitted': jax_ai.scaler is not None,
+            'ready_for_prediction': jax_ai.is_trained and hasattr(jax_ai, 'state'),
+            'architecture': {
+                'transformer_features': 128,
+                'lstm_hidden': 64,
+                'num_heads': 8,
+                'num_classes': 3,
+                'dropout_rate': 0.1
             }
-        else:
-            analysis_results = {
-                'status': 'unavailable',
-                'message': 'Standard analysis not available'
-            }
-
-        # Enhanced response with AI insights
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
         return jsonify({
             'status': 'success',
             'model_version': 'Ultimate Trading V4',
@@ -4363,6 +4642,23 @@ def get_turbo_dashboard_html():
                         <button class="analyze-btn" onclick="runTurboAnalysis()" id="analyzeBtn">
                             📊 Turbo Analyze
                         </button>
+                        <button class="analyze-btn" onclick="trainJAXModel()" id="trainBtn" style="
+                            background: linear-gradient(135deg, #f59e0b, #f97316); 
+                            margin-left: 10px; 
+                            padding: 0.75rem 1rem; 
+                            font-size: 0.9rem;
+                            position: relative;
+                        ">
+                            🔥 Train JAX AI
+                        </button>
+                        <button class="analyze-btn" onclick="checkTrainingStatus()" id="statusBtn" style="
+                            background: linear-gradient(135deg, #8b5cf6, #a855f7); 
+                            margin-left: 10px; 
+                            padding: 0.75rem 1rem; 
+                            font-size: 0.9rem;
+                        ">
+                            📊 AI Status
+                        </button>
                         <button class="analyze-btn" onclick="clearCache()" id="clearCacheBtn" style="
                             background: linear-gradient(135deg, #dc2626, #ef4444); 
                             margin-left: 10px; 
@@ -4526,6 +4822,246 @@ def get_turbo_dashboard_html():
                         document.getElementById('clearCacheBtn').disabled = false;
                     }, 2000);
                 }
+            }
+
+            // 🔥 JAX AI TRAINING FUNCTIONS
+            async function trainJAXModel() {
+                try {
+                    const trainBtn = document.getElementById('trainBtn');
+                    const symbol = document.getElementById('symbolInput').value.toUpperCase() || 'BTCUSDT';
+                    const timeframe = document.getElementById('timeframeSelect').value;
+                    
+                    // Button state
+                    trainBtn.disabled = true;
+                    trainBtn.innerHTML = '🔥 Training...';
+                    
+                    // Show training progress
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; padding: 2rem;">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                            </div>
+                            <h2 style="color: #f59e0b; margin-top: 1rem;">🔥 Training JAX-AI Model</h2>
+                            <p style="color: #6b7280;">Symbol: ${symbol} | Timeframe: ${timeframe}</p>
+                            <p style="color: #6b7280;">Fetching real Binance data and training neural network...</p>
+                            <div style="background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                                ⚡ Using Google JAX framework with Transformer + LSTM architecture
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Training request
+                    const response = await fetch(`/api/train_ml/${symbol}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            timeframe: timeframe,
+                            epochs: 50  // Default epochs
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        trainBtn.innerHTML = '✅ Trained!';
+                        displayTrainingResults(result);
+                    } else {
+                        throw new Error(result.message || 'Training failed');
+                    }
+                    
+                } catch (error) {
+                    console.error('Training error:', error);
+                    document.getElementById('trainBtn').innerHTML = '❌ Failed';
+                    document.getElementById('mainContent').innerHTML = `
+                        <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                            ❌ Training Failed: ${error.message}
+                        </div>
+                    `;
+                } finally {
+                    setTimeout(() => {
+                        document.getElementById('trainBtn').innerHTML = '🔥 Train JAX AI';
+                        document.getElementById('trainBtn').disabled = false;
+                    }, 3000);
+                }
+            }
+
+            async function checkTrainingStatus() {
+                try {
+                    const statusBtn = document.getElementById('statusBtn');
+                    statusBtn.disabled = true;
+                    statusBtn.innerHTML = '📊 Checking...';
+                    
+                    const response = await fetch('/api/train_status');
+                    const status = await response.json();
+                    
+                    document.getElementById('mainContent').innerHTML = displayTrainingStatus(status);
+                    
+                    statusBtn.innerHTML = '✅ Checked';
+                    setTimeout(() => {
+                        statusBtn.innerHTML = '📊 AI Status';
+                        statusBtn.disabled = false;
+                    }, 2000);
+                    
+                } catch (error) {
+                    console.error('Status check error:', error);
+                    document.getElementById('statusBtn').innerHTML = '❌ Error';
+                    setTimeout(() => {
+                        document.getElementById('statusBtn').innerHTML = '📊 AI Status';
+                        document.getElementById('statusBtn').disabled = false;
+                    }, 2000);
+                }
+            }
+
+            function displayTrainingResults(result) {
+                const trainingTime = result.training_time || 0;
+                const stats = result.training_stats || {};
+                const evaluation = result.evaluation || {};
+                const prediction = result.live_prediction || {};
+                
+                let html = `
+                    <div style="padding: 2rem;">
+                        <h1 style="color: #f59e0b; text-align: center; margin-bottom: 2rem;">
+                            🔥 JAX-AI Training Complete!
+                        </h1>
+                        
+                        <!-- Training Summary -->
+                        <div style="background: linear-gradient(135deg, #f59e0b15, #f9731615); border: 1px solid #f59e0b30; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #f59e0b; margin-bottom: 1rem;">📊 Training Summary</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div><strong>Symbol:</strong> ${result.symbol}</div>
+                                <div><strong>Timeframe:</strong> ${result.timeframe}</div>
+                                <div><strong>Training Time:</strong> ${trainingTime}s</div>
+                                <div><strong>Epochs:</strong> ${stats.epochs_trained || 50}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Data Info -->
+                        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f630; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #3b82f6; margin-bottom: 1rem;">📈 Training Data</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div><strong>Total Candles:</strong> ${result.data_info?.total_candles || 'N/A'}</div>
+                                <div><strong>Sequences:</strong> ${result.data_info?.training_sequences || 'N/A'}</div>
+                                <div><strong>Features:</strong> ${result.data_info?.features_per_sequence || 'N/A'}</div>
+                                <div><strong>Sequence Length:</strong> ${result.data_info?.sequence_length || 'N/A'}</div>
+                            </div>
+                        </div>
+                `;
+                
+                // Model Performance
+                if (evaluation && evaluation.overall_accuracy) {
+                    html += `
+                        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b98130; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #10b981; margin-bottom: 1rem;">🎯 Model Performance</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div><strong>Overall Accuracy:</strong> ${(evaluation.overall_accuracy * 100).toFixed(1)}%</div>
+                                <div><strong>Avg Confidence:</strong> ${(evaluation.average_confidence * 100).toFixed(1)}%</div>
+                                <div><strong>Test Samples:</strong> ${evaluation.total_samples || 'N/A'}</div>
+                            </div>
+                            
+                            <!-- Class Accuracies -->
+                            ${evaluation.class_accuracies ? `
+                                <div style="margin-top: 1rem;">
+                                    <strong>Per-Class Accuracy:</strong>
+                                    <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                                        ${evaluation.class_accuracies.LONG ? `<span style="color: #10b981;">LONG: ${(evaluation.class_accuracies.LONG * 100).toFixed(1)}%</span>` : ''}
+                                        ${evaluation.class_accuracies.NEUTRAL ? `<span style="color: #6b7280;">NEUTRAL: ${(evaluation.class_accuracies.NEUTRAL * 100).toFixed(1)}%</span>` : ''}
+                                        ${evaluation.class_accuracies.SHORT ? `<span style="color: #dc2626;">SHORT: ${(evaluation.class_accuracies.SHORT * 100).toFixed(1)}%</span>` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Live Prediction Test
+                if (prediction && prediction.signal) {
+                    const signalClass = prediction.signal.toLowerCase();
+                    const signalColor = signalClass === 'long' ? '#10b981' : signalClass === 'short' ? '#dc2626' : '#6b7280';
+                    
+                    html += `
+                        <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid #8b5cf630; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #8b5cf6; margin-bottom: 1rem;">🚀 Live Prediction Test</h3>
+                            <div style="text-align: center;">
+                                <div style="font-size: 2rem; color: ${signalColor}; margin: 1rem 0;">
+                                    ${prediction.signal}
+                                </div>
+                                <div style="margin: 1rem 0;">
+                                    <strong>Confidence:</strong> ${(prediction.confidence * 100).toFixed(1)}%
+                                </div>
+                                ${prediction.probabilities ? `
+                                    <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 1rem;">
+                                        <div style="color: #10b981;">LONG: ${(prediction.probabilities.LONG * 100).toFixed(1)}%</div>
+                                        <div style="color: #6b7280;">NEUTRAL: ${(prediction.probabilities.NEUTRAL * 100).toFixed(1)}%</div>
+                                        <div style="color: #dc2626;">SHORT: ${(prediction.probabilities.SHORT * 100).toFixed(1)}%</div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                html += `
+                        <div style="text-align: center; margin-top: 2rem;">
+                            <p style="color: #10b981;">✅ Model is now ready for live trading predictions!</p>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('mainContent').innerHTML = html;
+            }
+
+            function displayTrainingStatus(status) {
+                let html = `
+                    <div style="padding: 2rem;">
+                        <h1 style="color: #8b5cf6; text-align: center; margin-bottom: 2rem;">
+                            📊 JAX-AI System Status
+                        </h1>
+                `;
+                
+                if (!status.jax_available) {
+                    html += `
+                        <div style="background: rgba(220, 38, 38, 0.1); border: 1px solid #dc262630; border-radius: 12px; padding: 1.5rem; text-align: center;">
+                            <h3 style="color: #dc2626;">❌ JAX Not Available</h3>
+                            <p>${status.message || 'JAX is not installed or available'}</p>
+                        </div>
+                    `;
+                } else {
+                    const isReady = status.model_trained && status.ready_for_prediction;
+                    
+                    html += `
+                        <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid #8b5cf630; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #8b5cf6; margin-bottom: 1rem;">🔥 JAX Framework Status</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div><strong>JAX Available:</strong> <span style="color: #10b981;">✅ Yes</span></div>
+                                <div><strong>Model Trained:</strong> ${status.model_trained ? '<span style="color: #10b981;">✅ Yes</span>' : '<span style="color: #dc2626;">❌ No</span>'}</div>
+                                <div><strong>Scaler Fitted:</strong> ${status.scaler_fitted ? '<span style="color: #10b981;">✅ Yes</span>' : '<span style="color: #dc2626;">❌ No</span>'}</div>
+                                <div><strong>Ready for Prediction:</strong> ${status.ready_for_prediction ? '<span style="color: #10b981;">✅ Yes</span>' : '<span style="color: #dc2626;">❌ No</span>'}</div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f630; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+                            <h3 style="color: #3b82f6; margin-bottom: 1rem;">🏗️ Model Architecture</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div><strong>Type:</strong> ${status.model_type}</div>
+                                <div><strong>Transformer Features:</strong> ${status.architecture?.transformer_features || 128}</div>
+                                <div><strong>LSTM Hidden:</strong> ${status.architecture?.lstm_hidden || 64}</div>
+                                <div><strong>Attention Heads:</strong> ${status.architecture?.num_heads || 8}</div>
+                                <div><strong>Classes:</strong> ${status.architecture?.num_classes || 3} (LONG/NEUTRAL/SHORT)</div>
+                                <div><strong>Dropout Rate:</strong> ${status.architecture?.dropout_rate || 0.1}</div>
+                            </div>
+                        </div>
+                        
+                        <div style="text-align: center; padding: 1.5rem; background: ${isReady ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'}; border-radius: 12px;">
+                            <h3 style="color: ${isReady ? '#10b981' : '#f59e0b'};">
+                                ${isReady ? '✅ System Ready for Live Trading!' : '⚠️ Training Required'}
+                            </h3>
+                            <p>${isReady ? 'JAX-AI is trained and ready to make predictions.' : 'Please train the model first using the "Train JAX AI" button.'}</p>
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+                return html;
             }
 
             function displayEnhancedResults(data, clientTime) {
