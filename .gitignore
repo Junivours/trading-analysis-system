@@ -1,27 +1,43 @@
-# Python
+# 🚀 TRADING AI - Railway Deployment Clean
+
+# Python Cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Jupyter Notebooks
-*.ipynb
-.ipynb_checkpoints/
 
 # Environment
 .env
 .venv/
 venv/
 
-# Logs
-*.log
+# Development Files (nicht für Production)
+app_turbo_backup.py
+appbackup.py
+app_turbo_fixed.py
+test_js.html
+js_fix.txt
+advanced_patterns.py
+liquidation_debug.html
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
 # Railway
 railway.json
-
-# VSCode
-.vscode/
+.railway/
