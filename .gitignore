@@ -1,43 +1,69 @@
-# 🚀 TRADING AI - Railway Deployment Clean
+# 🚀 JAX AI Trading System - Git Ignore
 
-# Python Cache
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Environment
 .env
-.venv/
+.venv
+env/
 venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Development Files (nicht für Production)
-app_turbo_backup.py
-appbackup.py
-app_turbo_fixed.py
-test_js.html
-js_fix.txt
-advanced_patterns.py
-liquidation_debug.html
-
-# IDE/Editor
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
-
-# Jupyter
-*.ipynb
-.ipynb_checkpoints/
 
 # Logs
 *.log
 logs/
 
+# JAX Cache
+.jax_cache/
+
+# Model Checkpoints
+*.pkl
+*.joblib
+checkpoints/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
 # Railway
-railway.json
 .railway/
