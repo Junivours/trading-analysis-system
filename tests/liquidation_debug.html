@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Liquidation Debug</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #111; color: white; }
+        .result { margin: 10px 0; padding: 10px; background: #333; border-radius: 5px; }
+        .error { background: #600; }
+        .success { background: #060; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Liquidation Debug Test</h1>
+    <button onclick="runTest()">🧪 Test Liquidation API</button>
+    <div id="results"></div>
+
+    <script>
+    async function runTest() {
+        const results = document.getElementById('results');
+        results.innerHTML = '<div class="result">⏳ Testing API...</div>';
+        
+        try {
+            // Step 1: Test API call
+            results.innerHTML += '<div class="result">📡 Calling API...</div>';
+            const response = await fetch('http://localhost:5001/api/liquidation/BTCUSDT');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            results.innerHTML += '<div class="result success">✅ API responded successfully</div>';
+            
+            // Step 2: Parse JSON
+            const data = await response.json();
+            results.innerHTML += '<div class="result success">✅ JSON parsed successfully</div>';
+            results.innerHTML += `<div class="result">📊 Main keys: ${Object.keys(data).join(', ')}</div>`;
+            
+            // Step 3: Check liquidation_analysis
+            const liquidationData = data.liquidation_analysis || data.liquidation_data || {};
+            results.innerHTML += `<div class="result">🔍 Liquidation keys: ${Object.keys(liquidationData).join(', ')}</div>`;
+            
+            // Step 4: Check current_price
+            const currentPrice = liquidationData.current_price || data.current_price || 0;
+            results.innerHTML += `<div class="result success">💰 Current Price: $${currentPrice.toLocaleString()}</div>`;
+            
+            // Step 5: Check liquidation levels
+            const liquidationLevels = liquidationData.liquidation_levels || [];
+            results.innerHTML += `<div class="result success">📋 Found ${liquidationLevels.length} liquidation levels</div>`;
+            
+            if (liquidationLevels.length > 0) {
+                // Step 6: Test level processing
+                results.innerHTML += '<div class="result">🧪 Testing level processing...</div>';
+                
+                for (let i = 0; i < Math.min(3, liquidationLevels.length); i++) {
+                    const liq = liquidationLevels[i];
+                    
+                    // Safe property access
+                    const leverage = liq.leverage || 0;
+                    const price = liq.price || 0;
+                    const intensity = liq.intensity || 'MEDIUM';
+                    const fundingRate = liq.funding_rate || 0;
+                    const maintenanceMargin = liq.maintenance_margin || 0;
+                    const distancePct = liq.distance_pct || 0;
+                    
+                    results.innerHTML += `
+                        <div class="result success">
+                            ✅ Level ${i+1}: ${leverage}x leverage, $${price.toLocaleString()}, 
+                            intensity: ${intensity}, funding: ${(fundingRate * 100).toFixed(3)}%
+                        </div>
+                    `;
+                }
+                
+                results.innerHTML += '<div class="result success">🎉 All tests passed! Liquidation data is working correctly.</div>';
+            } else {
+                results.innerHTML += '<div class="result error">❌ No liquidation levels found</div>';
+            }
+            
+        } catch (error) {
+            results.innerHTML += `<div class="result error">❌ Error: ${error.message}</div>`;
+            console.error('Test failed:', error);
+        }
+    }
+    </script>
+</body>
+</html>

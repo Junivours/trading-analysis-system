@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔥 JAX AI Test - Ultimate Trading V4</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            padding: 2rem;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .logo {
+            font-size: 2rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+        
+        .test-section {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        
+        .test-btn {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border: none;
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem;
+            transition: transform 0.2s ease;
+        }
+        
+        .test-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .result {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #ef4444;
+        }
+        
+        .loading {
+            color: #f59e0b;
+            text-align: center;
+            padding: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🔥 JAX AI Test Center</div>
+            <p>Ultimate Trading V4 - JAX-Powered AI System</p>
+        </div>
+        
+        <div class="test-section">
+            <h3>🔥 JAX System Status</h3>
+            <p>Teste die JAX-AI-Funktionalität des Ultimate Trading V4 Systems</p>
+            <button class="test-btn" onclick="testJAXStatus()">🔍 JAX Status Check</button>
+            <div id="jaxResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>🚀 AI Model Training</h3>
+            <p>Trainiere das JAX-basierte AI-Modell für Trading-Signale</p>
+            <input type="text" id="symbolInput" placeholder="Symbol (z.B. BTCUSDT)" value="BTCUSDT" style="
+                background: rgba(30, 41, 59, 0.9);
+                border: 1px solid rgba(59, 130, 246, 0.3);
+                border-radius: 0.5rem;
+                color: #f1f5f9;
+                padding: 0.6rem 1rem;
+                margin-right: 1rem;
+                width: 150px;
+            ">
+            <button class="test-btn" onclick="testAITraining()">🧠 Train AI Model</button>
+            <div id="trainResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>⚡ Performance Test</h3>
+            <p>Teste die Performance des neuen AI-Systems</p>
+            <button class="test-btn" onclick="runPerformanceTest()">⚡ Performance Test</button>
+            <div id="perfResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>📊 Dashboard Access</h3>
+            <p>Öffne das Haupt-Dashboard mit JAX-Integration</p>
+            <button class="test-btn" onclick="openDashboard()">📊 Open Dashboard</button>
+            <button class="test-btn" onclick="openLiquidationTest()">💧 Test Liquidation</button>
+        </div>
+    </div>
+
+    <script>
+        async function testJAXStatus() {
+            const resultDiv = document.getElementById('jaxResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Loading JAX status...';
+            
+            try {
+                const response = await fetch('/api/jax_test');
+                const data = await response.json();
+                
+                resultDiv.className = 'result';
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function testAITraining() {
+            const resultDiv = document.getElementById('trainResult');
+            const symbol = document.getElementById('symbolInput').value || 'BTCUSDT';
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = `Training AI model for ${symbol}...`;
+            
+            try {
+                const response = await fetch(`/api/train_ml/${symbol}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        timeframe: '4h'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.className = 'result';
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function runPerformanceTest() {
+            const resultDiv = document.getElementById('perfResult');
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Running performance tests...';
+            
+            try {
+                const startTime = performance.now();
+                
+                // Test multiple endpoints
+                const tests = [
+                    { name: 'JAX Status', url: '/api/jax_test' },
+                    { name: 'BTC Analysis', url: '/api/analyze', method: 'POST', body: { symbol: 'BTCUSDT', timeframe: '4h' } },
+                    { name: 'Liquidation', url: '/api/liquidation/BTCUSDT' }
+                ];
+                
+                const results = [];
+                
+                for (const test of tests) {
+                    const testStart = performance.now();
+                    try {
+                        const response = await fetch(test.url, {
+                            method: test.method || 'GET',
+                            headers: test.body ? { 'Content-Type': 'application/json' } : {},
+                            body: test.body ? JSON.stringify(test.body) : undefined
+                        });
+                        const testEnd = performance.now();
+                        const data = await response.json();
+                        
+                        results.push({
+                            test: test.name,
+                            time: `${(testEnd - testStart).toFixed(2)}ms`,
+                            status: response.ok ? 'OK' : 'ERROR',
+                            size: JSON.stringify(data).length
+                        });
+                    } catch (error) {
+                        const testEnd = performance.now();
+                        results.push({
+                            test: test.name,
+                            time: `${(testEnd - testStart).toFixed(2)}ms`,
+                            status: 'ERROR',
+                            error: error.message
+                        });
+                    }
+                }
+                
+                const totalTime = performance.now() - startTime;
+                
+                resultDiv.className = 'result';
+                resultDiv.textContent = `Performance Test Results (Total: ${totalTime.toFixed(2)}ms):\n\n` +
+                    results.map(r => `${r.test}: ${r.time} - ${r.status}${r.size ? ` (${r.size} bytes)` : ''}${r.error ? ` - ${r.error}` : ''}`).join('\n');
+                
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Performance test error: ${error.message}`;
+            }
+        }
+        
+        function openDashboard() {
+            window.open('/', '_blank');
+        }
+        
+        function openLiquidationTest() {
+            window.open('/api/liquidation/BTCUSDT', '_blank');
+        }
+        
+        // Auto-test JAX status on load
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(testJAXStatus, 1000);
+        });
+    </script>
+</body>
+</html>
