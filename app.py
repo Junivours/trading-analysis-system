@@ -1055,12 +1055,17 @@ def index():
                 const startTime = performance.now();
                 
                 // LIGHTNING SPEED: Ultra-aggressive timeout for instant response
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 second timeout
+                
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ symbol: symbol }),
-                    signal: AbortSignal.timeout(4000) // 4 second timeout for LIGHTNING SPEED
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -3121,9 +3126,9 @@ def analyze_symbol():
                 'rsi': round(float(tech_indicators['rsi']), 0),
                 'macd_histogram': round(float(tech_indicators['macd']), 2),
                 'trend': overall_trend,
-                'price_change_1h': 0.0,  # Default values for compatibility
-                'price_change_24h': 0.0,
-                'price_change_7d': 0.0,
+                'price_change_1h': round(float(tech_indicators.get('price_change_1h', 0.0)), 2),
+                'price_change_24h': round(float(tech_indicators.get('price_change_24h', 0.0)), 2),
+                'price_change_7d': round(float(tech_indicators.get('price_change_7d', 0.0)), 2),
                 'volatility': round(float(tech_indicators['volatility']), 1),
                 'volume_ratio': 1.0,
                 'current_volume': round(float(current_volume), 0),
