@@ -1480,20 +1480,20 @@ def index():
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Stoch %K</div>
-                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.stoch_k < 20 ? '#10b981' : analysis.technical_indicators.stoch_k > 80 ? '#ef4444' : '#f59e0b'};">
+                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.stoch_k < 20 ? '#10b981' : (analysis.technical_indicators.stoch_k > 80 ? '#ef4444' : '#f59e0b')};">
                                 ${safeToFixed(analysis.technical_indicators.stoch_k, 0)}
                             </div>
                             <div style="font-size: 0.75rem; opacity: 0.7; margin-top: 0.25rem;">
-                                ${analysis.technical_indicators.stoch_k < 20 ? 'Oversold' : analysis.technical_indicators.stoch_k > 80 ? 'Overbought' : 'Neutral'}
+                                ${analysis.technical_indicators.stoch_k < 20 ? 'Oversold' : (analysis.technical_indicators.stoch_k > 80 ? 'Overbought' : 'Neutral')}
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">BB Position</div>
-                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.bb_position < 20 ? '#10b981' : analysis.technical_indicators.bb_position > 80 ? '#ef4444' : '#f59e0b'};">
+                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.bb_position < 20 ? '#10b981' : (analysis.technical_indicators.bb_position > 80 ? '#ef4444' : '#f59e0b')};">
                                 ${safeToFixed(analysis.technical_indicators.bb_position, 0)}%
                             </div>
                             <div style="font-size: 0.75rem; opacity: 0.7; margin-top: 0.25rem;">
-                                ${analysis.technical_indicators.bb_position < 20 ? 'Lower Band' : analysis.technical_indicators.bb_position > 80 ? 'Upper Band' : 'Middle'}
+                                ${analysis.technical_indicators.bb_position < 20 ? 'Lower Band' : (analysis.technical_indicators.bb_position > 80 ? 'Upper Band' : 'Middle')}
                             </div>
                         </div>
                     </div>
@@ -1581,7 +1581,7 @@ def index():
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">5D Ratio</div>
-                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.volume_ratio_5d > 1.5 ? '#10b981' : analysis.technical_indicators.volume_ratio_5d < 0.5 ? '#ef4444' : '#f59e0b'};">
+                            <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.technical_indicators.volume_ratio_5d > 1.5 ? '#10b981' : (analysis.technical_indicators.volume_ratio_5d < 0.5 ? '#ef4444' : '#f59e0b')};">
                                 ${safeToFixed(analysis.technical_indicators.volume_ratio_5d, 1)}x
                             </div>
                         </div>
@@ -1602,13 +1602,13 @@ def index():
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
                         <div style="text-align: center; padding: 1rem; background: rgba(248, 113, 113, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">1D Volatility</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.volatility_1d > 5 ? '#ef4444' : analysis.technical_indicators.volatility_1d > 2 ? '#f59e0b' : '#10b981'};">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.volatility_1d > 5 ? '#ef4444' : (analysis.technical_indicators.volatility_1d > 2 ? '#f59e0b' : '#10b981')};">
                                 ${safeToFixed(analysis.technical_indicators.volatility_1d, 1)}%
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(248, 113, 113, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">7D Volatility</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.volatility_7d > 5 ? '#ef4444' : analysis.technical_indicators.volatility_7d > 2 ? '#f59e0b' : '#10b981'};">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.volatility_7d > 5 ? '#ef4444' : (analysis.technical_indicators.volatility_7d > 2 ? '#f59e0b' : '#10b981')};">
                                 ${safeToFixed(analysis.technical_indicators.volatility_7d, 1)}%
                             </div>
                         </div>
@@ -1727,8 +1727,8 @@ def index():
                         
                         <div style="text-align: center; padding: 2rem; background: rgba(245, 158, 11, 0.1); border-radius: 16px; border: 2px solid rgba(245, 158, 11, 0.3);">
                             <div style="font-size: 1.1rem; opacity: 0.8; margin-bottom: 1rem;">Risk Assessment</div>
-                            <div style="font-size: 2.5rem; font-weight: 800; color: ${analysis.technical_indicators.volatility_1d > 5 ? '#ef4444' : analysis.technical_indicators.volatility_1d > 2 ? '#f59e0b' : '#10b981'}; margin-bottom: 0.5rem;">
-                                ${analysis.technical_indicators.volatility_1d > 5 ? 'HIGH' : analysis.technical_indicators.volatility_1d > 2 ? 'MEDIUM' : 'LOW'}
+                            <div style="font-size: 2.5rem; font-weight: 800; color: ${analysis.technical_indicators.volatility_1d > 5 ? '#ef4444' : (analysis.technical_indicators.volatility_1d > 2 ? '#f59e0b' : '#10b981')}; margin-bottom: 0.5rem;">
+                                ${analysis.technical_indicators.volatility_1d > 5 ? 'HIGH' : (analysis.technical_indicators.volatility_1d > 2 ? 'MEDIUM' : 'LOW')}
                             </div>
                             <div style="font-size: 1rem; opacity: 0.7; margin-bottom: 1rem;">Volatility Risk</div>
                             <div style="background: rgba(245, 158, 11, 0.2); padding: 0.75rem; border-radius: 8px;">
@@ -2351,7 +2351,7 @@ def index():
                                 <div style="font-size: 1.5rem; font-weight: 600; color: #ef4444; margin-bottom: 0.3rem;">${perf.max_drawdown}%</div>
                                 <div style="font-size: 0.85rem; opacity: 0.8;">Max Drawdown</div>
                             </div>
-                            <div style="background: rgba(${ratingColor === '#10b981' ? '16, 185, 129' : ratingColor === '#f59e0b' ? '245, 158, 11' : '239, 68, 68'}, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                            <div style="background: rgba(${ratingColor === '#10b981' ? '16, 185, 129' : (ratingColor === '#f59e0b' ? '245, 158, 11' : '239, 68, 68')}, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
                                 <div style="font-size: 1.2rem; font-weight: 600; color: ${ratingColor}; margin-bottom: 0.3rem;">${data.analysis.rating}</div>
                                 <div style="font-size: 0.85rem; opacity: 0.8;">Strategy Rating</div>
                             </div>
@@ -2360,7 +2360,7 @@ def index():
                         <div style="background: rgba(0, 0, 0, 0.1); padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem;">
                             <h5 style="color: #10b981; margin-bottom: 1rem;">📊 Analysis Summary</h5>
                             <div style="margin-bottom: 0.8rem;"><strong>Profit/Loss:</strong> <span style="color: ${returnColor};">${perf.profit_loss > 0 ? '+' : ''}$${perf.profit_loss.toLocaleString()}</span></div>
-                            <div style="margin-bottom: 0.8rem;"><strong>Risk Level:</strong> <span style="color: ${data.analysis.risk_level === 'LOW' ? '#10b981' : data.analysis.risk_level === 'MEDIUM' ? '#f59e0b' : '#ef4444'};">${data.analysis.risk_level}</span></div>
+                            <div style="margin-bottom: 0.8rem;"><strong>Risk Level:</strong> <span style="color: ${data.analysis.risk_level === 'LOW' ? '#10b981' : (data.analysis.risk_level === 'MEDIUM' ? '#f59e0b' : '#ef4444')};">${data.analysis.risk_level}</span></div>
                             <div><strong>Recommendation:</strong> ${data.analysis.recommendation}</div>
                         </div>
                         
