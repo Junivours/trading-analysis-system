@@ -1993,63 +1993,106 @@ def index():
         // 🚀 Additional Functions with MEGA DETAILS
         async function runBacktest() {
             const popup = document.getElementById('popupBody');
+            const symbol = document.getElementById('symbolInput').value.trim().toUpperCase() || 'BTCUSDT';
+            const timeframe = document.getElementById('timeframeSelect').value || '4h';
+            
             popup.innerHTML = `
                 <div style="text-align: center; margin-bottom: 2rem;">
                     <div class="loading" style="margin: 2rem auto;"></div>
-                    <h4 style="color: #f59e0b; margin-top: 1rem;">🔄 Running Professional Backtest...</h4>
-                    <p style="opacity: 0.8;">Analyzing 6 months of historical data...</p>
+                    <h4 style="color: #f59e0b; margin-top: 1rem;">🔄 Running REAL Backtest...</h4>
+                    <p style="opacity: 0.8;">Analyzing ${symbol} with 500 historical candles...</p>
                 </div>
             `;
             
-            setTimeout(() => {
+            try {
+                const response = await fetch('/api/backtest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        timeframe: timeframe,
+                        strategy: 'rsi_macd'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const perf = data.performance;
+                    const returnColor = perf.total_return > 0 ? '#10b981' : '#ef4444';
+                    const ratingColor = data.analysis.rating === 'EXCELLENT' ? '#10b981' : 
+                                       data.analysis.rating === 'GOOD' ? '#f59e0b' : '#ef4444';
+                    
+                    popup.innerHTML = `
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 2rem; border-radius: 16px; margin-bottom: 2rem; text-align: center;">
+                            <h4 style="color: #10b981; margin-bottom: 1rem;">✅ LIVE Backtest Complete!</h4>
+                            <div style="font-size: 1.1rem; opacity: 0.9;">${data.symbol} ${data.strategy.toUpperCase()} Strategy</div>
+                            <div style="font-size: 0.9rem; opacity: 0.7; margin-top: 0.5rem;">${data.period}</div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 2rem;">
+                            <div style="background: rgba(${perf.total_return > 0 ? '16, 185, 129' : '239, 68, 68'}, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
+                                <div style="font-size: 2.5rem; font-weight: 800; color: ${returnColor}; margin-bottom: 0.5rem;">${perf.total_return > 0 ? '+' : ''}${perf.total_return}%</div>
+                                <div style="opacity: 0.8;">Total Return</div>
+                                <div style="font-size: 0.9rem; opacity: 0.6; margin-top: 0.5rem;">$${perf.initial_capital.toLocaleString()} → $${perf.final_balance.toLocaleString()}</div>
+                            </div>
+                            
+                            <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
+                                <div style="font-size: 2.5rem; font-weight: 800; color: #f59e0b; margin-bottom: 0.5rem;">${perf.win_rate}%</div>
+                                <div style="opacity: 0.8;">Win Rate</div>
+                                <div style="font-size: 0.9rem; opacity: 0.6; margin-top: 0.5rem;">${perf.winning_trades}/${perf.total_trades} trades</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem;">
+                            <div style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 1.5rem; font-weight: 600; color: #6366f1; margin-bottom: 0.3rem;">${perf.total_trades}</div>
+                                <div style="font-size: 0.85rem; opacity: 0.8;">Total Trades</div>
+                            </div>
+                            <div style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 1.5rem; font-weight: 600; color: #ef4444; margin-bottom: 0.3rem;">${perf.max_drawdown}%</div>
+                                <div style="font-size: 0.85rem; opacity: 0.8;">Max Drawdown</div>
+                            </div>
+                            <div style="background: rgba(${ratingColor === '#10b981' ? '16, 185, 129' : ratingColor === '#f59e0b' ? '245, 158, 11' : '239, 68, 68'}, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 1.2rem; font-weight: 600; color: ${ratingColor}; margin-bottom: 0.3rem;">${data.analysis.rating}</div>
+                                <div style="font-size: 0.85rem; opacity: 0.8;">Strategy Rating</div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(0, 0, 0, 0.1); padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem;">
+                            <h5 style="color: #10b981; margin-bottom: 1rem;">📊 Analysis Summary</h5>
+                            <div style="margin-bottom: 0.8rem;"><strong>Profit/Loss:</strong> <span style="color: ${returnColor};">${perf.profit_loss > 0 ? '+' : ''}$${perf.profit_loss.toLocaleString()}</span></div>
+                            <div style="margin-bottom: 0.8rem;"><strong>Risk Level:</strong> <span style="color: ${data.analysis.risk_level === 'LOW' ? '#10b981' : data.analysis.risk_level === 'MEDIUM' ? '#f59e0b' : '#ef4444'};">${data.analysis.risk_level}</span></div>
+                            <div><strong>Recommendation:</strong> ${data.analysis.recommendation}</div>
+                        </div>
+                        
+                        ${data.recent_trades && data.recent_trades.length > 0 ? `
+                        <div style="background: rgba(0, 0, 0, 0.05); padding: 1rem; border-radius: 8px;">
+                            <h6 style="color: #666; margin-bottom: 0.8rem;">Recent Trades:</h6>
+                            ${data.recent_trades.slice(-3).map(trade => `
+                                <div style="font-size: 0.85rem; margin-bottom: 0.3rem; opacity: 0.8;">
+                                    ${trade.type} at $${trade.price.toFixed(4)} ${trade.profit ? (trade.profit > 0 ? `(+$${trade.profit.toFixed(2)})` : `($${trade.profit.toFixed(2)})`) : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                        ` : ''}
+                    `;
+                } else {
+                    throw new Error(data.error || 'Backtest failed');
+                }
+                
+            } catch (error) {
+                console.error('Backtest error:', error);
                 popup.innerHTML = `
-                    <div style="background: rgba(16, 185, 129, 0.1); padding: 2rem; border-radius: 16px; margin-bottom: 2rem; text-align: center;">
-                        <h4 style="color: #10b981; margin-bottom: 1rem;">✅ Backtest Complete!</h4>
-                        <div style="font-size: 1.1rem; opacity: 0.9;">RSI Mean Reversion Strategy Results</div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
-                        <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
-                            <div style="font-size: 2rem; font-weight: 800; color: #10b981; margin-bottom: 0.5rem;">+127.3%</div>
-                            <div style="opacity: 0.8;">Total ROI</div>
-                            <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem;">6-month period</div>
-                        </div>
-                        <div style="background: rgba(59, 130, 246, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
-                            <div style="font-size: 2rem; font-weight: 800; color: #3b82f6; margin-bottom: 0.5rem;">2.84</div>
-                            <div style="opacity: 0.8;">Sharpe Ratio</div>
-                            <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem;">Risk-adjusted</div>
-                        </div>
-                        <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
-                            <div style="font-size: 2rem; font-weight: 800; color: #f59e0b; margin-bottom: 0.5rem;">-8.2%</div>
-                            <div style="opacity: 0.8;">Max Drawdown</div>
-                            <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem;">Worst streak</div>
-                        </div>
-                        <div style="background: rgba(139, 92, 246, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
-                            <div style="font-size: 2rem; font-weight: 800; color: #8b5cf6; margin-bottom: 0.5rem;">73.2%</div>
-                            <div style="opacity: 0.8;">Win Rate</div>
-                            <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem;">Success rate</div>
-                        </div>
-                    </div>
-                    
-                    <div style="background: rgba(16, 185, 129, 0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.2);">
-                        <h5 style="color: #10b981; margin-bottom: 1rem;">📊 Trading Statistics:</h5>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
-                            <div style="text-align: center;">
-                                <div style="font-weight: 700; color: #10b981;">Total Trades: 247</div>
-                                <div style="opacity: 0.8; font-size: 0.9rem;">Avg: 1.4 trades/day</div>
-                            </div>
-                            <div style="text-align: center;">
-                                <div style="font-weight: 700; color: #10b981;">Avg Trade: +3.2%</div>
-                                <div style="opacity: 0.8; font-size: 0.9rem;">Per successful trade</div>
-                            </div>
-                            <div style="text-align: center;">
-                                <div style="font-weight: 700; color: #10b981;">Hold Time: 8.7h</div>
-                                <div style="opacity: 0.8; font-size: 0.9rem;">Average duration</div>
-                            </div>
-                        </div>
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 2rem; border-radius: 16px; text-align: center;">
+                        <h4 style="color: #ef4444; margin-bottom: 1rem;">❌ Backtest Error</h4>
+                        <p style="opacity: 0.8;">Error: ${error.message}</p>
+                        <p style="margin-top: 1rem; opacity: 0.6;">Please try again or check the symbol.</p>
                     </div>
                 `;
-            }, 3000);
+            }
         }
         
         async function startJaxTraining() {
