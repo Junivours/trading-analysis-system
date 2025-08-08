@@ -1660,7 +1660,7 @@ def index():
                                             ${level.level} Leverage
                                         </div>
                                         <div style="font-size: 0.8rem; opacity: 0.7;">
-                                            Risk Level: ${level.distance_long < 5 ? 'HIGH' : level.distance_long < 10 ? 'MEDIUM' : 'LOW'}
+                                            Risk Level: ${level.distance_long < 5 ? 'HIGH' : (level.distance_long < 10 ? 'MEDIUM' : 'LOW')}
                                         </div>
                                     </div>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
