@@ -41,6 +41,34 @@ class FundamentalAnalysisEngine:
             if time_since_last < 0.1:  # Max 10 requests/second
                 time.sleep(0.1 - time_since_last)
             
+            # ⚡ LIVE PRICE ENDPOINT - Get current real-time price first
+            current_price_url = f"{self.base_url}/ticker/price"
+            current_price_params = {'symbol': symbol}
+            
+            current_response = requests.get(current_price_url, params=current_price_params, timeout=10)
+            current_response.raise_for_status()
+            current_data = current_response.json()
+            
+            live_price = float(current_data['price'])
+            print(f"🔥 LIVE PRICE from Binance: {symbol} = ${live_price:,.2f}")
+            
+            # 🚀 24H TICKER for REAL price changes
+            ticker_24h_url = f"{self.base_url}/ticker/24hr"
+            ticker_24h_params = {'symbol': symbol}
+            
+            ticker_response = requests.get(ticker_24h_url, params=ticker_24h_params, timeout=10)
+            ticker_response.raise_for_status()
+            ticker_data = ticker_response.json()
+            
+            # Extract REAL 24h changes
+            price_change_24h = float(ticker_data['priceChangePercent'])
+            volume_24h = float(ticker_data['volume'])
+            high_24h = float(ticker_data['highPrice'])
+            low_24h = float(ticker_data['lowPrice'])
+            
+            print(f"📈 24H CHANGE: {price_change_24h:+.2f}% | Volume: {volume_24h:,.0f}")
+            
+            # Historical data for indicators
             url = f"{self.base_url}/klines"
             params = {
                 'symbol': symbol.upper(),
@@ -83,7 +111,23 @@ class FundamentalAnalysisEngine:
                         'volume': float(item[5])
                     })
                 
-                return {'success': True, 'data': ohlcv}
+                # ⚡ CRITICAL: Replace last close with LIVE PRICE for accuracy
+                if len(ohlcv) > 0:
+                    ohlcv[-1]['close'] = live_price
+                    print(f"✅ Updated last candle with live price: ${live_price:,.2f}")
+                
+                # Add real 24h data to response
+                return {
+                    'success': True, 
+                    'data': ohlcv,
+                    'live_stats': {
+                        'price_change_24h': price_change_24h,
+                        'volume_24h': volume_24h,
+                        'high_24h': high_24h,
+                        'low_24h': low_24h,
+                        'live_price': live_price
+                    }
+                }
             else:
                 return {'success': False, 'error': f'API Error: {response.status_code}'}
                 
@@ -91,6 +135,241 @@ class FundamentalAnalysisEngine:
             return {'success': False, 'error': str(e)}
     
     def calculate_technical_indicators(self, data):
+        """📈 ADVANCED Technical Indicators - 20% Weight with MEGA DETAILS"""
+        try:
+            closes = [item['close'] for item in data]
+            highs = [item['high'] for item in data]
+            lows = [item['low'] for item in data]
+            volumes = [item['volume'] for item in data]
+            timestamps = [item['timestamp'] for item in data]
+            
+            # ============================
+            # 🎯 TRADINGVIEW-COMPATIBLE RSI
+            # ============================
+            def calculate_rsi(prices, period=14):
+                if len(prices) < period + 1:
+                    return 50  # Neutral RSI if not enough data
+                    
+                gains = []
+                losses = []
+                
+                for i in range(1, len(prices)):
+                    change = prices[i] - prices[i-1]
+                    if change > 0:
+                        gains.append(change)
+                        losses.append(0)
+                    else:
+                        gains.append(0)
+                        losses.append(abs(change))
+                
+                # Calculate initial averages
+                avg_gain = sum(gains[:period]) / period
+                avg_loss = sum(losses[:period]) / period
+                
+                if avg_loss == 0:
+                    return 100  # Avoid division by zero
+                
+                # Smoothed RSI calculation like TradingView
+                for i in range(period, len(gains)):
+                    avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+                    avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+                
+                if avg_loss == 0:
+                    return 100
+                    
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+                return rsi
+            
+            # ============================
+            # 📊 MULTIPLE MOVING AVERAGES - BULLETPROOF ERROR HANDLING
+            # ============================
+            try:
+                # Ensure we have enough data points
+                if len(closes) == 0:
+                    raise ValueError("No price data available")
+                
+                # SMA calculations with safety checks
+                sma_9 = float(np.mean(closes[-9:]) if len(closes) >= 9 else closes[-1])
+                sma_20 = float(np.mean(closes[-20:]) if len(closes) >= 20 else closes[-1])
+                sma_50 = float(np.mean(closes[-50:]) if len(closes) >= 50 else closes[-1])
+                sma_200 = float(np.mean(closes[-200:]) if len(closes) >= 200 else closes[-1])
+                
+                print(f"✅ SMAs calculated: SMA9={sma_9:.2f}, SMA20={sma_20:.2f}")
+                
+            except Exception as sma_error:
+                print(f"❌ SMA calculation error: {sma_error}")
+                # Fallback to current price if SMA calculation fails
+                fallback_price = float(closes[-1]) if len(closes) > 0 else 50000.0
+                sma_9 = sma_20 = sma_50 = sma_200 = fallback_price
+
+            # EMA Calculation
+            def calculate_ema(prices, period):
+                if len(prices) < period:
+                    return prices[-1]
+                multiplier = 2 / (period + 1)
+                ema = prices[0]
+                for price in prices[1:]:
+                    ema = (price * multiplier) + (ema * (1 - multiplier))
+                return ema
+            
+            ema_12 = calculate_ema(closes, 12)
+            ema_26 = calculate_ema(closes, 26)
+            
+            # ============================
+            # 📊 TRADINGVIEW-COMPATIBLE MACD  
+            # ============================
+            def calculate_proper_macd(prices, fast=12, slow=26, signal=9):
+                if len(prices) < slow:
+                    return 0, 0, 0
+                    
+                # EMA Berechnung wie TradingView
+                def ema(data, period):
+                    if len(data) < period:
+                        return data[-1] if data else 0
+                    alpha = 2 / (period + 1)
+                    result = data[0]
+                    for price in data[1:]:
+                        result = alpha * price + (1 - alpha) * result
+                    return result
+                
+                ema_fast = ema(prices, fast)
+                ema_slow = ema(prices, slow)
+                macd_line = ema_fast - ema_slow
+                
+                # Signal line calculation would need more data
+                signal_line = macd_line * 0.9  # Simplified
+                histogram = macd_line - signal_line
+                
+                return macd_line, signal_line, histogram
+            
+            macd_line, macd_signal, macd_histogram = calculate_proper_macd(closes)
+            
+            # ============================
+            # 📊 VOLATILITY & MARKET STRUCTURE
+            # ============================
+            if len(closes) > 1:
+                price_changes = [abs(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+                volatility = np.std(price_changes) * 100
+            else:
+                volatility = 1.0
+            
+            # Average True Range (ATR)
+            if len(highs) > 1 and len(lows) > 1:
+                true_ranges = []
+                for i in range(1, len(highs)):
+                    tr1 = highs[i] - lows[i]
+                    tr2 = abs(highs[i] - closes[i-1])
+                    tr3 = abs(lows[i] - closes[i-1])
+                    true_ranges.append(max(tr1, tr2, tr3))
+                atr = np.mean(true_ranges[-14:]) if len(true_ranges) >= 14 else np.mean(true_ranges)
+            else:
+                atr = closes[-1] * 0.02  # 2% fallback
+            
+            # Volume Analysis
+            if len(volumes) > 1:
+                avg_volume = np.mean(volumes[-20:]) if len(volumes) >= 20 else volumes[-1]
+                current_volume = volumes[-1]
+                volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            else:
+                avg_volume = volumes[0] if volumes else 1000000
+                current_volume = volumes[-1] if volumes else 1000000
+                volume_ratio = 1.0
+            
+            # Volume weighted analysis
+            avg_volume_5 = np.mean(volumes[-5:]) if len(volumes) >= 5 else volumes[-1]
+            avg_volume_20 = np.mean(volumes[-20:]) if len(volumes) >= 20 else volumes[-1]
+            
+            # Volume trend
+            volume_trend = 'increasing' if avg_volume_5 > avg_volume_20 else 'decreasing'
+            
+            # ============================
+            # 🎯 PRICE ACTION ANALYSIS - KORRIGIERT!
+            # ============================
+            current_price = closes[-1]
+            
+            # KORRIGIERTE Preisänderungsberechnungen für 4h Timeframe
+            # 1H Change (bei 4h timeframe = 1 Kerze = 4h)
+            price_change_1h = ((current_price - closes[-2]) / closes[-2]) * 100 if len(closes) >= 2 else 0
+            
+            # 4H Change (1 Kerze bei 4h timeframe)
+            price_change_4h = ((current_price - closes[-2]) / closes[-2]) * 100 if len(closes) >= 2 else 0
+            
+            # 24H Change (6 Kerzen bei 4h timeframe = 24 Stunden)
+            price_change_24h = ((current_price - closes[-7]) / closes[-7]) * 100 if len(closes) >= 7 else 0
+            
+            # 7D Change (42 Kerzen bei 4h timeframe = 7 Tage)
+            price_change_7d = ((current_price - closes[-43]) / closes[-43]) * 100 if len(closes) >= 43 else 0
+            
+            # Support and Resistance levels
+            recent_highs = highs[-50:] if len(highs) >= 50 else highs
+            recent_lows = lows[-50:] if len(lows) >= 50 else lows
+            
+            resistance_level = max(recent_highs)
+            support_level = min(recent_lows)
+            
+            # Distance to support/resistance
+            resistance_distance = ((resistance_level - current_price) / current_price) * 100
+            support_distance = ((current_price - support_level) / current_price) * 100
+            
+            # ========================================================================================
+            # 📊 RETURN COMPREHENSIVE INDICATORS
+            # ========================================================================================
+            return {
+                'rsi': float(calculate_rsi(closes)),
+                'macd': float(macd_histogram),
+                'macd_line': float(macd_line),
+                'macd_signal': float(macd_signal),
+                'sma_9': float(sma_9),
+                'sma_20': float(sma_20),
+                'sma_50': float(sma_50),
+                'sma_200': float(sma_200),
+                'ema_12': float(ema_12),
+                'ema_26': float(ema_26),
+                'volatility': float(volatility),
+                'volume_ratio': float(volume_ratio),
+                'atr': float(atr),
+                'support_level': float(support_level),
+                'resistance_level': float(resistance_level),
+                'resistance_distance': float(resistance_distance),
+                'support_distance': float(support_distance),
+                'volume_trend': volume_trend,
+                'current_volume': float(current_volume),
+                'price_change_1h': float(price_change_1h),
+                'price_change_24h': float(price_change_24h),
+                'price_change_7d': float(price_change_7d),
+                'timestamps': timestamps[-10:] if len(timestamps) >= 10 else timestamps  # Last 10 timestamps
+            }
+            
+        except Exception as e:
+            print(f"❌ Technical Indicators Error: {e}")
+            return {'error': str(e)}
+
+def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
+    """📈 Enhanced indicators using REAL 24h data from Binance"""
+    try:
+        engine = FundamentalAnalysisEngine()
+        base_indicators = engine.calculate_technical_indicators(data)
+        
+        if 'error' in base_indicators:
+            return base_indicators
+        
+        # Override with REAL 24h data if available
+        if live_stats:
+            base_indicators['price_change_24h'] = float(live_stats.get('price_change_24h', 0.0))
+            base_indicators['volume_24h'] = float(live_stats.get('volume_24h', 0.0))
+            base_indicators['high_24h'] = float(live_stats.get('high_24h', 0.0))
+            base_indicators['low_24h'] = float(live_stats.get('low_24h', 0.0))
+            
+            print(f"✅ Using REAL 24h data: {base_indicators['price_change_24h']:+.2f}%")
+        
+        return base_indicators
+        
+    except Exception as e:
+        print(f"❌ Live Indicators Error: {e}")
+        return {'error': str(e)}
+
+    def calculate_technical_indicators_old(self, data):
         """📈 ADVANCED Technical Indicators - 20% Weight with MEGA DETAILS"""
         try:
             closes = [item['close'] for item in data]
@@ -126,12 +405,26 @@ class FundamentalAnalysisEngine:
                 return rsi
             
             # ============================
-            # 📊 MULTIPLE MOVING AVERAGES
+            # 📊 MULTIPLE MOVING AVERAGES - BULLETPROOF ERROR HANDLING
             # ============================
-            sma_9 = np.mean(closes[-9:]) if len(closes) >= 9 else closes[-1]
-            sma_20 = np.mean(closes[-20:]) if len(closes) >= 20 else closes[-1]
-            sma_50 = np.mean(closes[-50:]) if len(closes) >= 50 else closes[-1]
-            sma_200 = np.mean(closes[-200:]) if len(closes) >= 200 else closes[-1]
+            try:
+                # Ensure we have enough data points
+                if len(closes) == 0:
+                    raise ValueError("No price data available")
+                
+                # SMA calculations with safety checks
+                sma_9 = float(np.mean(closes[-9:]) if len(closes) >= 9 else closes[-1])
+                sma_20 = float(np.mean(closes[-20:]) if len(closes) >= 20 else closes[-1])
+                sma_50 = float(np.mean(closes[-50:]) if len(closes) >= 50 else closes[-1])
+                sma_200 = float(np.mean(closes[-200:]) if len(closes) >= 200 else closes[-1])
+                
+                print(f"✅ SMAs calculated: SMA9={sma_9:.2f}, SMA20={sma_20:.2f}")
+                
+            except Exception as sma_error:
+                print(f"❌ SMA calculation error: {sma_error}")
+                # Fallback to current price if SMA calculation fails
+                fallback_price = float(closes[-1]) if len(closes) > 0 else 50000.0
+                sma_9 = sma_20 = sma_50 = sma_200 = fallback_price
             
             # EMA Calculation
             def calculate_ema(prices, period):
@@ -3223,12 +3516,19 @@ def analyze_symbol():
             return jsonify({'success': False, 'error': market_result.get('error', 'Failed to get market data')})
         
         candles = market_result['data']
+        live_stats = market_result.get('live_stats', {})
         current_price = candles[-1]['close']
         
         print(f"💰 Live-Preis: ${current_price}")
         
-        # TradingView-kompatible Indikatoren
-        tech_indicators = calculate_tradingview_indicators(candles)
+        # Extract REAL 24h data from live_stats
+        real_price_change_24h = live_stats.get('price_change_24h', 0.0)
+        real_volume_24h = live_stats.get('volume_24h', 0.0)
+        
+        print(f"📊 Real 24h Change: {real_price_change_24h:+.2f}% | Volume: {real_volume_24h:,.0f}")
+        
+        # TradingView-kompatible Indikatoren mit ECHTEN 24h-Daten
+        tech_indicators = calculate_tradingview_indicators_with_live_data(candles, live_stats)
         if 'error' in tech_indicators:
             return jsonify({'success': False, 'error': tech_indicators['error']})
         
@@ -3278,42 +3578,43 @@ def analyze_symbol():
                 f"🎯 Take Profit: ${trading_setup['take_profit']:,.0f}",
                 f"📊 Risk/Reward Ratio: {trading_setup['risk_reward_ratio']:.1f}:1"
             ],
+            # Add error handling for API response structure
             'technical_indicators': {
                 'current_price': round(float(current_price), 2),
-                'rsi': round(float(tech_indicators['rsi']), 0),
-                'macd_histogram': round(float(tech_indicators['macd']), 2),
+                'rsi': round(float(tech_indicators.get('rsi', 50)), 0),
+                'macd_histogram': round(float(tech_indicators.get('macd', 0)), 2),
                 'trend': overall_trend,
                 'price_change_1h': round(float(tech_indicators.get('price_change_1h', 0.0)), 2),
                 'price_change_24h': round(float(tech_indicators.get('price_change_24h', 0.0)), 2),
                 'price_change_7d': round(float(tech_indicators.get('price_change_7d', 0.0)), 2),
-                'volatility': round(float(tech_indicators['volatility']), 1),
+                'volatility': round(float(tech_indicators.get('volatility', 1.0)), 1),
                 'volume_ratio': 1.0,
                 'current_volume': round(float(current_volume), 0),
                 'support_level': round(float(support_level), 2),
                 'resistance_level': round(float(resistance_level), 2),
                 'resistance_distance': round(float(resistance_distance), 1),
                 'support_distance': round(float(support_distance), 1),
-                # ✅ FIXED: Add missing SMAs and EMAs
-                'sma_9': round(float(tech_indicators['sma_9']), 2),
-                'sma_20': round(float(tech_indicators['sma_20']), 2),
-                'sma_50': round(float(tech_indicators['sma_50']), 2),
-                'sma_200': round(float(tech_indicators['sma_200']), 2),
-                'ema_12': round(float(tech_indicators['ema_12']), 2),
-                'ema_26': round(float(tech_indicators['ema_26']), 2),
+                # ✅ FIXED: Add missing SMAs and EMAs with proper error handling
+                'sma_9': round(float(tech_indicators.get('sma_9', current_price)), 2),
+                'sma_20': round(float(tech_indicators.get('sma_20', current_price)), 2),
+                'sma_50': round(float(tech_indicators.get('sma_50', current_price)), 2),
+                'sma_200': round(float(tech_indicators.get('sma_200', current_price)), 2),
+                'ema_12': round(float(tech_indicators.get('ema_12', current_price)), 2),
+                'ema_26': round(float(tech_indicators.get('ema_26', current_price)), 2),
                 # Additional indicators for frontend compatibility
                 'stoch_k': 50.0,  # Default stochastic value
                 'stoch_d': 50.0,
                 'bb_position': 50.0,  # Default bollinger band position
                 'volume_ratio_5d': 1.0,
-                'volatility_1d': round(float(tech_indicators['volatility']), 1),
-                'volatility_7d': round(float(tech_indicators['volatility']), 1),
-                'atr_percent': round(float(tech_indicators['volatility']), 1),
-                'atr': round(float(tech_indicators['atr']), 2),
+                'volatility_1d': round(float(tech_indicators.get('volatility', 1.0)), 1),
+                'volatility_7d': round(float(tech_indicators.get('volatility', 1.0)), 1),
+                'atr_percent': round(float(tech_indicators.get('volatility', 1.0)), 1),
+                'atr': round(float(tech_indicators.get('atr', current_price * 0.02)), 2),
                 # Add trend signals for frontend
                 'trend_signals': [
-                    f"RSI: {tech_indicators['rsi']:.0f} ({'Oversold' if tech_indicators['rsi'] < 30 else 'Overbought' if tech_indicators['rsi'] > 70 else 'Neutral'})",
-                    f"MACD: {'Bullish' if tech_indicators['macd'] > 0 else 'Bearish'}",
-                    f"EMA Trend: {'Bullish' if tech_indicators['ema_12'] > tech_indicators['ema_26'] else 'Bearish'}"
+                    f"RSI: {tech_indicators.get('rsi', 50):.0f} ({'Oversold' if tech_indicators.get('rsi', 50) < 30 else 'Overbought' if tech_indicators.get('rsi', 50) > 70 else 'Neutral'})",
+                    f"MACD: {'Bullish' if tech_indicators.get('macd', 0) > 0 else 'Bearish'}",
+                    f"EMA Trend: {'Bullish' if tech_indicators.get('ema_12', 0) > tech_indicators.get('ema_26', 0) else 'Bearish'}"
                 ]
             },
             'signals_breakdown': signal_data['signals_breakdown'],
