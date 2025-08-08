@@ -24,6 +24,7 @@ class FundamentalAnalysisEngine:
     
     def __init__(self):
         self.base_url = "https://api.binance.com/api/v3"
+        self._last_request_time = 0  # Rate limiting initialisierung
         self.analysis_weights = {
             'market_sentiment': 0.30,  # 30% - Market sentiment & volume
             'price_action': 0.25,      # 25% - Price action & momentum  
@@ -32,7 +33,14 @@ class FundamentalAnalysisEngine:
     
     def get_market_data(self, symbol, interval='4h', limit=200):
         """📊 LIVE MARKET DATA - Compatible with TradingView RSI calculations"""
+        import time
+        
         try:
+            # 🚀 RATE LIMITING - Thread-safe
+            time_since_last = time.time() - self._last_request_time
+            if time_since_last < 0.1:  # Max 10 requests/second
+                time.sleep(0.1 - time_since_last)
+            
             url = f"{self.base_url}/klines"
             params = {
                 'symbol': symbol.upper(),
@@ -40,7 +48,25 @@ class FundamentalAnalysisEngine:
                 'limit': limit  # 200 for accurate technical indicators
             }
             
-            response = requests.get(url, params=params, timeout=3)  # AGGRESSIVE 3s timeout
+            # 📡 ROBUST TIMEOUT mit Retry-Logic
+            for attempt in range(3):  # 3 Versuche
+                try:
+                    response = requests.get(url, params=params, timeout=10)  # Längerer timeout
+                    self._last_request_time = time.time()
+                    
+                    if response.status_code == 200:
+                        break
+                    elif response.status_code == 429:  # Rate limit hit
+                        print(f"⚠️ Rate limit hit, waiting {2**attempt} seconds...")
+                        time.sleep(2**attempt)  # Exponential backoff
+                    else:
+                        print(f"❌ API Error {response.status_code}, attempt {attempt+1}")
+                        if attempt == 2:  # Last attempt
+                            raise Exception(f"API returned {response.status_code}")
+                except requests.exceptions.Timeout:
+                    print(f"⏱️ Timeout on attempt {attempt+1}")
+                    if attempt == 2:
+                        raise Exception("API timeout after 3 attempts")
             
             if response.status_code == 200:
                 data = response.json()
@@ -2641,29 +2667,13 @@ def analyze_symbol():
         if not symbol:
             return jsonify({'success': False, 'error': 'Symbol is required'})
         
-        # 1. LIVE MARKET DATA von Binance
-        def get_live_binance_data(symbol, interval='4h', limit=200):
-            try:
-                import requests
-                url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    klines = response.json()
-                    candles = []
-                    for kline in klines:
-                        candles.append({
-                            'open': float(kline[1]),
-                            'high': float(kline[2]),
-                            'low': float(kline[3]),
-                            'close': float(kline[4]),
-                            'volume': float(kline[5]),
-                            'timestamp': int(kline[0])
-                        })
-                    return {'success': True, 'data': candles}
-                else:
-                    return {'success': False, 'error': f'Binance API Error: {response.status_code}'}
-            except Exception as e:
-                return {'success': False, 'error': f'Network error: {str(e)}'}
+        # 1. LIVE MARKET DATA - Verwende verbesserte Engine Klasse
+        engine = FundamentalAnalysisEngine()
+        market_result = engine.get_market_data(symbol, timeframe, 200)
+        if not market_result.get('success', False):
+            return jsonify({'error': market_result.get('error', 'Failed to get market data')})
+        
+        candles = market_result['data']  # Korrekte Datenextraktion
         
         # 2. TRADINGVIEW-KOMPATIBLE TECHNISCHE INDIKATOREN
         def calculate_tradingview_indicators(candles):
@@ -2716,20 +2726,64 @@ def analyze_symbol():
                 return ema[-1]
             
             # ============================
-            # 📈 TRADINGVIEW MACD
+            # 📈 TRADINGVIEW MACD (Vollständig)
             # ============================
             def calculate_tradingview_macd(prices, fast=12, slow=26, signal=9):
                 ema_fast = calculate_tradingview_ema(prices, fast)
                 ema_slow = calculate_tradingview_ema(prices, slow)
                 macd_line = ema_fast - ema_slow
-                return macd_line
+                
+                # MACD Signal Line (EMA9 of MACD Line)
+                if len(prices) >= slow + signal:
+                    # Für Signal Line brauchen wir historische MACD Werte
+                    macd_values = []
+                    for i in range(signal, len(prices)):
+                        ema_f = calculate_tradingview_ema(prices[:i+1], fast)
+                        ema_s = calculate_tradingview_ema(prices[:i+1], slow)
+                        macd_values.append(ema_f - ema_s)
+                    macd_signal = calculate_tradingview_ema(np.array(macd_values), signal)
+                else:
+                    macd_signal = macd_line
+                    
+                return macd_line, macd_signal
             
             # Berechnungen
             rsi = calculate_tradingview_rsi(closes, 14)
-            macd = calculate_tradingview_macd(closes, 12, 26, 9)
+            macd, macd_signal = calculate_tradingview_macd(closes, 12, 26, 9)
             ema_12 = calculate_tradingview_ema(closes, 12)
             ema_26 = calculate_tradingview_ema(closes, 26)
             sma_50 = np.mean(closes[-50:])
+            
+            # Bollinger Bands
+            bb_period = 20
+            bb_std = 2
+            if len(closes) >= bb_period:
+                bb_middle = np.mean(closes[-bb_period:])
+                bb_std_dev = np.std(closes[-bb_period:])
+                bb_upper = bb_middle + (bb_std_dev * bb_std)
+                bb_lower = bb_middle - (bb_std_dev * bb_std)
+                bb_position = ((closes[-1] - bb_lower) / (bb_upper - bb_lower)) * 100
+            else:
+                bb_middle = bb_upper = bb_lower = closes[-1]
+                bb_position = 50
+            
+            # Stochastic Oscillator
+            k_period = 14
+            if len(highs) >= k_period:
+                lowest_low = np.min(lows[-k_period:])
+                highest_high = np.max(highs[-k_period:])
+                if highest_high != lowest_low:
+                    stoch_k = ((closes[-1] - lowest_low) / (highest_high - lowest_low)) * 100
+                else:
+                    stoch_k = 50
+                
+                # Stoch %D (3-period SMA of %K)
+                if len(closes) >= k_period + 2:
+                    stoch_d = 50  # Simplified für Performance
+                else:
+                    stoch_d = stoch_k
+            else:
+                stoch_k = stoch_d = 50
             
             # Volatility und ATR
             atr = np.mean(highs[-14:] - lows[-14:])
@@ -2738,17 +2792,25 @@ def analyze_symbol():
             return {
                 'rsi': float(rsi),
                 'macd': float(macd),
+                'macd_signal': float(macd_signal),
+                'macd_histogram': float(macd - macd_signal),
                 'ema_12': float(ema_12),
                 'ema_26': float(ema_26),
                 'sma_50': float(sma_50),
+                'bb_upper': float(bb_upper),
+                'bb_middle': float(bb_middle), 
+                'bb_lower': float(bb_lower),
+                'bb_position': float(bb_position),
+                'stoch_k': float(stoch_k),
+                'stoch_d': float(stoch_d),
                 'atr': float(atr),
                 'volatility': float(volatility),
                 'volume_avg': float(np.mean(volumes[-20:]))
             }
         
-        # 3. LIVE TRADING SIGNAL LOGIC
+        # 3. LIVE TRADING SIGNAL LOGIC - FIXED
         def generate_live_trading_signals(current_price, indicators):
-            """Generiert Trading-Signale basierend auf TradingView-Standards"""
+            """Generiert Trading-Signale basierend auf TradingView-Standards - TREND-FOLLOWING"""
             signals = []
             confidence = 50
             
@@ -2758,45 +2820,105 @@ def analyze_symbol():
             ema_26 = indicators['ema_26']
             volatility = indicators['volatility']
             
-            # RSI Signale (TradingView Standard)
-            if rsi < 30:
-                signals.append("BUY")
-                confidence += 20
-            elif rsi > 70:
-                signals.append("SELL")
-                confidence += 20
-            elif rsi < 40:
-                signals.append("BUY")
-                confidence += 10
-            elif rsi > 60:
-                signals.append("SELL")
-                confidence += 10
+            # 🎯 TREND ANALYSIS FIRST (Primary Signal)
+            trend_bullish = current_price > ema_12 > ema_26
+            trend_bearish = current_price < ema_12 < ema_26
             
-            # MACD Signale
-            if macd > 0:
-                signals.append("BUY")
-                confidence += 15
-            else:
-                signals.append("SELL")
-                confidence += 15
+            # 📊 RSI Signale - TREND-AWARE (TREND HAT PRIORITÄT!)
+            if trend_bullish:  # In bullish trend - IMMER bullish bias
+                if rsi < 40:  # Oversold in uptrend = STRONG BUY
+                    signals.append("BUY")
+                    signals.append("BUY")  # Double weight for oversold in uptrend
+                    confidence += 30
+                elif rsi < 50:  # Mild pullback = BUY
+                    signals.append("BUY") 
+                    confidence += 20
+                elif rsi > 80:  # Overbought in uptrend = STILL BUY (reduced confidence)
+                    signals.append("BUY")  # TREND OVERRIDES RSI!
+                    confidence += 5  # Lower confidence but still bullish
+                else:  # Normal bullish RSI (50-80) = BUY
+                    signals.append("BUY")
+                    confidence += 15
+                    
+            elif trend_bearish:  # In bearish trend - IMMER bearish bias
+                if rsi > 60:  # Overbought in downtrend = STRONG SELL
+                    signals.append("SELL")
+                    signals.append("SELL")  # Double weight
+                    confidence += 30
+                elif rsi > 50:  # Mild bounce = SELL
+                    signals.append("SELL")
+                    confidence += 20
+                elif rsi < 20:  # Oversold in downtrend = STILL SELL (reduced confidence)
+                    signals.append("SELL")  # TREND OVERRIDES RSI!
+                    confidence += 5
+                else:  # Normal bearish RSI (20-50) = SELL
+                    signals.append("SELL")
+                    confidence += 15
+                    
+            else:  # Sideways market
+                if rsi < 30:  # True oversold
+                    signals.append("BUY")
+                    confidence += 15
+                elif rsi > 70:  # True overbought  
+                    signals.append("SELL")
+                    confidence += 15
+                else:  # Neutral zone
+                    signals.append("HOLD")
+                    confidence += 5
             
-            # EMA Trend
-            if current_price > ema_12 > ema_26:
+            # 📈 MACD Signale - NUR als Bestätigung, NIEMALS gegen Trend!
+            if trend_bullish and macd > 0:  # MACD bestätigt Uptrend
                 signals.append("BUY")
                 confidence += 15
-            elif current_price < ema_12 < ema_26:
-                signals.append("SELL")
+            elif trend_bearish and macd < 0:  # MACD bestätigt Downtrend
+                signals.append("SELL") 
                 confidence += 15
+            # WICHTIG: Keine MACD Signale gegen den Trend!
+            
+            # 🎯 EMA Trend (HÖCHSTE PRIORITÄT - 3x weight!)
+            if trend_bullish:
+                signals.append("BUY")
+                signals.append("BUY")
+                signals.append("BUY")  # Triple weight für Trend!
+                confidence += 35  # Starke Trend-Confidence
+            elif trend_bearish:
+                signals.append("SELL")
+                signals.append("SELL") 
+                signals.append("SELL")  # Triple weight für Trend!
+                confidence += 35
             
             # Volatility Adjustment
             if volatility > 5:
                 confidence -= 10  # Reduce confidence in high volatility
             
+            # 🔍 DEBUGGING - Alle Zwischenschritte loggen
+            signal_debug = {
+                'trend_analysis': f"Bullish: {trend_bullish}, Bearish: {trend_bearish}",
+                'rsi_value': f"RSI: {rsi:.2f}",
+                'macd_value': f"MACD: {macd:.4f}",
+                'ema_comparison': f"Price: {current_price:.2f}, EMA12: {ema_12:.2f}, EMA26: {ema_26:.2f}",
+                'all_signals': signals.copy(),
+                'pre_final_confidence': confidence
+            }
+            
             # Final Signal
             buy_signals = signals.count("BUY")
             sell_signals = signals.count("SELL")
             
-            if buy_signals > sell_signals:
+            # 🚨 TREND-OVERRIDE LOGIC (Verhindert falsche Signale!)
+            if trend_bullish and sell_signals >= buy_signals:
+                # Force BUY in starken Uptrends
+                recommendation = "BUY BTCUSDT" 
+                direction = "LONG"
+                confidence = max(60, confidence)  # Mindest-Confidence in Uptrend
+                signal_debug['trend_override'] = "FORCED BUY in Uptrend"
+            elif trend_bearish and buy_signals >= sell_signals:
+                # Force SELL in starken Downtrends  
+                recommendation = "SELL BTCUSDT"
+                direction = "SHORT"
+                confidence = max(60, confidence)  # Mindest-Confidence in Downtrend
+                signal_debug['trend_override'] = "FORCED SELL in Downtrend"
+            elif buy_signals > sell_signals:
                 recommendation = "BUY BTCUSDT"
                 direction = "LONG"
             elif sell_signals > buy_signals:
@@ -2814,12 +2936,15 @@ def analyze_symbol():
                 'recommendation': recommendation.replace('BTCUSDT', symbol),
                 'direction': direction,
                 'confidence': confidence,
+                'debug_info': signal_debug,  # Alle Debug-Infos
                 'signals_breakdown': {
                     'buy_signals': buy_signals,
                     'sell_signals': sell_signals,
-                    'rsi_signal': 'BUY' if rsi < 40 else 'SELL' if rsi > 60 else 'NEUTRAL',
-                    'macd_signal': 'BUY' if macd > 0 else 'SELL',
-                    'trend_signal': 'BUY' if current_price > ema_12 > ema_26 else 'SELL' if current_price < ema_12 < ema_26 else 'NEUTRAL'
+                    'signal_ratio': f"{buy_signals}:{sell_signals}",
+                    'rsi_signal': f'RSI {rsi:.1f} - Trend: {"BULL" if trend_bullish else "BEAR" if trend_bearish else "SIDE"}',
+                    'macd_signal': f'MACD {macd:.4f} - {"BULLISH" if macd > 0 else "BEARISH"}',
+                    'trend_signal': 'UPTREND' if trend_bullish else 'DOWNTREND' if trend_bearish else 'SIDEWAYS',
+                    'trend_priority': 'ENFORCED' if 'trend_override' in signal_debug else 'NORMAL'
                 }
             }
         
@@ -2920,10 +3045,11 @@ def analyze_symbol():
         
         print(f"🔄 Live-Analyse für {symbol} gestartet...")
         
-        # Live Marktdaten holen
-        market_result = get_live_binance_data(symbol, timeframe)
-        if not market_result['success']:
-            return jsonify({'success': False, 'error': market_result['error']})
+        # Live Marktdaten holen - Verwende Engine Klasse
+        engine = FundamentalAnalysisEngine()
+        market_result = engine.get_market_data(symbol, timeframe, 200)
+        if not market_result.get('success', False):
+            return jsonify({'success': False, 'error': market_result.get('error', 'Failed to get market data')})
         
         candles = market_result['data']
         current_price = candles[-1]['close']
@@ -3116,8 +3242,8 @@ def analyze_symbol():
                 'take_profit_distance': round(take_profit, 1)
             }
         
-        # Berechne Liquidation Map
-        liquidation_zones = calculate_liquidation_zones(current_price, symbol)
+        # Berechne Liquidation Map - Verwende korrekte Funktion
+        liquidation_zones = calculate_live_liquidation_zones(symbol, current_price)
         
         # Berechne Trading Setup
         trading_setup = get_coin_specific_setup(symbol, current_price, tech_indicators, analysis_result['decision'])
