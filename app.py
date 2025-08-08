@@ -476,6 +476,16 @@ def favicon():
     """🎯 Favicon endpoint to prevent 404 errors"""
     return '', 204
 
+@app.route('/health')
+def health_check():
+    """🔍 Health check endpoint for Railway deployment"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'ULTIMATE TRADING V3',
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'version': '3.0.0'
+    }), 200
+
 @app.route('/')
 def index():
     return render_template_string('''
@@ -3639,9 +3649,14 @@ if __name__ == '__main__':
     print("🚀 ULTIMATE TRADING SYSTEM")
     print("📊 Professional Trading Analysis")
     print(f"⚡ Server starting on port: {port}")
+    print(f"🌍 Environment: {'Production' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Development'}")
+    
+    # Production vs Development settings
+    debug_mode = not os.environ.get('RAILWAY_ENVIRONMENT', False)
     
     app.run(
         host='0.0.0.0',
         port=port,
-        debug=False
+        debug=debug_mode,
+        threaded=True
     )
