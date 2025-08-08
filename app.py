@@ -9,21 +9,6 @@ import json
 import warnings
 warnings.filterwarnings("ignore")
 
-# 🔐 SICHERHEITS-IMPORT
-try:
-    from license_manager import require_license, license_manager
-    # Lizenz-Check beim Start
-    is_valid, message = license_manager.validate_license()
-    if not is_valid:
-        print(f"🚫 UNAUTHORIZED ACCESS ATTEMPT: {message}")
-        print("📧 Contact developer for valid license")
-        exit(1)
-    print(f"✅ Licensed system active: {message}")
-except ImportError:
-    print("❌ Security system not found - Development mode")
-    def require_license(func):
-        return func  # Development bypass
-
 # ========================================================================================
 # 🚀 ULTIMATE TRADING V3 - PROFESSIONAL AI-POWERED TRADING SYSTEM
 # ========================================================================================
@@ -2382,11 +2367,14 @@ def index():
                         ${data.recent_trades && data.recent_trades.length > 0 ? `
                         <div style="background: rgba(0, 0, 0, 0.05); padding: 1rem; border-radius: 8px;">
                             <h6 style="color: #666; margin-bottom: 0.8rem;">Recent Trades:</h6>
-                            ${data.recent_trades.slice(-3).map(trade => `
+                            ${data.recent_trades.slice(-3).map(trade => {
+                                const profitText = trade.profit ? (trade.profit > 0 ? '(+$' + trade.profit.toFixed(2) + ')' : '($' + trade.profit.toFixed(2) + ')') : '';
+                                return `
                                 <div style="font-size: 0.85rem; margin-bottom: 0.3rem; opacity: 0.8;">
-                                    ${trade.type} at $${trade.price.toFixed(4)} ${trade.profit ? (trade.profit > 0 ? `(+$${trade.profit.toFixed(2)})` : `($${trade.profit.toFixed(2)})`) : ''}
+                                    ${trade.type} at $${trade.price.toFixed(4)} ${profitText}
                                 </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                         ` : ''}
                     `;
@@ -2774,7 +2762,6 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 @app.route('/api/analyze', methods=['POST'])
-@require_license  # 🔐 LIZENZ-SCHUTZ
 def analyze_symbol():
     """🎯 PROTECTED API - Live Trading Analysis mit korrekten TradingView-kompatiblen Berechnungen"""
     try:
@@ -3583,7 +3570,6 @@ def jax_training():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/multi_asset', methods=['POST'])
-@require_license  # 🔐 LIZENZ-SCHUTZ
 def multi_asset_analysis():
     """🌐 LIVE Multi-Asset Analysis - Real-time comparison of multiple cryptocurrencies"""
     try:
