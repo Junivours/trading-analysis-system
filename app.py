@@ -2463,7 +2463,7 @@ def index():
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; font-size: 0.9rem;">
                                 <div style="text-align: center; opacity: 0.8;">
                                     <strong>Market Sentiment:</strong> 
-                                    <span style="color: ${summary.sentiment === 'BULLISH' ? '#10b981' : summary.sentiment === 'BEARISH' ? '#ef4444' : '#f59e0b'};">
+                                    <span style="color: ${summary.sentiment === 'BULLISH' ? '#10b981' : (summary.sentiment === 'BEARISH' ? '#ef4444' : '#f59e0b')};">
                                         ${summary.sentiment}
                                     </span>
                                 </div>
@@ -2478,7 +2478,7 @@ def index():
                                 <div style="background: rgba(255,255,255,0.05); padding: 1.2rem; border-radius: 10px; border-left: 4px solid ${asset.signal_color}; position: relative;">
                                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                                         <div style="display: flex; align-items: center;">
-                                            <div style="font-size: 1.5rem; margin-right: 0.8rem;">${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎'}</div>
+                                            <div style="font-size: 1.5rem; margin-right: 0.8rem;">${index === 0 ? '🥇' : (index === 1 ? '🥈' : (index === 2 ? '🥉' : '💎'))}</div>
                                             <div>
                                                 <div style="font-size: 1.3rem; font-weight: bold; color: white;">${asset.symbol}</div>
                                                 <div style="font-size: 1rem; opacity: 0.8; color: #10b981;">$${asset.price.toLocaleString()}</div>
@@ -2519,7 +2519,7 @@ def index():
                                         <div style="display: flex; gap: 1.5rem;">
                                             <div style="text-align: center;">
                                                 <div style="font-size: 0.8rem; opacity: 0.7;">RSI</div>
-                                                <div style="font-weight: bold; color: ${asset.rsi < 30 ? '#10b981' : asset.rsi > 70 ? '#ef4444' : '#f59e0b'};">${asset.rsi.toFixed(1)}</div>
+                                                <div style="font-weight: bold; color: ${asset.rsi < 30 ? '#10b981' : (asset.rsi > 70 ? '#ef4444' : '#f59e0b')};">${asset.rsi.toFixed(1)}</div>
                                             </div>
                                             <div style="text-align: center;">
                                                 <div style="font-size: 0.8rem; opacity: 0.7;">MACD</div>
@@ -2527,11 +2527,11 @@ def index():
                                             </div>
                                             <div style="text-align: center;">
                                                 <div style="font-size: 0.8rem; opacity: 0.7;">Vol Ratio</div>
-                                                <div style="font-weight: bold; color: ${asset.volume_ratio > 1.2 ? '#10b981' : asset.volume_ratio < 0.8 ? '#ef4444' : '#f59e0b'};">${asset.volume_ratio.toFixed(1)}x</div>
+                                                <div style="font-weight: bold; color: ${asset.volume_ratio > 1.2 ? '#10b981' : (asset.volume_ratio < 0.8 ? '#ef4444' : '#f59e0b')};">${asset.volume_ratio.toFixed(1)}x</div>
                                             </div>
                                             <div style="text-align: center;">
                                                 <div style="font-size: 0.8rem; opacity: 0.7;">Trend</div>
-                                                <div style="font-weight: bold; font-size: 0.8rem; color: ${asset.trend.includes('bullish') ? '#10b981' : asset.trend.includes('bearish') ? '#ef4444' : '#f59e0b'};">
+                                                <div style="font-weight: bold; font-size: 0.8rem; color: ${asset.trend.includes('bullish') ? '#10b981' : (asset.trend.includes('bearish') ? '#ef4444' : '#f59e0b')};">
                                                     ${asset.trend.toUpperCase()}
                                                 </div>
                                             </div>
