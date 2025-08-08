@@ -915,6 +915,49 @@ def index():
         </div>
         
         <div class="container">
+            <!-- 🎯 LIVE PRICE TICKER - Top Display -->
+            <div class="controls" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(16, 185, 129, 0.2)); border: 2px solid rgba(6, 182, 212, 0.3);">
+                <h3 style="color: #06b6d4; margin-bottom: 1.5rem; text-align: center;">📊 Live Price Analysis</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div style="text-align: center; padding: 1.5rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px; border: 1px solid rgba(6, 182, 212, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Current Price</div>
+                        <div style="font-size: 2rem; font-weight: 800; color: #06b6d4;" data-price-display="main" id="mainPrice">
+                            $64,250.00
+                        </div>
+                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;" id="lastUpdate">
+                            Live Data
+                        </div>
+                    </div>
+                    <div style="text-align: center; padding: 1.5rem; background: rgba(16, 185, 129, 0.1); border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">1H Change</div>
+                        <div style="font-size: 1.6rem; font-weight: 700; color: #10b981;" data-change-display="main-1h" data-change-type="1h" id="change1h">
+                            +0.0%
+                        </div>
+                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
+                            Last Hour
+                        </div>
+                    </div>
+                    <div style="text-align: center; padding: 1.5rem; background: rgba(16, 185, 129, 0.1); border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">24H Change</div>
+                        <div style="font-size: 1.6rem; font-weight: 700; color: #10b981;" data-change-display="main-24h" data-change-type="24h" id="change24h">
+                            +0.0%
+                        </div>
+                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
+                            24 Hours
+                        </div>
+                    </div>
+                    <div style="text-align: center; padding: 1.5rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px; border: 1px solid rgba(139, 92, 246, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">7D Change</div>
+                        <div style="font-size: 1.6rem; font-weight: 700; color: #8b5cf6;" data-change-display="main-7d" data-change-type="7d" id="change7d">
+                            +0.0%
+                        </div>
+                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
+                            7 Days
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- 🎯 TRADING CONTROLS -->
             <div class="controls">
                 <h3>🎯 Trading Analysis</h3>
@@ -1026,6 +1069,9 @@ def index():
                 return;
             }
             
+            // 🚀 IMMEDIATE: Load initial price data
+            updatePriceDisplay();
+            
             startRealTimeUpdates();
         });
         
@@ -1040,6 +1086,107 @@ def index():
                     updateAnalysis();
                 }
             }, 5000); // 5 seconds for MAXIMUM RESPONSIVENESS
+            
+            // 📊 SEPARATE: Update price display every 3 seconds
+            setInterval(() => {
+                updatePriceDisplay();
+            }, 3000);
+        }
+        
+        // 💰 DEDICATED Price Display Update Function
+        async function updatePriceDisplay() {
+            try {
+                const symbolElement = document.getElementById('symbolInput');
+                if (!symbolElement) return;
+                
+                const symbol = symbolElement.value?.toUpperCase() || 'BTCUSDT';
+                
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol }),
+                    signal: AbortSignal.timeout(3000)
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.technical_indicators) {
+                        updatePriceElements(data.technical_indicators);
+                    }
+                }
+            } catch (error) {
+                console.log('Price update failed:', error.message);
+            }
+        }
+        
+        // 📊 Update Price Elements in DOM
+        function updatePriceElements(indicators) {
+            // Update main price display
+            const mainPrice = document.getElementById('mainPrice');
+            if (mainPrice && indicators.current_price) {
+                mainPrice.textContent = `$${indicators.current_price.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                })}`;
+            }
+            
+            // Update all price displays
+            const priceElements = document.querySelectorAll('[data-price-display]');
+            priceElements.forEach(element => {
+                if (indicators.current_price) {
+                    element.textContent = `$${indicators.current_price.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    })}`;
+                }
+            });
+            
+            // Update specific change displays
+            const changes = {
+                '1h': indicators.price_change_1h || 0,
+                '24h': indicators.price_change_24h || 0,
+                '7d': indicators.price_change_7d || 0
+            };
+            
+            // Update individual change elements by ID
+            const change1h = document.getElementById('change1h');
+            const change24h = document.getElementById('change24h');
+            const change7d = document.getElementById('change7d');
+            
+            if (change1h) {
+                const val = changes['1h'];
+                change1h.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change1h.style.color = val >= 0 ? '#10b981' : '#ef4444';
+            }
+            
+            if (change24h) {
+                const val = changes['24h'];
+                change24h.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change24h.style.color = val >= 0 ? '#10b981' : '#ef4444';
+            }
+            
+            if (change7d) {
+                const val = changes['7d'];
+                change7d.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change7d.style.color = val >= 0 ? '#10b981' : '#ef4444';
+            }
+            
+            // Update all change elements with data attributes  
+            const changeElements = document.querySelectorAll('[data-change-display]');
+            changeElements.forEach(element => {
+                const changeType = element.getAttribute('data-change-type');
+                const changeValue = changes[changeType] || 0;
+                
+                const changeText = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(1)}%`;
+                element.textContent = changeText;
+                element.style.color = changeValue >= 0 ? '#10b981' : '#ef4444';
+            });
+            
+            // Update timestamp
+            const lastUpdate = document.getElementById('lastUpdate');
+            if (lastUpdate) {
+                lastUpdate.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+            }
         }
         
         // 🚀 OPTIMIZED Analysis Update - MAXIMUM SPEED
@@ -1439,25 +1586,25 @@ def index():
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px; transition: transform 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Current Price</div>
-                            <div style="font-size: 1.4rem; font-weight: 700; color: #06b6d4;">
+                            <div style="font-size: 1.4rem; font-weight: 700; color: #06b6d4;" data-price-display="current">
                                 $${safeToFixed(analysis.technical_indicators.current_price, 2)}
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px; transition: transform 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">1H Change</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_1h >= 0 ? '#10b981' : '#ef4444'};">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_1h >= 0 ? '#10b981' : '#ef4444'};" data-change-display="1h" data-change-type="1h">
                                 ${analysis.technical_indicators.price_change_1h >= 0 ? '+' : ''}${safeToFixed(analysis.technical_indicators.price_change_1h, 1)}%
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px; transition: transform 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">24H Change</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_24h >= 0 ? '#10b981' : '#ef4444'};">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_24h >= 0 ? '#10b981' : '#ef4444'};" data-change-display="24h" data-change-type="24h">
                                 ${analysis.technical_indicators.price_change_24h >= 0 ? '+' : ''}${safeToFixed(analysis.technical_indicators.price_change_24h, 1)}%
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px; transition: transform 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">7D Change</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_7d >= 0 ? '#10b981' : '#ef4444'};">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.technical_indicators.price_change_7d >= 0 ? '#10b981' : '#ef4444'};" data-change-display="7d" data-change-type="7d">
                                 ${analysis.technical_indicators.price_change_7d >= 0 ? '+' : ''}${safeToFixed(analysis.technical_indicators.price_change_7d, 1)}%
                             </div>
                         </div>
@@ -3146,9 +3293,13 @@ def analyze_symbol():
                 'resistance_level': round(float(resistance_level), 2),
                 'resistance_distance': round(float(resistance_distance), 1),
                 'support_distance': round(float(support_distance), 1),
+                # ✅ FIXED: Add missing SMAs and EMAs
+                'sma_9': round(float(tech_indicators['sma_9']), 2),
+                'sma_20': round(float(tech_indicators['sma_20']), 2),
+                'sma_50': round(float(tech_indicators['sma_50']), 2),
+                'sma_200': round(float(tech_indicators['sma_200']), 2),
                 'ema_12': round(float(tech_indicators['ema_12']), 2),
                 'ema_26': round(float(tech_indicators['ema_26']), 2),
-                'sma_50': round(float(tech_indicators['sma_50']), 2),
                 # Additional indicators for frontend compatibility
                 'stoch_k': 50.0,  # Default stochastic value
                 'stoch_d': 50.0,
