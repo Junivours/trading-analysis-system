@@ -866,6 +866,37 @@ def index():
                         <span id="analyzeText">🚀 Analyze</span>
                     </button>
                 </div>
+                
+                <!-- 🎯 NEUE DYNAMISCHE BUTTONS -->
+                <div class="dynamic-controls" style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <button onclick="showLiquidationMap()" style="
+                        background: linear-gradient(135deg, #ef4444, #dc2626); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1rem; 
+                        font-size: 1rem; 
+                        font-weight: 700; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(239, 68, 68, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                        💥 Liquidation Map
+                    </button>
+                    
+                    <button onclick="showTradingSetup()" style="
+                        background: linear-gradient(135deg, #10b981, #059669); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1rem; 
+                        font-size: 1rem; 
+                        font-weight: 700; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(16, 185, 129, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                        🎯 Trading Setup
+                    </button>
+                </div>
             </div>
             
             <!-- 📊 RESULTS DISPLAY -->
@@ -2084,6 +2115,152 @@ def index():
             alert('🔍 Advanced Technical Scan - Coming in next update!\\n\\n📊 Features:\\n• Multi-timeframe analysis\\n• Pattern recognition\\n• Volume profile analysis\\n• Advanced indicators suite');
         }
         
+        // ========================================================================================
+        // 🎯 NEUE DYNAMISCHE FUNKTIONEN - LIQUIDATION MAP & TRADING SETUP
+        // ========================================================================================
+        
+        async function showLiquidationMap() {
+            const symbol = document.getElementById('symbolInput').value || 'BTCUSDT';
+            
+            try {
+                const response = await fetch(`/api/liquidation_map/${symbol}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    let html = `
+                        <div style="text-align: center; margin-bottom: 2rem;">
+                            <h3 style="color: #ef4444; margin-bottom: 1rem;">💥 LIQUIDATION MAP - ${data.symbol}</h3>
+                            <div style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                                <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444;">Current Price: $${data.current_price}</div>
+                                <div style="opacity: 0.8; margin-top: 0.5rem;">Trend: ${data.market_structure.trend} | Volatility: ${data.market_structure.volatility}%</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                            <div style="background: rgba(34, 197, 94, 0.1); padding: 1rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">
+                                <h4 style="color: #22c55e; margin-bottom: 1rem;">📈 LONG LIQUIDATIONS</h4>
+                    `;
+                    
+                    data.liquidation_zones.forEach(zone => {
+                        html += `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(34, 197, 94, 0.05); border-radius: 8px;">
+                                <span style="font-weight: 700;">${zone.level}</span>
+                                <span>$${zone.long_liquidation}</span>
+                                <span style="color: #22c55e;">-${zone.distance_long}%</span>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                            </div>
+                            <div style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                                <h4 style="color: #ef4444; margin-bottom: 1rem;">📉 SHORT LIQUIDATIONS</h4>
+                    `;
+                    
+                    data.liquidation_zones.forEach(zone => {
+                        html += `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(239, 68, 68, 0.05); border-radius: 8px;">
+                                <span style="font-weight: 700;">${zone.level}</span>
+                                <span>$${zone.short_liquidation}</span>
+                                <span style="color: #ef4444;">+${zone.distance_short}%</span>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div style="background: rgba(59, 130, 246, 0.1); padding: 1rem; border-radius: 12px; text-align: center;">
+                                <div style="font-weight: 700; color: #3b82f6;">Support Level</div>
+                                <div style="font-size: 1.1rem; margin-top: 0.5rem;">$${data.support_level}</div>
+                            </div>
+                            <div style="background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 12px; text-align: center;">
+                                <div style="font-weight: 700; color: #f59e0b;">Resistance Level</div>
+                                <div style="font-size: 1.1rem; margin-top: 0.5rem;">$${data.resistance_level}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('analysisResult').innerHTML = html;
+                } else {
+                    alert('❌ Error loading liquidation map: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Network error: ' + error.message);
+            }
+        }
+        
+        async function showTradingSetup() {
+            const symbol = document.getElementById('symbolInput').value || 'BTCUSDT';
+            
+            try {
+                const response = await fetch(`/api/trading_setup/${symbol}`);
+                const data = await response.json();
+                
+                if (data.success && data.setup) {
+                    const setup = data.setup;
+                    const context = data.market_context;
+                    
+                    let html = `
+                        <div style="text-align: center; margin-bottom: 2rem;">
+                            <h3 style="color: #10b981; margin-bottom: 1rem;">🎯 TRADING SETUP - ${data.symbol}</h3>
+                            <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                                <div style="font-size: 1.2rem; font-weight: 700; color: #10b981;">${data.action} Signal - ${data.confidence}% Confidence</div>
+                                <div style="opacity: 0.8; margin-top: 0.5rem;">Current Price: $${data.current_price}</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                            <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 12px;">
+                                <h4 style="color: #10b981; margin-bottom: 1rem;">📋 TRADE DETAILS</h4>
+                                <div style="margin-bottom: 0.5rem;"><strong>Side:</strong> ${setup.side}</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Entry:</strong> $${setup.entry_price}</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Stop Loss:</strong> $${setup.stop_loss} (-${setup.stop_loss_distance}%)</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Take Profit:</strong> $${setup.take_profit} (+${setup.take_profit_distance}%)</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Risk/Reward:</strong> 1:${setup.risk_reward_ratio}</div>
+                            </div>
+                            
+                            <div style="background: rgba(59, 130, 246, 0.1); padding: 1rem; border-radius: 12px;">
+                                <h4 style="color: #3b82f6; margin-bottom: 1rem;">⚙️ POSITION SIZING</h4>
+                                <div style="margin-bottom: 0.5rem;"><strong>Portfolio Size:</strong> ${setup.position_size_pct}%</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Max Leverage:</strong> ${setup.max_leverage}x</div>
+                                <div style="margin-bottom: 0.5rem;"><strong>Risk Level:</strong> ${setup.position_size_pct <= 2 ? 'LOW' : setup.position_size_pct <= 4 ? 'MEDIUM' : 'HIGH'}</div>
+                                <div style="margin-top: 1rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 8px; font-size: 0.9rem;">
+                                    💡 Never risk more than you can afford to lose
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(245, 158, 11, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem;">
+                            <h4 style="color: #f59e0b; margin-bottom: 1rem;">📊 MARKET CONTEXT</h4>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                                <div><strong>RSI:</strong> ${context.rsi} ${context.rsi < 30 ? '(Oversold)' : context.rsi > 70 ? '(Overbought)' : '(Neutral)'}</div>
+                                <div><strong>MACD:</strong> ${context.macd_signal}</div>
+                                <div><strong>Trend:</strong> ${context.trend}</div>
+                                <div><strong>Volatility:</strong> ${context.volatility}%</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('analysisResult').innerHTML = html;
+                } else if (data.success && data.action === 'HOLD') {
+                    document.getElementById('analysisResult').innerHTML = `
+                        <div style="text-align: center; padding: 2rem; background: rgba(156, 163, 175, 0.1); border-radius: 12px;">
+                            <h3 style="color: #9ca3af;">⏸️ NO TRADE SETUP</h3>
+                            <p style="opacity: 0.8;">${data.reason}</p>
+                            <p style="margin-top: 1rem;">Current Price: $${data.current_price}</p>
+                        </div>
+                    `;
+                } else {
+                    alert('❌ Error loading trading setup: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Network error: ' + error.message);
+            }
+        }
+        
         // 🎯 Enter key support
         document.getElementById('symbolInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -2099,8 +2276,201 @@ def index():
     ''')
 
 # ========================================================================================
-# 🚀 API ROUTES - PROFESSIONAL TRADING ENDPOINTS
+# 🚀 API ROUTES - PROFESSIONAL TRADING ENDPOINTS  
 # ========================================================================================
+
+@app.route('/api/liquidation_map/<symbol>')
+def get_liquidation_map(symbol):
+    """🎯 DYNAMISCHE LIQUIDATION MAP - Coin-spezifisch"""
+    try:
+        # Hole aktuelle Marktdaten für den spezifischen Coin
+        market_data = engine.get_market_data(symbol.upper(), '1h', 100)
+        if not market_data['success']:
+            return jsonify({'error': 'Market data unavailable'})
+        
+        ohlcv = market_data['data']
+        current_price = ohlcv[-1]['close']
+        
+        # Berechne coin-spezifische Liquidation Levels
+        def calculate_liquidation_zones(price, symbol_type):
+            """Dynamische Liquidation basierend auf Coin-Typ"""
+            if 'BTC' in symbol:
+                # Bitcoin: Höhere Liquidation Cluster
+                leverage_levels = [5, 10, 20, 50, 100]
+                volatility_factor = 0.03  # 3% für BTC
+            elif 'ETH' in symbol:
+                # Ethereum: Mittlere Liquidation
+                leverage_levels = [3, 10, 25, 50, 75]
+                volatility_factor = 0.04  # 4% für ETH
+            elif any(alt in symbol for alt in ['SOL', 'ADA', 'DOT', 'AVAX']):
+                # Top Altcoins: Höhere Volatilität
+                leverage_levels = [2, 5, 10, 25, 50]
+                volatility_factor = 0.06  # 6% für Top Alts
+            else:
+                # Andere Coins: Maximale Volatilität
+                leverage_levels = [2, 3, 5, 10, 20]
+                volatility_factor = 0.08  # 8% für andere
+            
+            liq_zones = []
+            for leverage in leverage_levels:
+                # Long Liquidations (unter dem Preis)
+                long_liq = price * (1 - (1/leverage) - volatility_factor)
+                # Short Liquidations (über dem Preis)  
+                short_liq = price * (1 + (1/leverage) + volatility_factor)
+                
+                liq_zones.append({
+                    'level': f"{leverage}x",
+                    'long_liquidation': round(long_liq, 6),
+                    'short_liquidation': round(short_liq, 6),
+                    'distance_long': round(((price - long_liq) / price) * 100, 2),
+                    'distance_short': round(((short_liq - price) / price) * 100, 2)
+                })
+            
+            return liq_zones
+        
+        # Berechne Support/Resistance für Liquidation Map
+        prices = [candle['close'] for candle in ohlcv[-50:]]
+        support_level = min(prices)
+        resistance_level = max(prices)
+        
+        liquidation_zones = calculate_liquidation_zones(current_price, symbol)
+        
+        return jsonify({
+            'success': True,
+            'symbol': symbol.upper(),
+            'current_price': round(current_price, 6),
+            'liquidation_zones': liquidation_zones,
+            'support_level': round(support_level, 6),
+            'resistance_level': round(resistance_level, 6),
+            'market_structure': {
+                'trend': 'BULLISH' if current_price > sum(prices)/len(prices) else 'BEARISH',
+                'volatility': round(np.std(prices[-20:]) / np.mean(prices[-20:]) * 100, 2)
+            },
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False})
+
+@app.route('/api/trading_setup/<symbol>')
+def get_trading_setup(symbol):
+    """🎯 DYNAMISCHES TRADING SETUP - Coin-spezifisch"""
+    try:
+        # Hole aktuelle Marktdaten
+        market_data = engine.get_market_data(symbol.upper(), '4h', 200)
+        if not market_data['success']:
+            return jsonify({'error': 'Market data unavailable'})
+        
+        # Analysiere mit der Engine
+        analysis = engine.fundamental_analysis(symbol.upper(), market_data['data'])
+        if not analysis['success']:
+            return jsonify({'error': 'Analysis failed'})
+        
+        current_price = market_data['data'][-1]['close']
+        tech_indicators = analysis['technical_indicators']
+        
+        # Coin-spezifische Trading Parameter
+        def get_coin_specific_setup(symbol, price, indicators):
+            """Dynamische Trading Setup basierend auf Coin"""
+            
+            # Base Setup abhängig vom Coin
+            if 'BTC' in symbol:
+                base_stop_loss = 2.0    # 2% für BTC
+                base_take_profit = 5.0  # 5% für BTC  
+                position_size_pct = 3.0 # 3% Portfolio für BTC
+                leverage_max = 3        # Max 3x für BTC
+            elif 'ETH' in symbol:
+                base_stop_loss = 3.0    # 3% für ETH
+                base_take_profit = 7.0  # 7% für ETH
+                position_size_pct = 2.5 # 2.5% Portfolio
+                leverage_max = 5        # Max 5x für ETH
+            elif any(alt in symbol for alt in ['SOL', 'ADA', 'DOT', 'AVAX', 'MATIC']):
+                base_stop_loss = 4.0    # 4% für Top Alts
+                base_take_profit = 10.0 # 10% für Top Alts
+                position_size_pct = 2.0 # 2% Portfolio
+                leverage_max = 10       # Max 10x für Top Alts
+            else:
+                base_stop_loss = 6.0    # 6% für andere
+                base_take_profit = 15.0 # 15% für andere
+                position_size_pct = 1.0 # 1% Portfolio für Risiko
+                leverage_max = 5        # Max 5x für andere
+            
+            # Volatilitäts-Anpassung
+            volatility = indicators.get('volatility', 2)
+            if volatility > 5:
+                base_stop_loss *= 1.5
+                position_size_pct *= 0.7
+            elif volatility < 1:
+                base_stop_loss *= 0.8
+                position_size_pct *= 1.2
+            
+            # RSI-basierte Anpassung
+            rsi = indicators.get('rsi', 50)
+            if rsi < 30:  # Oversold
+                take_profit = base_take_profit * 1.3  # Mehr Profit erwarten
+                stop_loss = base_stop_loss * 0.8     # Tighter Stop
+            elif rsi > 70:  # Overbought
+                take_profit = base_take_profit * 0.7  # Weniger Profit erwarten
+                stop_loss = base_stop_loss * 1.2     # Wider Stop
+            else:
+                take_profit = base_take_profit
+                stop_loss = base_stop_loss
+            
+            # Berechne konkrete Levels
+            if analysis['decision'] == 'BUY':
+                entry_price = price
+                stop_loss_price = price * (1 - stop_loss/100)
+                take_profit_price = price * (1 + take_profit/100)
+                side = 'LONG'
+            elif analysis['decision'] == 'SELL':
+                entry_price = price
+                stop_loss_price = price * (1 + stop_loss/100)
+                take_profit_price = price * (1 - take_profit/100)
+                side = 'SHORT'
+            else:
+                return None
+            
+            return {
+                'side': side,
+                'entry_price': round(entry_price, 6),
+                'stop_loss': round(stop_loss_price, 6),
+                'take_profit': round(take_profit_price, 6),
+                'position_size_pct': round(position_size_pct, 1),
+                'max_leverage': leverage_max,
+                'risk_reward_ratio': round(take_profit/stop_loss, 2),
+                'stop_loss_distance': round(stop_loss, 1),
+                'take_profit_distance': round(take_profit, 1)
+            }
+        
+        setup = get_coin_specific_setup(symbol, current_price, tech_indicators)
+        
+        if not setup:
+            return jsonify({
+                'success': True,
+                'symbol': symbol.upper(),
+                'action': 'HOLD',
+                'reason': 'No clear setup - Wait for better entry',
+                'current_price': round(current_price, 6)
+            })
+        
+        return jsonify({
+            'success': True,
+            'symbol': symbol.upper(),
+            'current_price': round(current_price, 6),
+            'action': analysis['decision'],
+            'confidence': analysis['confidence'],
+            'setup': setup,
+            'market_context': {
+                'rsi': tech_indicators.get('rsi', 50),
+                'macd_signal': 'BULLISH' if tech_indicators.get('macd_line', 0) > tech_indicators.get('macd_signal', 0) else 'BEARISH',
+                'trend': 'BULLISH' if tech_indicators.get('sma_20', 0) > tech_indicators.get('sma_50', 0) else 'BEARISH',
+                'volatility': tech_indicators.get('volatility', 0)
+            },
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False})
 
 @app.route('/analyze', methods=['POST'])
 @app.route('/api/analyze', methods=['POST'])
