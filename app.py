@@ -2298,19 +2298,154 @@ def analyze_symbol():
 
 @app.route('/api/backtest', methods=['POST'])
 def run_backtest():
-    """⚡ Professional backtest endpoint"""
+    """⚡ Professional backtest endpoint - DYNAMIC & REALISTIC"""
     try:
-        # Placeholder for comprehensive backtest system
+        data = request.json
+        symbol = data.get('symbol', 'BTCUSDT').upper()
+        timeframe = data.get('timeframe', '4h')
+        strategy = data.get('strategy', 'rsi_macd')
+        
+        # Hole historische Daten für Backtest
+        market_data = engine.get_market_data(symbol, timeframe, limit=500)
+        if not market_data['success']:
+            return jsonify({'success': False, 'error': 'Could not fetch market data'})
+        
+        candles = market_data['data']
+        
+        # Dynamisches Backtest basierend auf echten Daten
+        def run_strategy_backtest(candles, strategy_type):
+            balance = 10000  # Startkapital $10,000
+            position = 0     # Aktuelle Position
+            entry_price = 0
+            trades = []
+            equity_curve = [balance]
+            
+            def calc_rsi(prices, period=14):
+                """Lokale RSI Berechnung für Backtest"""
+                if len(prices) < period + 1:
+                    return [50] * len(prices)
+                
+                deltas = np.diff(prices)
+                gain = np.where(deltas > 0, deltas, 0)
+                loss = np.where(deltas < 0, -deltas, 0)
+                
+                avg_gain = np.mean(gain[:period])
+                avg_loss = np.mean(loss[:period])
+                
+                rsi_values = []
+                for i in range(period, len(prices)):
+                    if avg_loss == 0:
+                        rsi_values.append(100)
+                    else:
+                        rs = avg_gain / avg_loss
+                        rsi = 100 - (100 / (1 + rs))
+                        rsi_values.append(rsi)
+                    
+                    # Update für nächste Iteration
+                    if i < len(prices) - 1:
+                        current_gain = max(prices[i+1] - prices[i], 0)
+                        current_loss = max(prices[i] - prices[i+1], 0)
+                        avg_gain = (avg_gain * (period - 1) + current_gain) / period
+                        avg_loss = (avg_loss * (period - 1) + current_loss) / period
+                
+                return rsi_values
+            
+            for i in range(50, len(candles)):  # Brauche 50 Kerzen für Indikatoren
+                current = candles[i]
+                price = current['close']
+                
+                # Berechne Indikatoren für aktuelle Position
+                closes = [c['close'] for c in candles[i-50:i]]
+                rsi_values = calc_rsi(closes)
+                rsi = rsi_values[-1] if rsi_values else 50
+                
+                # RSI MACD Strategie
+                if strategy_type == 'rsi_macd':
+                    # Entry Signale
+                    if position == 0:  # Keine Position
+                        if rsi < 30:  # Überverkauft
+                            position = balance / price  # Kaufe für gesamtes Kapital
+                            entry_price = price
+                            balance = 0
+                            trades.append({
+                                'type': 'BUY',
+                                'price': price,
+                                'amount': position,
+                                'timestamp': current['timestamp']
+                            })
+                    
+                    elif position > 0:  # Long Position
+                        if rsi > 70 or (price < entry_price * 0.95):  # Take Profit oder Stop Loss
+                            balance = position * price
+                            trades.append({
+                                'type': 'SELL',
+                                'price': price,
+                                'amount': position,
+                                'profit': balance - 10000,
+                                'timestamp': current['timestamp']
+                            })
+                            position = 0
+                            entry_price = 0
+                
+                # Aktueller Portfolio Wert
+                current_value = balance + (position * price if position > 0 else 0)
+                equity_curve.append(current_value)
+            
+            # Final sell wenn noch Position offen
+            if position > 0:
+                final_price = candles[-1]['close']
+                balance = position * final_price
+                trades.append({
+                    'type': 'SELL',
+                    'price': final_price,
+                    'amount': position,
+                    'profit': balance - 10000,
+                    'timestamp': candles[-1]['timestamp']
+                })
+            
+            return {
+                'final_balance': balance,
+                'trades': trades,
+                'equity_curve': equity_curve[-100:],  # Letzten 100 Punkte
+                'total_trades': len([t for t in trades if t['type'] == 'SELL']),
+                'winning_trades': len([t for t in trades if t['type'] == 'SELL' and t.get('profit', 0) > 0]),
+                'max_drawdown': min(equity_curve) if equity_curve else 10000
+            }
+        
+        # Führe Backtest aus
+        results = run_strategy_backtest(candles, strategy)
+        
+        # Berechne Performance Metriken
+        total_return = ((results['final_balance'] - 10000) / 10000) * 100
+        win_rate = (results['winning_trades'] / max(results['total_trades'], 1)) * 100
+        max_dd_pct = ((10000 - results['max_drawdown']) / 10000) * 100
+        
         return jsonify({
             'success': True,
-            'message': '📈 Backtest system under development',
-            'features': [
-                'RSI Mean Reversion Strategy',
-                '6-Month Historical Analysis',
-                'Risk Management Metrics',
-                'Performance Visualization'
-            ]
+            'symbol': symbol,
+            'strategy': strategy.upper(),
+            'timeframe': timeframe,
+            'period': f"{len(candles)} candles ({len(candles) * 4} hours)" if timeframe == '4h' else f"{len(candles)} candles",
+            'performance': {
+                'total_return': round(total_return, 2),
+                'final_balance': round(results['final_balance'], 2),
+                'initial_capital': 10000,
+                'profit_loss': round(results['final_balance'] - 10000, 2),
+                'win_rate': round(win_rate, 1),
+                'total_trades': results['total_trades'],
+                'winning_trades': results['winning_trades'],
+                'losing_trades': results['total_trades'] - results['winning_trades'],
+                'max_drawdown': round(max_dd_pct, 2)
+            },
+            'recent_trades': results['trades'][-5:] if results['trades'] else [],
+            'equity_curve': results['equity_curve'],
+            'analysis': {
+                'rating': 'EXCELLENT' if total_return > 20 else 'GOOD' if total_return > 5 else 'POOR',
+                'risk_level': 'HIGH' if max_dd_pct > 20 else 'MEDIUM' if max_dd_pct > 10 else 'LOW',
+                'recommendation': 'Use this strategy' if total_return > 10 and win_rate > 50 else 'Optimize parameters'
+            }
         })
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
