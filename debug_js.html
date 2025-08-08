@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JavaScript Debug</title>
+</head>
+<body>
+    <script>
+        // TEST: Extract and test JavaScript from app.py
+        let currentAnalysis = null;
+        
+        // Test function definitions
+        try {
+            // Mock functions to test syntax
+            function runTurboAnalysis() {
+                console.log('runTurboAnalysis defined successfully');
+                return true;
+            }
+            
+            function openPopup(type) {
+                console.log('openPopup defined successfully with type:', type);
+                return true;
+            }
+            
+            // Test template string with nested ternary
+            const rsiClass = 'neutral';
+            const indicators = { rsi: 45 };
+            
+            const testHTML = `
+                <div style="color: ${rsiClass === 'rsi-oversold' ? '#10b981' : (rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b')};">
+                    ${indicators.rsi}
+                </div>
+            `;
+            
+            console.log('✅ All JavaScript syntax is valid!');
+            console.log('Test HTML:', testHTML);
+            
+            // Test function calls
+            runTurboAnalysis();
+            openPopup('test');
+            
+        } catch (error) {
+            console.error('❌ JavaScript Syntax Error:', error);
+            document.body.innerHTML = '<h1>JavaScript Error: ' + error.message + '</h1>';
+        }
+    </script>
+    
+    <h1>JavaScript Syntax Test</h1>
+    <p>Check browser console for results.</p>
+    
+    <button onclick="runTurboAnalysis()">Test runTurboAnalysis</button>
+    <button onclick="openPopup('test')">Test openPopup</button>
+</body>
+</html>

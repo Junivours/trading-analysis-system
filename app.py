@@ -1223,13 +1223,16 @@ def index():
             // PERFORMANCE: Pre-calculate classes
             const rsiClass = getRSIClass(indicators.rsi);
             const macdColor = indicators.macd > 0 ? '#10b981' : '#ef4444';
-            const volColor = indicators.volatility > 3 ? '#ef4444' : indicators.volatility > 1 ? '#f59e0b' : '#10b981';
+            const volColor = indicators.volatility > 3 ? '#ef4444' : (indicators.volatility > 1 ? '#f59e0b' : '#10b981');
+            
+            // Fix nested ternary in template string
+            const rsiColor = rsiClass === 'rsi-oversold' ? '#10b981' : (rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b');
             
             return `
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.8rem; margin-bottom: 1rem;">
                     <div style="background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">RSI</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: ${rsiClass === 'rsi-oversold' ? '#10b981' : (rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b')};">${indicators.rsi}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: ${rsiColor};">${indicators.rsi}</div>
                     </div>
                     
                     <div style="background: rgba(59, 130, 246, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
