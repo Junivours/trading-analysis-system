@@ -9,6 +9,21 @@ import json
 import warnings
 warnings.filterwarnings("ignore")
 
+# 🔐 SICHERHEITS-IMPORT
+try:
+    from license_manager import require_license, license_manager
+    # Lizenz-Check beim Start
+    is_valid, message = license_manager.validate_license()
+    if not is_valid:
+        print(f"🚫 UNAUTHORIZED ACCESS ATTEMPT: {message}")
+        print("📧 Contact developer for valid license")
+        exit(1)
+    print(f"✅ Licensed system active: {message}")
+except ImportError:
+    print("❌ Security system not found - Development mode")
+    def require_license(func):
+        return func  # Development bypass
+
 # ========================================================================================
 # 🚀 ULTIMATE TRADING V3 - PROFESSIONAL AI-POWERED TRADING SYSTEM
 # ========================================================================================
@@ -2434,55 +2449,143 @@ def index():
                 if (data.success) {
                     const assets = data.assets;
                     const summary = data.market_summary;
+                    const performance = data.performance_metrics;
                     
                     resultsDiv.innerHTML = `
                         <div style="background: rgba(102, 126, 234, 0.1); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
-                            <h4 style="color: #667eea; margin-bottom: 1rem;">📊 Market Overview</h4>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1rem;">
+                            <h4 style="color: #667eea; margin-bottom: 1rem;">📊 Live Market Overview (${data.analysis_timestamp})</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
                                 <div style="background: rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
-                                    <div style="color: #10b981; font-weight: bold;">🟢 Buy Signals</div>
+                                    <div style="color: #10b981; font-weight: bold; font-size: 0.9rem;">🟢 Buy Signals</div>
                                     <div style="font-size: 1.5rem; font-weight: 800; color: #10b981;">${summary.total_buy_signals}</div>
                                 </div>
                                 <div style="background: rgba(239, 68, 68, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
-                                    <div style="color: #ef4444; font-weight: bold;">🔴 Sell Signals</div>
+                                    <div style="color: #ef4444; font-weight: bold; font-size: 0.9rem;">🔴 Sell Signals</div>
                                     <div style="font-size: 1.5rem; font-weight: 800; color: #ef4444;">${summary.total_sell_signals}</div>
                                 </div>
+                                <div style="background: rgba(245, 158, 11, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                                    <div style="color: #f59e0b; font-weight: bold; font-size: 0.9rem;">⚖️ Hold Signals</div>
+                                    <div style="font-size: 1.5rem; font-weight: 800; color: #f59e0b;">${summary.total_hold_signals}</div>
+                                </div>
+                                <div style="background: rgba(102, 126, 234, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                                    <div style="color: #667eea; font-weight: bold; font-size: 0.9rem;">🎯 High Confidence</div>
+                                    <div style="font-size: 1.5rem; font-weight: 800; color: #667eea;">${summary.high_confidence_signals}</div>
+                                </div>
                             </div>
-                            <div style="text-align: center; opacity: 0.8;">Average RSI: ${summary.avg_rsi}</div>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; font-size: 0.9rem;">
+                                <div style="text-align: center; opacity: 0.8;">
+                                    <strong>Market Sentiment:</strong> 
+                                    <span style="color: ${summary.sentiment === 'BULLISH' ? '#10b981' : summary.sentiment === 'BEARISH' ? '#ef4444' : '#f59e0b'};">
+                                        ${summary.sentiment}
+                                    </span>
+                                </div>
+                                <div style="text-align: center; opacity: 0.8;">
+                                    <strong>Avg Confidence:</strong> ${summary.avg_confidence}%
+                                </div>
+                            </div>
                         </div>
                         
                         <div style="display: grid; gap: 1rem;">
                             ${assets.map((asset, index) => `
-                                <div style="background: rgba(255,255,255,0.05); padding: 1.2rem; border-radius: 10px; border-left: 4px solid ${asset.signal_color};">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                                <div style="background: rgba(255,255,255,0.05); padding: 1.2rem; border-radius: 10px; border-left: 4px solid ${asset.signal_color}; position: relative;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                                         <div style="display: flex; align-items: center;">
-                                            <div style="font-size: 1.5rem; margin-right: 0.5rem;">${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎'}</div>
+                                            <div style="font-size: 1.5rem; margin-right: 0.8rem;">${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎'}</div>
                                             <div>
-                                                <div style="font-size: 1.2rem; font-weight: bold; color: white;">${asset.symbol}</div>
-                                                <div style="font-size: 0.9rem; opacity: 0.7;">$${asset.price.toLocaleString()}</div>
+                                                <div style="font-size: 1.3rem; font-weight: bold; color: white;">${asset.symbol}</div>
+                                                <div style="font-size: 1rem; opacity: 0.8; color: #10b981;">$${asset.price.toLocaleString()}</div>
                                             </div>
                                         </div>
                                         <div style="text-align: right;">
-                                            <div style="color: ${asset.change_24h >= 0 ? '#10b981' : '#ef4444'}; font-weight: bold; font-size: 1.1rem;">
-                                                ${asset.change_24h >= 0 ? '+' : ''}${asset.change_24h}%
+                                            <div style="background: ${asset.signal_color}; color: white; padding: 0.5rem 1rem; border-radius: 8px; font-weight: bold; font-size: 0.95rem; margin-bottom: 0.5rem;">
+                                                ${asset.signal} (${asset.confidence}%)
                                             </div>
-                                            <div style="font-size: 0.8rem; opacity: 0.7;">24h Change</div>
+                                            <div style="font-size: 0.8rem; opacity: 0.7;">Score: ${asset.fundamental_score}</div>
                                         </div>
                                     </div>
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <div style="display: flex; gap: 1rem;">
+                                    
+                                    <!-- Price Changes Row -->
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem; padding: 0.8rem; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.3rem;">1H</div>
+                                            <div style="font-weight: bold; color: ${asset.change_1h >= 0 ? '#10b981' : '#ef4444'};">
+                                                ${asset.change_1h >= 0 ? '+' : ''}${asset.change_1h.toFixed(2)}%
+                                            </div>
+                                        </div>
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.3rem;">24H</div>
+                                            <div style="font-weight: bold; font-size: 1.1rem; color: ${asset.change_24h >= 0 ? '#10b981' : '#ef4444'};">
+                                                ${asset.change_24h >= 0 ? '+' : ''}${asset.change_24h.toFixed(2)}%
+                                            </div>
+                                        </div>
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.3rem;">7D</div>
+                                            <div style="font-weight: bold; color: ${asset.change_7d >= 0 ? '#10b981' : '#ef4444'};">
+                                                ${asset.change_7d >= 0 ? '+' : ''}${asset.change_7d.toFixed(2)}%
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Technical Indicators Row -->
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                                        <div style="display: flex; gap: 1.5rem;">
                                             <div style="text-align: center;">
                                                 <div style="font-size: 0.8rem; opacity: 0.7;">RSI</div>
-                                                <div style="font-weight: bold; color: ${asset.rsi < 30 ? '#10b981' : asset.rsi > 70 ? '#ef4444' : '#f59e0b'};">${asset.rsi}</div>
+                                                <div style="font-weight: bold; color: ${asset.rsi < 30 ? '#10b981' : asset.rsi > 70 ? '#ef4444' : '#f59e0b'};">${asset.rsi.toFixed(1)}</div>
                                             </div>
                                             <div style="text-align: center;">
-                                                <div style="font-size: 0.8rem; opacity: 0.7;">Volume</div>
-                                                <div style="font-weight: bold;">${(asset.volume / 1000000).toFixed(1)}M</div>
+                                                <div style="font-size: 0.8rem; opacity: 0.7;">MACD</div>
+                                                <div style="font-weight: bold; color: ${asset.macd >= 0 ? '#10b981' : '#ef4444'};">${asset.macd.toFixed(2)}</div>
+                                            </div>
+                                            <div style="text-align: center;">
+                                                <div style="font-size: 0.8rem; opacity: 0.7;">Vol Ratio</div>
+                                                <div style="font-weight: bold; color: ${asset.volume_ratio > 1.2 ? '#10b981' : asset.volume_ratio < 0.8 ? '#ef4444' : '#f59e0b'};">${asset.volume_ratio.toFixed(1)}x</div>
+                                            </div>
+                                            <div style="text-align: center;">
+                                                <div style="font-size: 0.8rem; opacity: 0.7;">Trend</div>
+                                                <div style="font-weight: bold; font-size: 0.8rem; color: ${asset.trend.includes('bullish') ? '#10b981' : asset.trend.includes('bearish') ? '#ef4444' : '#f59e0b'};">
+                                                    ${asset.trend.toUpperCase()}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div style="background: ${asset.signal_color}; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: bold; font-size: 0.9rem;">
-                                            ${asset.signal}
-                                        </div>
+                                    </div>
+                                    
+                                    <!-- Analysis Signals -->
+                                    <div style="font-size: 0.85rem; opacity: 0.8; line-height: 1.4;">
+                                        ${asset.analysis_signals.map(signal => `• ${signal}`).join('<br>')}
+                                    </div>
+                                    
+                                    <!-- Live Update Timestamp -->
+                                    <div style="position: absolute; top: 0.8rem; right: 0.8rem; font-size: 0.7rem; opacity: 0.6; background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 4px;">
+                                        ${asset.last_updated}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        ${performance ? `
+                        <div style="background: rgba(102, 126, 234, 0.1); padding: 1.5rem; border-radius: 12px; margin-top: 1.5rem;">
+                            <h4 style="color: #667eea; margin-bottom: 1rem;">🏆 Performance Highlights</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.9rem;">
+                                <div style="text-align: center; padding: 0.8rem; background: rgba(16, 185, 129, 0.1); border-radius: 8px;">
+                                    <div style="color: #10b981; font-weight: bold;">🚀 Top Gainer 24H</div>
+                                    <div style="font-weight: bold; color: white;">${performance.top_gainer_24h.symbol}: +${performance.top_gainer_24h.change_24h.toFixed(2)}%</div>
+                                </div>
+                                <div style="text-align: center; padding: 0.8rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px;">
+                                    <div style="color: #ef4444; font-weight: bold;">📉 Top Loser 24H</div>
+                                    <div style="font-weight: bold; color: white;">${performance.top_loser_24h.symbol}: ${performance.top_loser_24h.change_24h.toFixed(2)}%</div>
+                                </div>
+                                <div style="text-align: center; padding: 0.8rem; background: rgba(102, 126, 234, 0.1); border-radius: 8px;">
+                                    <div style="color: #667eea; font-weight: bold;">📊 Highest Volume</div>
+                                    <div style="font-weight: bold; color: white;">${performance.highest_volume.symbol}: ${performance.highest_volume.volume_ratio.toFixed(1)}x</div>
+                                </div>
+                                <div style="text-align: center; padding: 0.8rem; background: rgba(245, 158, 11, 0.1); border-radius: 8px;">
+                                    <div style="color: #f59e0b; font-weight: bold;">⚡ Most Volatile</div>
+                                    <div style="font-weight: bold; color: white;">${performance.most_volatile.symbol}: ${performance.most_volatile.volatility.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
                                     </div>
                                 </div>
                             `).join('')}
@@ -2671,8 +2774,9 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 @app.route('/api/analyze', methods=['POST'])
+@require_license  # 🔐 LIZENZ-SCHUTZ
 def analyze_symbol():
-    """🎯 Live Trading Analysis mit korrekten TradingView-kompatiblen Berechnungen"""
+    """🎯 PROTECTED API - Live Trading Analysis mit korrekten TradingView-kompatiblen Berechnungen"""
     try:
         data = request.get_json()
         symbol = data.get('symbol', '').upper()
@@ -3479,91 +3583,144 @@ def jax_training():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/multi_asset', methods=['POST'])
+@require_license  # 🔐 LIZENZ-SCHUTZ
 def multi_asset_analysis():
-    """🌐 Multi-Asset Analysis - Compare multiple cryptocurrencies"""
+    """🌐 LIVE Multi-Asset Analysis - Real-time comparison of multiple cryptocurrencies"""
     try:
         data = request.json
         symbols = data.get('symbols', ['BTCUSDT', 'ETHUSDT'])
         timeframe = data.get('timeframe', '4h')
         
+        print(f"🌐 Multi-Asset Analysis für {len(symbols)} Assets gestartet...")
         results = []
         
         for symbol in symbols:
             try:
-                # Hole Marktdaten für jeden Coin
-                market_data = engine.get_market_data(symbol, timeframe, limit=50)
+                print(f"📊 Analysiere {symbol}...")
+                
+                # LIVE MARKTDATEN - Vollständige Analyse wie bei Single-Asset
+                market_data = engine.get_market_data(symbol, timeframe, limit=200)  # Mehr Daten für Genauigkeit
                 if not market_data['success']:
+                    print(f"❌ Fehler bei {symbol}: {market_data.get('error')}")
                     continue
                 
-                current_price = market_data['data'][-1]['close']
+                # VOLLSTÄNDIGE TECHNISCHE ANALYSE - Gleich wie bei Single-Asset
+                tech_indicators = engine.calculate_technical_indicators(market_data['data'])
+                if 'error' in tech_indicators:
+                    print(f"❌ Technische Analyse Fehler bei {symbol}: {tech_indicators['error']}")
+                    continue
                 
-                # Schnelle technische Analyse
-                closes = [candle['close'] for candle in market_data['data']]
+                # LIVE FUNDAMENTAL ANALYSIS
+                fundamental_result = engine.fundamental_analysis(symbol, market_data['data'])
+                if not fundamental_result['success']:
+                    print(f"❌ Fundamental Analyse Fehler bei {symbol}: {fundamental_result.get('error')}")
+                    continue
                 
-                # RSI berechnen (vereinfacht)
-                if len(closes) >= 14:
-                    gains = [max(closes[i] - closes[i-1], 0) for i in range(1, len(closes))]
-                    losses = [max(closes[i-1] - closes[i], 0) for i in range(1, len(closes))]
-                    avg_gain = sum(gains[-14:]) / 14
-                    avg_loss = sum(losses[-14:]) / 14
-                    rs = avg_gain / avg_loss if avg_loss > 0 else 100
-                    rsi = 100 - (100 / (1 + rs))
-                else:
-                    rsi = 50
+                # LIVE PREISDATEN
+                current_price = tech_indicators['current_price']
                 
-                # 24h Change
-                price_24h_ago = closes[-24] if len(closes) >= 24 else closes[0]
-                change_24h = ((current_price - price_24h_ago) / price_24h_ago) * 100
+                # TRADING SIGNALE - Basierend auf kompletter Analyse
+                decision = fundamental_result['decision']
+                confidence = fundamental_result['confidence']
                 
-                # Signal basierend auf RSI
-                if rsi < 30:
-                    signal = "STRONG BUY"
-                    signal_color = "#10b981"
-                elif rsi < 45:
-                    signal = "BUY"
-                    signal_color = "#10b981"
-                elif rsi > 70:
-                    signal = "STRONG SELL"
-                    signal_color = "#ef4444"
-                elif rsi > 55:
-                    signal = "SELL"
-                    signal_color = "#ef4444"
+                # Signal Color basierend auf Decision + Confidence
+                if decision == 'BUY':
+                    if confidence >= 80:
+                        signal = "STRONG BUY"
+                        signal_color = "#10b981"
+                    else:
+                        signal = "BUY"
+                        signal_color = "#34d399"
+                elif decision == 'SELL':
+                    if confidence >= 80:
+                        signal = "STRONG SELL"
+                        signal_color = "#ef4444"
+                    else:
+                        signal = "SELL"
+                        signal_color = "#f87171"
                 else:
                     signal = "HOLD"
                     signal_color = "#f59e0b"
                 
+                # LIVE DATEN-ASSEMBLY
                 results.append({
                     'symbol': symbol.replace('USDT', ''),
-                    'price': round(current_price, 6),
-                    'change_24h': round(change_24h, 2),
-                    'rsi': round(rsi, 1),
+                    'full_symbol': symbol,
+                    'price': current_price,
+                    'change_1h': tech_indicators['price_change_1h'],
+                    'change_24h': tech_indicators['price_change_24h'],
+                    'change_7d': tech_indicators['price_change_7d'],
+                    'rsi': tech_indicators['rsi'],
+                    'macd': tech_indicators['macd_histogram'],
+                    'volume': tech_indicators['current_volume'],
+                    'volume_ratio': tech_indicators['volume_ratio_5d'],
+                    'volatility': tech_indicators['volatility'],
+                    'trend': tech_indicators['trend'],
+                    'support_level': tech_indicators['support_level'],
+                    'resistance_level': tech_indicators['resistance_level'],
                     'signal': signal,
                     'signal_color': signal_color,
-                    'volume': market_data['data'][-1]['volume'],
-                    'market_cap_rank': len(results) + 1  # Simplified ranking
+                    'confidence': confidence,
+                    'fundamental_score': fundamental_result['fundamental_score'],
+                    'analysis_signals': fundamental_result['signals'][:2],  # Top 2 Signale
+                    'last_updated': datetime.now().strftime('%H:%M:%S')
                 })
+                
+                print(f"✅ {symbol} analysiert: {signal} ({confidence}%)")
+                
             except Exception as coin_error:
-                print(f"Error analyzing {symbol}: {coin_error}")
+                print(f"❌ Fehler bei {symbol}: {coin_error}")
                 continue
         
-        # Sortiere nach Performance
-        results.sort(key=lambda x: x['change_24h'], reverse=True)
+        if not results:
+            return jsonify({
+                'success': False,
+                'error': 'Keine Daten für ausgewählte Assets verfügbar'
+            })
+        
+        # INTELLIGENTE SORTIERUNG - Nach Performance UND Signalstärke
+        results.sort(key=lambda x: (x['confidence'], x['change_24h']), reverse=True)
+        
+        # MARKET SUMMARY - Live Berechnung
+        buy_signals = [r for r in results if 'BUY' in r['signal']]
+        sell_signals = [r for r in results if 'SELL' in r['signal']]
+        hold_signals = [r for r in results if r['signal'] == 'HOLD']
+        
+        market_sentiment = "BULLISH" if len(buy_signals) > len(sell_signals) else "BEARISH" if len(sell_signals) > len(buy_signals) else "NEUTRAL"
+        
+        print(f"✅ Multi-Asset Analyse abgeschlossen: {len(results)} Assets, Markt: {market_sentiment}")
         
         return jsonify({
             'success': True,
             'assets': results,
-            'analysis_time': len(results),
+            'total_analyzed': len(results),
+            'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'market_summary': {
+                'sentiment': market_sentiment,
                 'best_performer': results[0] if results else None,
-                'worst_performer': results[-1] if results else None,
-                'total_buy_signals': len([r for r in results if 'BUY' in r['signal']]),
-                'total_sell_signals': len([r for r in results if 'SELL' in r['signal']]),
-                'avg_rsi': round(sum([r['rsi'] for r in results]) / len(results), 1) if results else 50
+                'worst_performer': min(results, key=lambda x: x['change_24h']) if results else None,
+                'strongest_buy': max(buy_signals, key=lambda x: x['confidence']) if buy_signals else None,
+                'total_buy_signals': len(buy_signals),
+                'total_sell_signals': len(sell_signals),
+                'total_hold_signals': len(hold_signals),
+                'avg_rsi': round(sum([r['rsi'] for r in results]) / len(results), 1),
+                'avg_confidence': round(sum([r['confidence'] for r in results]) / len(results), 1),
+                'high_confidence_signals': len([r for r in results if r['confidence'] >= 80])
+            },
+            'performance_metrics': {
+                'top_gainer_24h': max(results, key=lambda x: x['change_24h']),
+                'top_loser_24h': min(results, key=lambda x: x['change_24h']),
+                'highest_volume': max(results, key=lambda x: x['volume_ratio']),
+                'most_volatile': max(results, key=lambda x: x['volatility'])
             }
         })
         
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        print(f"❌ Multi-Asset Analysis Fehler: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Analysis failed: {str(e)}'
+        })
 
 @app.route('/api/setup_alerts', methods=['POST'])
 def setup_alerts():

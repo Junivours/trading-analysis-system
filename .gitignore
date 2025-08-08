@@ -69,6 +69,13 @@ tmp/
 secrets/
 config.json
 
+# 🔐 SECURITY FILES - NEVER COMMIT!
+.license
+*.pem
+*.p12
+/original_backup/
+/obfuscated/
+
 # Backup files
 *.bak
 *.backup
