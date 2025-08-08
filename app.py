@@ -2364,19 +2364,19 @@ def index():
                             <div><strong>Recommendation:</strong> ${data.analysis.recommendation}</div>
                         </div>
                         
-                        ${data.recent_trades && data.recent_trades.length > 0 ? `
+                        ${data.recent_trades && data.recent_trades.length > 0 ? (`
                         <div style="background: rgba(0, 0, 0, 0.05); padding: 1rem; border-radius: 8px;">
                             <h6 style="color: #666; margin-bottom: 0.8rem;">Recent Trades:</h6>
-                            ${data.recent_trades.slice(-3).map(trade => {
+                            ` + data.recent_trades.slice(-3).map(trade => {
                                 const profitText = trade.profit ? (trade.profit > 0 ? '(+$' + trade.profit.toFixed(2) + ')' : '($' + trade.profit.toFixed(2) + ')') : '';
                                 return `
                                 <div style="font-size: 0.85rem; margin-bottom: 0.3rem; opacity: 0.8;">
                                     ${trade.type} at $${trade.price.toFixed(4)} ${profitText}
                                 </div>
                                 `;
-                            }).join('')}
+                            }).join('') + `
                         </div>
-                        ` : ''}
+                        `) : ''}
                     `;
                 } else {
                     throw new Error(data.error || 'Backtest failed');
