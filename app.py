@@ -30,14 +30,14 @@ class FundamentalAnalysisEngine:
             'risk_management': 0.15,   # 15% - Risk metrics & volatility
         }
     
-    def get_market_data(self, symbol, interval='4h', limit=30):
-        """📊 ULTRA-OPTIMIZED market data with AGGRESSIVE CACHING for LIGHTNING SPEED"""
+    def get_market_data(self, symbol, interval='4h', limit=200):
+        """📊 LIVE MARKET DATA - Compatible with TradingView RSI calculations"""
         try:
             url = f"{self.base_url}/klines"
             params = {
                 'symbol': symbol.upper(),
                 'interval': interval,
-                'limit': limit  # Reduced to 30 for MAXIMUM SPEED
+                'limit': limit  # 200 for accurate technical indicators
             }
             
             response = requests.get(url, params=params, timeout=3)  # AGGRESSIVE 3s timeout
@@ -74,19 +74,30 @@ class FundamentalAnalysisEngine:
             timestamps = [item['timestamp'] for item in data]
             
             # ============================
-            # 🎯 ADVANCED RSI CALCULATION
+            # 🎯 TRADINGVIEW-COMPATIBLE RSI
             # ============================
             def calculate_rsi(prices, period=14):
+                if len(prices) < period + 1:
+                    return 50
+                
                 deltas = np.diff(prices)
                 gains = np.where(deltas > 0, deltas, 0)
                 losses = np.where(deltas < 0, -deltas, 0)
                 
-                avg_gains = np.convolve(gains, np.ones(period)/period, mode='valid')
-                avg_losses = np.convolve(losses, np.ones(period)/period, mode='valid')
+                # Wilder's smoothing (like TradingView)
+                avg_gain = np.mean(gains[:period])
+                avg_loss = np.mean(losses[:period])
                 
-                rs = avg_gains / (avg_losses + 1e-10)
+                for i in range(period, len(gains)):
+                    avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+                    avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+                
+                if avg_loss == 0:
+                    return 100
+                
+                rs = avg_gain / avg_loss
                 rsi = 100 - (100 / (1 + rs))
-                return rsi[-1] if len(rsi) > 0 else 50
+                return rsi
             
             # ============================
             # 📊 MULTIPLE MOVING AVERAGES
@@ -110,11 +121,34 @@ class FundamentalAnalysisEngine:
             ema_26 = calculate_ema(closes, 26)
             
             # ============================
-            # 🎯 MACD CALCULATION
+            # 📊 TRADINGVIEW-COMPATIBLE MACD  
             # ============================
-            macd_line = ema_12 - ema_26
-            macd_signal = calculate_ema([macd_line] * 9, 9)  # Simplified signal line
-            macd_histogram = macd_line - macd_signal
+            def calculate_proper_macd(prices, fast=12, slow=26, signal=9):
+                if len(prices) < slow:
+                    return 0, 0, 0
+                    
+                # EMA Berechnung wie TradingView
+                def ema(data, period):
+                    if len(data) < period:
+                        return data[-1] if data else 0
+                    alpha = 2 / (period + 1)
+                    result = data[0]
+                    for price in data[1:]:
+                        result = alpha * price + (1 - alpha) * result
+                    return result
+                
+                # MACD Line = EMA12 - EMA26
+                ema_12 = ema(closes, fast)
+                ema_26 = ema(closes, slow)
+                macd_line = ema_12 - ema_26
+                
+                # Signal Line = EMA9 of MACD
+                macd_signal = ema([macd_line], signal)
+                macd_histogram = macd_line - macd_signal
+                
+                return macd_line, macd_signal, macd_histogram
+            
+            macd_line, macd_signal, macd_histogram = calculate_proper_macd(closes)
             
             # ============================
             # 📈 BOLLINGER BANDS
