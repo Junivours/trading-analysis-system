@@ -228,13 +228,22 @@ class FundamentalAnalysisEngine:
             volume_trend = 'increasing' if avg_volume_5 > avg_volume_20 else 'decreasing'
             
             # ============================
-            # 🎯 PRICE ACTION ANALYSIS
+            # 🎯 PRICE ACTION ANALYSIS - KORRIGIERT!
             # ============================
             current_price = closes[-1]
+            
+            # KORRIGIERTE Preisänderungsberechnungen für 4h Timeframe
+            # 1H Change (bei 4h timeframe = 1 Kerze = 4h)
             price_change_1h = ((current_price - closes[-2]) / closes[-2]) * 100 if len(closes) >= 2 else 0
-            price_change_4h = ((current_price - closes[-5]) / closes[-5]) * 100 if len(closes) >= 5 else 0
-            price_change_24h = ((current_price - closes[-25]) / closes[-25]) * 100 if len(closes) >= 25 else 0
-            price_change_7d = ((current_price - closes[-168]) / closes[-168]) * 100 if len(closes) >= 168 else 0
+            
+            # 4H Change (1 Kerze bei 4h timeframe)
+            price_change_4h = ((current_price - closes[-2]) / closes[-2]) * 100 if len(closes) >= 2 else 0
+            
+            # 24H Change (6 Kerzen bei 4h timeframe = 24 Stunden)
+            price_change_24h = ((current_price - closes[-7]) / closes[-7]) * 100 if len(closes) >= 7 else 0
+            
+            # 7D Change (42 Kerzen bei 4h timeframe = 7 Tage)
+            price_change_7d = ((current_price - closes[-43]) / closes[-43]) * 100 if len(closes) >= 43 else 0
             
             # Support and Resistance levels
             recent_highs = highs[-50:] if len(highs) >= 50 else highs
