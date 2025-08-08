@@ -436,6 +436,11 @@ class FundamentalAnalysisEngine:
 # Global analysis engine
 engine = FundamentalAnalysisEngine()
 
+@app.route('/favicon.ico')
+def favicon():
+    """🎯 Favicon endpoint to prevent 404 errors"""
+    return '', 204
+
 @app.route('/')
 def index():
     return render_template_string('''
@@ -1173,61 +1178,22 @@ def index():
                     ${data.confidence?.toFixed(0) || '50'}% confidence
                 </div>
                 
-                <!-- Liquidation Map Section -->
-                ${data.liquidation_map ? `
-                <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; border-left: 4px solid #ef4444;">
-                    <h3 style="color: #ef4444; margin: 0 0 0.8rem 0; font-size: 1.1rem;">🔥 Liquidation Zones</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
-                        <div style="background: rgba(239, 68, 68, 0.05); padding: 0.6rem; border-radius: 6px;">
-                            <div style="color: #ef4444; font-weight: bold;">Long Liquidations</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.3rem;">
-                                $${data.liquidation_map.long_liquidation?.toFixed(2) || 'N/A'}
-                            </div>
-                        </div>
-                        <div style="background: rgba(239, 68, 68, 0.05); padding: 0.6rem; border-radius: 6px;">
-                            <div style="color: #ef4444; font-weight: bold;">Short Liquidations</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.3rem;">
-                                $${data.liquidation_map.short_liquidation?.toFixed(2) || 'N/A'}
-                            </div>
-                        </div>
+                <!-- Trading Insights - Subtle & Clean -->
+                ${data.liquidation_map && data.trading_setup ? `
+                <div style="margin-top: 1rem; display: flex; gap: 0.6rem; font-size: 0.85rem;">
+                    <div style="flex: 1; padding: 0.5rem; background: rgba(239, 68, 68, 0.06); border-radius: 6px; border-left: 2px solid #ef4444;">
+                        <span style="color: #ef4444; font-weight: 600;">🔥 Liq:</span>
+                        <span style="color: #666; margin-left: 0.3rem;">
+                            L: $${data.liquidation_map.long_liquidation?.toFixed(1) || 'N/A'} • 
+                            S: $${data.liquidation_map.short_liquidation?.toFixed(1) || 'N/A'}
+                        </span>
                     </div>
-                    <div style="margin-top: 0.8rem; padding: 0.6rem; background: rgba(0,0,0,0.1); border-radius: 6px;">
-                        <div style="font-size: 0.85rem; color: #666;">
-                            Risk Level: <span style="color: ${data.liquidation_map.risk_level === 'HIGH' ? '#ef4444' : data.liquidation_map.risk_level === 'MEDIUM' ? '#f59e0b' : '#10b981'};">${data.liquidation_map.risk_level || 'MEDIUM'}</span> | 
-                            Volatility: ${data.liquidation_map.volatility?.toFixed(1) || '0.0'}%
-                        </div>
-                    </div>
-                </div>
-                ` : ''}
-                
-                <!-- Trading Setup Section -->
-                ${data.trading_setup ? `
-                <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(16, 185, 129, 0.1); border-radius: 8px; border-left: 4px solid #10b981;">
-                    <h3 style="color: #10b981; margin: 0 0 0.8rem 0; font-size: 1.1rem;">📊 Trading Setup</h3>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem;">
-                        <div style="background: rgba(16, 185, 129, 0.05); padding: 0.6rem; border-radius: 6px; text-align: center;">
-                            <div style="color: #10b981; font-weight: bold; font-size: 0.85rem;">Entry Price</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.2rem;">$${data.trading_setup.entry_price?.toFixed(4) || 'N/A'}</div>
-                        </div>
-                        <div style="background: rgba(239, 68, 68, 0.05); padding: 0.6rem; border-radius: 6px; text-align: center;">
-                            <div style="color: #ef4444; font-weight: bold; font-size: 0.85rem;">Stop Loss</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.2rem;">$${data.trading_setup.stop_loss?.toFixed(4) || 'N/A'}</div>
-                        </div>
-                        <div style="background: rgba(16, 185, 129, 0.05); padding: 0.6rem; border-radius: 6px; text-align: center;">
-                            <div style="color: #10b981; font-weight: bold; font-size: 0.85rem;">Take Profit</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.2rem;">$${data.trading_setup.take_profit?.toFixed(4) || 'N/A'}</div>
-                        </div>
-                        <div style="background: rgba(245, 158, 11, 0.05); padding: 0.6rem; border-radius: 6px; text-align: center;">
-                            <div style="color: #f59e0b; font-weight: bold; font-size: 0.85rem;">Position Size</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.2rem;">${data.trading_setup.position_size?.toFixed(1) || '0.0'}%</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 0.8rem; padding: 0.6rem; background: rgba(0,0,0,0.1); border-radius: 6px;">
-                        <div style="font-size: 0.85rem; color: #666;">
-                            Direction: <span style="color: ${data.trading_setup.direction === 'LONG' ? '#10b981' : '#ef4444'};">${data.trading_setup.direction || 'NEUTRAL'}</span> | 
-                            Risk: ${data.trading_setup.risk_percentage?.toFixed(1) || '2.0'}% | 
-                            R/R: ${data.trading_setup.risk_reward_ratio?.toFixed(1) || '2.5'}:1
-                        </div>
+                    <div style="flex: 1; padding: 0.5rem; background: rgba(16, 185, 129, 0.06); border-radius: 6px; border-left: 2px solid #10b981;">
+                        <span style="color: #10b981; font-weight: 600;">📊 Setup:</span>
+                        <span style="color: #666; margin-left: 0.3rem;">
+                            Entry: $${data.trading_setup.entry_price?.toFixed(2) || 'N/A'} • 
+                            ${data.trading_setup.direction || 'NEUTRAL'}
+                        </span>
                     </div>
                 </div>
                 ` : ''}
@@ -2309,14 +2275,17 @@ def analyze_symbol():
         resistance_level = max(prices)
         
         # Erweitere das Analyse-Ergebnis um Liquidation Map & Trading Setup
+        # Verwende die nächstgelegenen Liquidation Levels (z.B. 10x)
+        main_liq_zone = next((zone for zone in liquidation_zones if zone['level'] == '10x'), liquidation_zones[1] if len(liquidation_zones) > 1 else liquidation_zones[0])
+        
         analysis_result['liquidation_map'] = {
-            'zones': liquidation_zones,
+            'long_liquidation': main_liq_zone['long_liquidation'],
+            'short_liquidation': main_liq_zone['short_liquidation'],
+            'risk_level': 'HIGH' if main_liq_zone['distance_long'] < 5 else 'MEDIUM' if main_liq_zone['distance_long'] < 10 else 'LOW',
+            'volatility': round(np.std(prices[-20:]) / np.mean(prices[-20:]) * 100, 2),
             'support_level': round(support_level, 6),
             'resistance_level': round(resistance_level, 6),
-            'market_structure': {
-                'trend': 'BULLISH' if current_price > sum(prices)/len(prices) else 'BEARISH',
-                'volatility': round(np.std(prices[-20:]) / np.mean(prices[-20:]) * 100, 2)
-            }
+            'trend': 'BULLISH' if current_price > sum(prices)/len(prices) else 'BEARISH'
         }
         
         analysis_result['trading_setup'] = trading_setup
