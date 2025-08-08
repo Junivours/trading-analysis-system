@@ -700,6 +700,16 @@ def index():
                 box-shadow: 0 15px 40px rgba(245, 158, 11, 0.3);
             }
             
+            .action-btn.multi-asset:hover {
+                border-color: #667eea;
+                box-shadow: 0 15px 40px rgba(102, 126, 234, 0.3);
+            }
+            
+            .action-btn.alerts:hover {
+                border-color: #f5576c;
+                box-shadow: 0 15px 40px rgba(245, 87, 108, 0.3);
+            }
+            
             .action-btn.ml:hover {
                 border-color: #10b981;
                 box-shadow: 0 15px 40px rgba(16, 185, 129, 0.3);
@@ -897,6 +907,18 @@ def index():
                     <span class="icon">⚡</span>
                     <div class="title">Strategy Backtest</div>
                     <div class="desc">6-Month Performance Validation</div>
+                </div>
+                
+                <div class="action-btn multi-asset" onclick="openPopup('multiasset')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <span class="icon">🌐</span>
+                    <div class="title">Multi-Asset Analysis</div>
+                    <div class="desc">Compare Multiple Coins Live</div>
+                </div>
+                
+                <div class="action-btn alerts" onclick="openPopup('alerts')" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <span class="icon">🔔</span>
+                    <div class="title">Real-Time Alerts</div>
+                    <div class="desc">Live Price & Signal Notifications</div>
                 </div>
                 
                 <div class="action-btn ml" onclick="openPopup('jax_train')">
@@ -1143,6 +1165,16 @@ def index():
         
         // ⚡ OPTIMIZED Details Creation - LIGHTNING FAST rendering
         function createOptimizedDetails(data) {
+            // 🚀 SUPER MEGA DEBUG V2.0 - FORCE VISIBLE
+            console.log('�🚀🚀 FRONTEND DEBUG V2.0 - TRADING FEATURES CHECK 🚀🚀🚀');
+            console.log('📊 Full data object:', data);
+            console.log('� liquidation_map exists:', !!data.liquidation_map, data.liquidation_map);
+            console.log('� trading_setup exists:', !!data.trading_setup, data.trading_setup);
+            console.log('� Current price:', data.current_price);
+            console.log('⚡ Recommendation:', data.recommendation);
+            console.log('🎯 Confidence:', data.confidence);
+            console.log('🚀🚀🚀 END DEBUG V2.0 🚀🚀🚀');
+            
             const indicators = data.technical_indicators;
             
             // PERFORMANCE: Pre-calculate classes
@@ -1178,25 +1210,31 @@ def index():
                     ${data.confidence?.toFixed(0) || '50'}% confidence
                 </div>
                 
-                <!-- Trading Insights - Subtle & Clean -->
-                ${data.liquidation_map && data.trading_setup ? `
-                <div style="margin-top: 1rem; display: flex; gap: 0.6rem; font-size: 0.85rem;">
-                    <div style="flex: 1; padding: 0.5rem; background: rgba(239, 68, 68, 0.06); border-radius: 6px; border-left: 2px solid #ef4444;">
-                        <span style="color: #ef4444; font-weight: 600;">🔥 Liq:</span>
-                        <span style="color: #666; margin-left: 0.3rem;">
-                            L: $${data.liquidation_map.long_liquidation?.toFixed(1) || 'N/A'} • 
-                            S: $${data.liquidation_map.short_liquidation?.toFixed(1) || 'N/A'}
+                <!-- 🚀 NEW TRADING FEATURES V2.0 - FORCE UPDATE -->
+                <div style="margin-top: 1rem; display: flex; gap: 0.6rem; font-size: 0.85rem; border: 2px solid #10b981; padding: 0.5rem; border-radius: 8px; background: rgba(16, 185, 129, 0.05);">
+                    <div style="flex: 1; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
+                        <span style="color: #ef4444; font-weight: 700;">🔥 Liquidation:</span>
+                        <span style="color: #333; margin-left: 0.3rem; font-weight: 600;">
+                            L: $${data.liquidation_map?.long_liquidation?.toFixed(0) || 'N/A'} • 
+                            S: $${data.liquidation_map?.short_liquidation?.toFixed(0) || 'N/A'}
                         </span>
                     </div>
-                    <div style="flex: 1; padding: 0.5rem; background: rgba(16, 185, 129, 0.06); border-radius: 6px; border-left: 2px solid #10b981;">
-                        <span style="color: #10b981; font-weight: 600;">📊 Setup:</span>
-                        <span style="color: #666; margin-left: 0.3rem;">
-                            Entry: $${data.trading_setup.entry_price?.toFixed(2) || 'N/A'} • 
-                            ${data.trading_setup.direction || 'NEUTRAL'}
+                    <div style="flex: 1; padding: 0.5rem; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border-left: 3px solid #10b981;">
+                        <span style="color: #10b981; font-weight: 700;">📊 Setup:</span>
+                        <span style="color: #333; margin-left: 0.3rem; font-weight: 600;">
+                            Entry: $${data.trading_setup?.entry_price?.toFixed(0) || 'N/A'} • 
+                            ${data.trading_setup?.direction || 'WAIT'}
                         </span>
                     </div>
                 </div>
-                ` : ''}
+                
+                <!-- 🔍 SUPER DEBUG INFO V2.0 -->
+                <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(245, 158, 11, 0.15); border-radius: 6px; font-size: 0.75rem; border: 1px solid #f59e0b;">
+                    <strong style="color: #f59e0b;">🔍 DEBUG V2.0:</strong> 
+                    Liq=${!!data.liquidation_map} | Setup=${!!data.trading_setup} | 
+                    LiqData=${JSON.stringify(data.liquidation_map || {})} | 
+                    SetupData=${JSON.stringify(data.trading_setup || {})}
+                </div>
             `;
         }
         // ========================================================================================
@@ -1847,6 +1885,135 @@ def index():
                         </div>
                     `
                 },
+                'multiasset': {
+                    title: '🌐 Multi-Asset Analysis - Compare Multiple Cryptocurrencies',
+                    content: `
+                        <div style="text-align: center; margin-bottom: 2rem;">
+                            <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2)); padding: 2rem; border-radius: 16px; border: 1px solid rgba(102, 126, 234, 0.3);">
+                                <div style="font-size: 2rem; font-weight: 800; color: #667eea; margin-bottom: 1rem; text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);">MULTI-COIN DASHBOARD</div>
+                                <div style="font-size: 1.1rem; color: #e2e8f0;">Compare up to 8 cryptocurrencies simultaneously</div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 2rem;">
+                            <label style="color: #e2e8f0; font-weight: 600; margin-bottom: 0.5rem; display: block;">Select Assets to Compare:</label>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_btc" value="BTCUSDT" checked style="margin-right: 0.5rem;">BTC
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_eth" value="ETHUSDT" checked style="margin-right: 0.5rem;">ETH
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_ada" value="ADAUSDT" style="margin-right: 0.5rem;">ADA
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_sol" value="SOLUSDT" style="margin-right: 0.5rem;">SOL
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_dot" value="DOTUSDT" style="margin-right: 0.5rem;">DOT
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_avax" value="AVAXUSDT" style="margin-right: 0.5rem;">AVAX
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_matic" value="MATICUSDT" style="margin-right: 0.5rem;">MATIC
+                                </label>
+                                <label style="background: rgba(255,255,255,0.1); padding: 0.7rem; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s;">
+                                    <input type="checkbox" id="asset_link" value="LINKUSDT" style="margin-right: 0.5rem;">LINK
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <button onclick="runMultiAssetAnalysis()" style="
+                            background: linear-gradient(135deg, #667eea, #764ba2); 
+                            width: 100%; 
+                            border: none; 
+                            border-radius: 12px; 
+                            color: white; 
+                            padding: 1.5rem; 
+                            font-size: 1.2rem; 
+                            font-weight: 700; 
+                            cursor: pointer; 
+                            transition: all 0.3s ease;
+                            margin-bottom: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                        " onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 12px 35px rgba(102, 126, 234, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            🚀 Compare Selected Assets
+                        </button>
+                        
+                        <div id="multiAssetResults" style="margin-top: 1rem;"></div>
+                    `
+                },
+                'alerts': {
+                    title: '🔔 Real-Time Alerts - Live Market Notifications',
+                    content: `
+                        <div style="text-align: center; margin-bottom: 2rem;">
+                            <div style="background: linear-gradient(135deg, rgba(245, 87, 108, 0.2), rgba(240, 147, 251, 0.2)); padding: 2rem; border-radius: 16px; border: 1px solid rgba(245, 87, 108, 0.3);">
+                                <div style="font-size: 2rem; font-weight: 800; color: #f5576c; margin-bottom: 1rem; text-shadow: 0 0 20px rgba(245, 87, 108, 0.5);">LIVE ALERTS</div>
+                                <div style="font-size: 1.1rem; color: #e2e8f0;">Real-time price movements & signal notifications</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 2rem;">
+                            <div style="background: rgba(245, 87, 108, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(245, 87, 108, 0.3);">
+                                <h5 style="color: #f5576c; margin-bottom: 1rem;">📈 Price Alerts</h5>
+                                <div style="margin-bottom: 1rem;">
+                                    <label style="color: #e2e8f0; margin-bottom: 0.5rem; display: block;">Target Price ($):</label>
+                                    <input type="number" id="priceAlert" placeholder="e.g., 45000" style="width: 100%; padding: 0.7rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                                </div>
+                                <div style="margin-bottom: 1rem;">
+                                    <label style="color: #e2e8f0; margin-bottom: 0.5rem; display: block;">Alert Type:</label>
+                                    <select id="alertType" style="width: 100%; padding: 0.7rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                                        <option value="above">Price Above</option>
+                                        <option value="below">Price Below</option>
+                                        <option value="change">% Change Alert</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div style="background: rgba(240, 147, 251, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(240, 147, 251, 0.3);">
+                                <h5 style="color: #f093fb; margin-bottom: 1rem;">🎯 Signal Alerts</h5>
+                                <div style="margin-bottom: 0.8rem;">
+                                    <label style="background: rgba(16, 185, 129, 0.2); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; display: block; margin-bottom: 0.5rem;">
+                                        <input type="checkbox" id="buySignal" style="margin-right: 0.5rem;">
+                                        🟢 Buy Signal Alerts
+                                    </label>
+                                    <label style="background: rgba(239, 68, 68, 0.2); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; display: block; margin-bottom: 0.5rem;">
+                                        <input type="checkbox" id="sellSignal" style="margin-right: 0.5rem;">
+                                        🔴 Sell Signal Alerts
+                                    </label>
+                                    <label style="background: rgba(245, 158, 11, 0.2); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; display: block;">
+                                        <input type="checkbox" id="liquidationAlert" style="margin-right: 0.5rem;">
+                                        ⚠️ Liquidation Zone Alerts
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button onclick="setupRealTimeAlerts()" style="
+                            background: linear-gradient(135deg, #f093fb, #f5576c); 
+                            width: 100%; 
+                            border: none; 
+                            border-radius: 12px; 
+                            color: white; 
+                            padding: 1.5rem; 
+                            font-size: 1.2rem; 
+                            font-weight: 700; 
+                            cursor: pointer; 
+                            transition: all 0.3s ease;
+                            margin-bottom: 1rem;
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                        " onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 12px 35px rgba(245, 87, 108, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            🔔 Activate Live Alerts
+                        </button>
+                        
+                        <div id="alertStatus" style="margin-top: 1rem; text-align: center;"></div>
+                        <div id="activeAlerts" style="margin-top: 1rem;"></div>
+                    `
+                },
                 'jax_train': {
                     title: '🤖 JAX Neural Networks - Advanced AI Training',
                     content: `
@@ -2095,6 +2262,208 @@ def index():
             }
         }
         
+        // 🌐 Multi-Asset Analysis Function
+        async function runMultiAssetAnalysis() {
+            const resultsDiv = document.getElementById('multiAssetResults');
+            const timeframe = document.getElementById('timeframeSelect').value || '4h';
+            
+            // Sammle ausgewählte Assets
+            const selectedAssets = [];
+            ['btc', 'eth', 'ada', 'sol', 'dot', 'avax', 'matic', 'link'].forEach(asset => {
+                const checkbox = document.getElementById(`asset_${asset}`);
+                if (checkbox && checkbox.checked) {
+                    selectedAssets.push(checkbox.value);
+                }
+            });
+            
+            if (selectedAssets.length === 0) {
+                resultsDiv.innerHTML = '<div style="color: #ef4444; text-align: center; padding: 1rem;">⚠️ Please select at least one asset to compare</div>';
+                return;
+            }
+            
+            resultsDiv.innerHTML = `
+                <div style="text-align: center; margin: 2rem 0;">
+                    <div class="loading" style="margin: 1rem auto;"></div>
+                    <h4 style="color: #667eea;">🔄 Analyzing ${selectedAssets.length} assets...</h4>
+                </div>
+            `;
+            
+            try {
+                const response = await fetch('/api/multi_asset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbols: selectedAssets,
+                        timeframe: timeframe
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const assets = data.assets;
+                    const summary = data.market_summary;
+                    
+                    resultsDiv.innerHTML = `
+                        <div style="background: rgba(102, 126, 234, 0.1); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                            <h4 style="color: #667eea; margin-bottom: 1rem;">📊 Market Overview</h4>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1rem;">
+                                <div style="background: rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                                    <div style="color: #10b981; font-weight: bold;">🟢 Buy Signals</div>
+                                    <div style="font-size: 1.5rem; font-weight: 800; color: #10b981;">${summary.total_buy_signals}</div>
+                                </div>
+                                <div style="background: rgba(239, 68, 68, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                                    <div style="color: #ef4444; font-weight: bold;">🔴 Sell Signals</div>
+                                    <div style="font-size: 1.5rem; font-weight: 800; color: #ef4444;">${summary.total_sell_signals}</div>
+                                </div>
+                            </div>
+                            <div style="text-align: center; opacity: 0.8;">Average RSI: ${summary.avg_rsi}</div>
+                        </div>
+                        
+                        <div style="display: grid; gap: 1rem;">
+                            ${assets.map((asset, index) => `
+                                <div style="background: rgba(255,255,255,0.05); padding: 1.2rem; border-radius: 10px; border-left: 4px solid ${asset.signal_color};">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                                        <div style="display: flex; align-items: center;">
+                                            <div style="font-size: 1.5rem; margin-right: 0.5rem;">${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎'}</div>
+                                            <div>
+                                                <div style="font-size: 1.2rem; font-weight: bold; color: white;">${asset.symbol}</div>
+                                                <div style="font-size: 0.9rem; opacity: 0.7;">$${asset.price.toLocaleString()}</div>
+                                            </div>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div style="color: ${asset.change_24h >= 0 ? '#10b981' : '#ef4444'}; font-weight: bold; font-size: 1.1rem;">
+                                                ${asset.change_24h >= 0 ? '+' : ''}${asset.change_24h}%
+                                            </div>
+                                            <div style="font-size: 0.8rem; opacity: 0.7;">24h Change</div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="display: flex; gap: 1rem;">
+                                            <div style="text-align: center;">
+                                                <div style="font-size: 0.8rem; opacity: 0.7;">RSI</div>
+                                                <div style="font-weight: bold; color: ${asset.rsi < 30 ? '#10b981' : asset.rsi > 70 ? '#ef4444' : '#f59e0b'};">${asset.rsi}</div>
+                                            </div>
+                                            <div style="text-align: center;">
+                                                <div style="font-size: 0.8rem; opacity: 0.7;">Volume</div>
+                                                <div style="font-weight: bold;">${(asset.volume / 1000000).toFixed(1)}M</div>
+                                            </div>
+                                        </div>
+                                        <div style="background: ${asset.signal_color}; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: bold; font-size: 0.9rem;">
+                                            ${asset.signal}
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        ${summary.best_performer ? `
+                        <div style="margin-top: 1.5rem; background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px;">
+                            <div style="color: #10b981; font-weight: bold; margin-bottom: 0.5rem;">🏆 Best Performer</div>
+                            <div>${summary.best_performer.symbol}: +${summary.best_performer.change_24h}%</div>
+                        </div>
+                        ` : ''}
+                    `;
+                } else {
+                    throw new Error(data.error || 'Multi-asset analysis failed');
+                }
+                
+            } catch (error) {
+                console.error('Multi-asset error:', error);
+                resultsDiv.innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 1.5rem; border-radius: 8px; text-align: center;">
+                        <h4 style="color: #ef4444;">❌ Analysis Error</h4>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // 🔔 Real-Time Alerts Function
+        async function setupRealTimeAlerts() {
+            const alertStatus = document.getElementById('alertStatus');
+            const symbol = document.getElementById('symbolInput').value.trim().toUpperCase() || 'BTCUSDT';
+            const priceAlert = document.getElementById('priceAlert').value;
+            const alertType = document.getElementById('alertType').value;
+            
+            const buySignal = document.getElementById('buySignal').checked;
+            const sellSignal = document.getElementById('sellSignal').checked;
+            const liquidationAlert = document.getElementById('liquidationAlert').checked;
+            
+            alertStatus.innerHTML = `
+                <div style="text-align: center; margin: 1rem 0;">
+                    <div class="loading" style="margin: 1rem auto; width: 30px; height: 30px;"></div>
+                    <div style="color: #f5576c;">🔄 Setting up alerts for ${symbol}...</div>
+                </div>
+            `;
+            
+            try {
+                const response = await fetch('/api/setup_alerts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        alert_type: alertType,
+                        target_price: priceAlert,
+                        settings: {
+                            buy_signal: buySignal,
+                            sell_signal: sellSignal,
+                            liquidation_alert: liquidationAlert
+                        }
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alertStatus.innerHTML = `
+                        <div style="background: rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                            <div style="color: #10b981; font-weight: bold; margin-bottom: 0.5rem;">✅ ${data.message}</div>
+                            <div style="font-size: 0.9rem; opacity: 0.8;">Alert ID: ${data.alert_id}</div>
+                        </div>
+                    `;
+                    
+                    // Zeige aktive Alerts
+                    const activeAlerts = document.getElementById('activeAlerts');
+                    activeAlerts.innerHTML = `
+                        <div style="background: rgba(245, 87, 108, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                            <h5 style="color: #f5576c; margin-bottom: 0.8rem;">🔔 Active Alerts</h5>
+                            <div style="background: rgba(255,255,255,0.1); padding: 0.8rem; border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <div style="font-weight: bold;">${data.details.symbol}</div>
+                                        <div style="font-size: 0.9rem; opacity: 0.8;">${data.details.type} - $${data.details.target}</div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="color: #10b981; font-weight: bold;">${data.details.status}</div>
+                                        <div style="font-size: 0.8rem; opacity: 0.7;">${data.details.created}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 0.8rem; padding: 0.6rem; background: rgba(245, 158, 11, 0.2); border-radius: 6px; font-size: 0.85rem; opacity: 0.9;">
+                                💡 ${data.simulation_note}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Alert setup failed');
+                }
+                
+            } catch (error) {
+                console.error('Alert setup error:', error);
+                alertStatus.innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.2); padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="color: #ef4444; font-weight: bold;">❌ Alert Setup Failed</div>
+                        <div style="font-size: 0.9rem; margin-top: 0.5rem;">Error: ${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+        
         async function startJaxTraining() {
             const popup = document.getElementById('popupBody');
             popup.innerHTML = `
@@ -2295,13 +2664,16 @@ def analyze_symbol():
                 return None
             
             return {
+                'direction': side,  # Frontend erwartet 'direction'
                 'side': side,
                 'entry_price': round(entry_price, 6),
                 'stop_loss': round(stop_loss_price, 6),
                 'take_profit': round(take_profit_price, 6),
+                'position_size': round(position_size_pct, 1),  # Frontend erwartet 'position_size'
                 'position_size_pct': round(position_size_pct, 1),
                 'max_leverage': leverage_max,
                 'risk_reward_ratio': round(take_profit/stop_loss, 2),
+                'risk_percentage': round(stop_loss, 1),  # Frontend erwartet 'risk_percentage'
                 'stop_loss_distance': round(stop_loss, 1),
                 'take_profit_distance': round(take_profit, 1)
             }
@@ -2311,6 +2683,18 @@ def analyze_symbol():
         
         # Berechne Trading Setup
         trading_setup = get_coin_specific_setup(symbol, current_price, tech_indicators, analysis_result['decision'])
+        
+        # Fallback falls trading_setup None ist
+        if trading_setup is None:
+            trading_setup = {
+                'direction': 'HOLD',
+                'entry_price': current_price,
+                'stop_loss': current_price * 0.95,
+                'take_profit': current_price * 1.05,
+                'position_size': 2.0,
+                'risk_percentage': 5.0,
+                'risk_reward_ratio': 1.0
+            }
         
         # Support/Resistance für Liquidation Map
         prices = [candle['close'] for candle in market_result['data'][-50:]]
@@ -2322,17 +2706,26 @@ def analyze_symbol():
         main_liq_zone = next((zone for zone in liquidation_zones if zone['level'] == '10x'), liquidation_zones[1] if len(liquidation_zones) > 1 else liquidation_zones[0])
         
         analysis_result['liquidation_map'] = {
-            'long_liquidation': main_liq_zone['long_liquidation'],
-            'short_liquidation': main_liq_zone['short_liquidation'],
+            'long_liquidation': round(float(main_liq_zone['long_liquidation']), 2),
+            'short_liquidation': round(float(main_liq_zone['short_liquidation']), 2),
             'risk_level': 'HIGH' if main_liq_zone['distance_long'] < 5 else 'MEDIUM' if main_liq_zone['distance_long'] < 10 else 'LOW',
-            'volatility': round(np.std(prices[-20:]) / np.mean(prices[-20:]) * 100, 2),
-            'support_level': round(support_level, 6),
-            'resistance_level': round(resistance_level, 6),
+            'volatility': round(float(np.std(prices[-20:]) / np.mean(prices[-20:]) * 100), 2),
+            'support_level': round(float(support_level), 6),
+            'resistance_level': round(float(resistance_level), 6),
             'trend': 'BULLISH' if current_price > sum(prices)/len(prices) else 'BEARISH'
         }
         
+        # Ensure trading_setup values are JSON serializable
+        if trading_setup:
+            for key, value in trading_setup.items():
+                if isinstance(value, (np.integer, np.floating)):
+                    trading_setup[key] = float(value)
+        
         analysis_result['trading_setup'] = trading_setup
-        analysis_result['current_price'] = round(current_price, 6)
+        analysis_result['current_price'] = round(float(current_price), 6)
+        
+        print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
+        print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
         
         return jsonify(analysis_result)
         
@@ -2504,6 +2897,125 @@ def jax_training():
             'framework': 'JAX/Flax',
             'weight': '10% confirmation signals'
         })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/multi_asset', methods=['POST'])
+def multi_asset_analysis():
+    """🌐 Multi-Asset Analysis - Compare multiple cryptocurrencies"""
+    try:
+        data = request.json
+        symbols = data.get('symbols', ['BTCUSDT', 'ETHUSDT'])
+        timeframe = data.get('timeframe', '4h')
+        
+        results = []
+        
+        for symbol in symbols:
+            try:
+                # Hole Marktdaten für jeden Coin
+                market_data = engine.get_market_data(symbol, timeframe, limit=50)
+                if not market_data['success']:
+                    continue
+                
+                current_price = market_data['data'][-1]['close']
+                
+                # Schnelle technische Analyse
+                closes = [candle['close'] for candle in market_data['data']]
+                
+                # RSI berechnen (vereinfacht)
+                if len(closes) >= 14:
+                    gains = [max(closes[i] - closes[i-1], 0) for i in range(1, len(closes))]
+                    losses = [max(closes[i-1] - closes[i], 0) for i in range(1, len(closes))]
+                    avg_gain = sum(gains[-14:]) / 14
+                    avg_loss = sum(losses[-14:]) / 14
+                    rs = avg_gain / avg_loss if avg_loss > 0 else 100
+                    rsi = 100 - (100 / (1 + rs))
+                else:
+                    rsi = 50
+                
+                # 24h Change
+                price_24h_ago = closes[-24] if len(closes) >= 24 else closes[0]
+                change_24h = ((current_price - price_24h_ago) / price_24h_ago) * 100
+                
+                # Signal basierend auf RSI
+                if rsi < 30:
+                    signal = "STRONG BUY"
+                    signal_color = "#10b981"
+                elif rsi < 45:
+                    signal = "BUY"
+                    signal_color = "#10b981"
+                elif rsi > 70:
+                    signal = "STRONG SELL"
+                    signal_color = "#ef4444"
+                elif rsi > 55:
+                    signal = "SELL"
+                    signal_color = "#ef4444"
+                else:
+                    signal = "HOLD"
+                    signal_color = "#f59e0b"
+                
+                results.append({
+                    'symbol': symbol.replace('USDT', ''),
+                    'price': round(current_price, 6),
+                    'change_24h': round(change_24h, 2),
+                    'rsi': round(rsi, 1),
+                    'signal': signal,
+                    'signal_color': signal_color,
+                    'volume': market_data['data'][-1]['volume'],
+                    'market_cap_rank': len(results) + 1  # Simplified ranking
+                })
+            except Exception as coin_error:
+                print(f"Error analyzing {symbol}: {coin_error}")
+                continue
+        
+        # Sortiere nach Performance
+        results.sort(key=lambda x: x['change_24h'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'assets': results,
+            'analysis_time': len(results),
+            'market_summary': {
+                'best_performer': results[0] if results else None,
+                'worst_performer': results[-1] if results else None,
+                'total_buy_signals': len([r for r in results if 'BUY' in r['signal']]),
+                'total_sell_signals': len([r for r in results if 'SELL' in r['signal']]),
+                'avg_rsi': round(sum([r['rsi'] for r in results]) / len(results), 1) if results else 50
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/setup_alerts', methods=['POST'])
+def setup_alerts():
+    """🔔 Setup Real-Time Alerts"""
+    try:
+        data = request.json
+        symbol = data.get('symbol', 'BTCUSDT')
+        alert_type = data.get('alert_type', 'price')
+        target_price = data.get('target_price')
+        alert_settings = data.get('settings', {})
+        
+        # Hier würde normalerweise WebSocket/Redis/Database Integration stehen
+        # Für jetzt simulieren wir die Alert-Setup
+        
+        alert_id = f"alert_{symbol}_{int(time.time())}"
+        
+        return jsonify({
+            'success': True,
+            'alert_id': alert_id,
+            'message': f'✅ Alert setup successful for {symbol}',
+            'details': {
+                'symbol': symbol,
+                'type': alert_type,
+                'target': target_price,
+                'status': 'ACTIVE',
+                'created': time.strftime('%H:%M:%S')
+            },
+            'simulation_note': 'Real-time alerts would use WebSocket connections in production'
+        })
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
