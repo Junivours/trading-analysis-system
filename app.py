@@ -1229,7 +1229,7 @@ def index():
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.8rem; margin-bottom: 1rem;">
                     <div style="background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">RSI</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: ${rsiClass === 'rsi-oversold' ? '#10b981' : rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b'};">${indicators.rsi}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: ${rsiClass === 'rsi-oversold' ? '#10b981' : (rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b')};">${indicators.rsi}</div>
                     </div>
                     
                     <div style="background: rgba(59, 130, 246, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
@@ -1462,11 +1462,11 @@ def index():
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem;">
                         <div style="text-align: center; padding: 1rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">RSI (14)</div>
-                            <div style="font-size: 1.4rem; font-weight: 700; color: ${analysis.technical_indicators.rsi < 30 ? '#10b981' : analysis.technical_indicators.rsi > 70 ? '#ef4444' : '#f59e0b'};">
+                            <div style="font-size: 1.4rem; font-weight: 700; color: ${analysis.technical_indicators.rsi < 30 ? '#10b981' : (analysis.technical_indicators.rsi > 70 ? '#ef4444' : '#f59e0b')};">
                                 ${safeToFixed(analysis.technical_indicators.rsi, 0)}
                             </div>
                             <div style="font-size: 0.75rem; opacity: 0.7; margin-top: 0.25rem;">
-                                ${analysis.technical_indicators.rsi < 30 ? 'Oversold' : analysis.technical_indicators.rsi > 70 ? 'Overbought' : 'Neutral'}
+                                ${analysis.technical_indicators.rsi < 30 ? 'Oversold' : (analysis.technical_indicators.rsi > 70 ? 'Overbought' : 'Neutral')}
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
