@@ -4110,6 +4110,9 @@ def analyze_symbol():
                 'weight_in_decision': '10%'
             },
             'signals_breakdown': signal_data['signals_breakdown'],
+            # ✅ ADD: detailed_analysis and advisory_system from signal_data
+            'detailed_analysis': signal_data.get('detailed_analysis', {}),
+            'advisory_system': signal_data.get('advisory_system', {}),
             'liquidation_map': {
                 'long_liquidation': round(float(main_liq['long_liquidation']), 0),
                 'short_liquidation': round(float(main_liq['short_liquidation']), 0),
