@@ -4306,10 +4306,15 @@ def analyze_symbol():
         # ✅ ADD: Include detailed analysis in main response
         if 'detailed_analysis' in signal_data:
             analysis_result['detailed_analysis'] = signal_data['detailed_analysis']
+            print(f"🎯 DEBUG - detailed_analysis added to response: {type(signal_data['detailed_analysis'])}")
+        else:
+            print(f"❌ DEBUG - detailed_analysis NOT FOUND in signal_data")
+            print(f"🔍 DEBUG - signal_data keys: {list(signal_data.keys())}")
         
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
         print(f"🔍 DEBUG - detailed_analysis included: {'YES' if 'detailed_analysis' in analysis_result else 'NO'}")
+        print(f"🔍 DEBUG - final response keys: {list(analysis_result.keys())}")
         
         return jsonify(analysis_result)
         
