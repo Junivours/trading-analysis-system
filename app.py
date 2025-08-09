@@ -1605,6 +1605,12 @@ def index():
                 to { transform: rotate(360deg); }
             }
             
+            /* 📊 Progress Bar Animation */
+            @keyframes shimmer {
+                0% { left: -100%; }
+                100% { left: 100%; }
+            }
+            
             /* 🎯 POPUP STYLES */
             .popup-overlay {
                 display: none;
@@ -1950,6 +1956,42 @@ def index():
                         <span style="color: #10b981;">✅ Monte Carlo Analysis Available</span><br>
                         <span style="color: #f59e0b;">⚠️ Neural Networks Limited (Memory Constraints)</span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 📊 Progress Bar for Advanced Features -->
+        <div id="progressContainer" class="container" style="margin-top: 1rem; display: none;">
+            <div class="result-card" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(99, 102, 241, 0.1)); border: 2px solid rgba(59, 130, 246, 0.3);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                    <h4 id="progressTitle" style="color: #3b82f6; margin: 0; font-size: 1.1rem;">🔄 Processing...</h4>
+                    <div id="progressPercentage" style="color: #3b82f6; font-weight: 600; font-size: 1.1rem;">0%</div>
+                </div>
+                
+                <div style="background: rgba(59, 130, 246, 0.2); border-radius: 10px; overflow: hidden; height: 20px;">
+                    <div id="progressBar" style="
+                        background: linear-gradient(90deg, #3b82f6, #8b5cf6); 
+                        height: 100%; 
+                        width: 0%; 
+                        transition: width 0.5s ease;
+                        border-radius: 10px;
+                        position: relative;
+                        overflow: hidden;
+                    ">
+                        <div style="
+                            position: absolute;
+                            top: 0;
+                            left: -100%;
+                            width: 100%;
+                            height: 100%;
+                            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+                            animation: shimmer 2s infinite;
+                        "></div>
+                    </div>
+                </div>
+                
+                <div id="progressStatus" style="color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; text-align: center;">
+                    Preparing analysis...
                 </div>
             </div>
         </div>
@@ -3566,6 +3608,9 @@ def index():
             const symbol = getSymbolValue();
             showNotification('🔬 Running professional backtest...', 'info');
             
+            // Show progress bar
+            const progressInterval = showProgress('🔬 Professional Backtest Running', 45);
+            
             try {
                 const response = await fetch('/api/backtest', {
                     method: 'POST',
@@ -3581,6 +3626,10 @@ def index():
                 });
                 
                 const data = await response.json();
+                
+                // Clear progress and show results
+                clearInterval(progressInterval);
+                completeProgress();
                 
                 if (data.success && data.summary) {
                     const summary = data.summary;
@@ -3630,6 +3679,8 @@ def index():
                     showNotification('❌ Backtest failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
+                clearInterval(progressInterval);
+                hideProgress();
                 console.error('Backtest error:', error);
                 showNotification('❌ Backtest error: ' + error.message, 'error');
             }
@@ -3638,6 +3689,9 @@ def index():
         async function runMonteCarloSim() {
             const symbol = getSymbolValue();
             showNotification('🎲 Running Monte Carlo simulation...', 'info');
+            
+            // Show progress bar
+            const progressInterval = showProgress('🎲 Monte Carlo Simulation Running', 35);
             
             try {
                 const response = await fetch('/api/monte_carlo', {
@@ -3651,6 +3705,10 @@ def index():
                 });
                 
                 const data = await response.json();
+                
+                // Clear progress and show results
+                clearInterval(progressInterval);
+                completeProgress();
                 
                 if (data.success && data.summary) {
                     const summary = data.summary;
@@ -3698,6 +3756,8 @@ def index():
                     showNotification('❌ Monte Carlo failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
+                clearInterval(progressInterval);
+                hideProgress();
                 console.error('Monte Carlo error:', error);
                 showNotification('❌ Monte Carlo error: ' + error.message, 'error');
             }
@@ -3706,6 +3766,9 @@ def index():
         async function getEnhancedPredictions() {
             const symbol = getSymbolValue();
             showNotification('🤖 Getting LSTM predictions...', 'info');
+            
+            // Show progress bar
+            const progressInterval = showProgress('🤖 LSTM Neural Network Predicting', 25);
             
             try {
                 const response = await fetch('/api/enhanced_prediction', {
@@ -3719,10 +3782,16 @@ def index():
                 
                 const data = await response.json();
                 
+                // Clear progress
+                clearInterval(progressInterval);
+                
                 if (data.error) {
+                    hideProgress();
                     showNotification(data.error, 'warning');
                     return;
                 }
+                
+                completeProgress();
                 
                 if (data.success && data.predictions) {
                     const predictions = data.predictions;
@@ -3748,6 +3817,8 @@ def index():
                     showNotification('❌ Prediction failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
+                clearInterval(progressInterval);
+                hideProgress();
                 console.error('Prediction error:', error);
                 showNotification('❌ Prediction error: ' + error.message, 'error');
             }
@@ -3756,6 +3827,9 @@ def index():
         async function trainEnhancedModels() {
             const symbol = getSymbolValue();
             showNotification('🎯 Training LSTM models... This may take several minutes!', 'info');
+            
+            // Show progress bar with longer estimated time
+            const progressInterval = showProgress('🎯 LSTM Model Training in Progress', 120);
             
             try {
                 const response = await fetch('/api/train_models', {
@@ -3769,10 +3843,16 @@ def index():
                 
                 const data = await response.json();
                 
+                // Clear progress
+                clearInterval(progressInterval);
+                
                 if (data.error) {
+                    hideProgress();
                     showNotification(data.error, 'warning');
                     return;
                 }
+                
+                completeProgress();
                 
                 if (data.success && data.training_results) {
                     let trainingHtml = `<h4>🎯 Model Training Results for ${symbol}</h4>`;
@@ -3794,6 +3874,8 @@ def index():
                     showNotification('❌ Training failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
+                clearInterval(progressInterval);
+                hideProgress();
                 console.error('Training error:', error);
                 showNotification('❌ Training error: ' + error.message, 'error');
             }
@@ -4595,6 +4677,67 @@ def index():
             } catch (error) {
                 console.log('ℹ️ Status check failed (probably local environment):', error.message);
             }
+        }
+        
+        // 📊 Progress Bar Functions
+        function showProgress(title, estimatedTime = 30) {
+            const container = document.getElementById('progressContainer');
+            const titleEl = document.getElementById('progressTitle');
+            const percentageEl = document.getElementById('progressPercentage');
+            const statusEl = document.getElementById('progressStatus');
+            const progressBar = document.getElementById('progressBar');
+            
+            // Show and setup progress bar
+            container.style.display = 'block';
+            titleEl.textContent = title;
+            percentageEl.textContent = '0%';
+            statusEl.textContent = 'Initializing...';
+            progressBar.style.width = '0%';
+            
+            // Simulate realistic progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                // Realistic progress curve (faster at start, slower at end)
+                const increment = progress < 30 ? 3 : progress < 70 ? 1.5 : 0.5;
+                progress += increment + Math.random() * 2;
+                
+                if (progress > 95) progress = 95; // Don't complete until actual finish
+                
+                progressBar.style.width = progress + '%';
+                percentageEl.textContent = Math.round(progress) + '%';
+                
+                // Update status messages
+                if (progress < 20) statusEl.textContent = 'Loading historical data...';
+                else if (progress < 40) statusEl.textContent = 'Calculating indicators...';
+                else if (progress < 60) statusEl.textContent = 'Running analysis algorithms...';
+                else if (progress < 80) statusEl.textContent = 'Processing results...';
+                else statusEl.textContent = 'Finalizing calculations...';
+                
+            }, 500);
+            
+            return interval;
+        }
+        
+        function completeProgress() {
+            const container = document.getElementById('progressContainer');
+            const percentageEl = document.getElementById('progressPercentage');
+            const statusEl = document.getElementById('progressStatus');
+            const progressBar = document.getElementById('progressBar');
+            
+            // Complete the progress
+            progressBar.style.width = '100%';
+            percentageEl.textContent = '100%';
+            statusEl.textContent = '✅ Analysis complete!';
+            
+            // Hide after delay
+            setTimeout(() => {
+                container.style.display = 'none';
+            }, 2000);
+        }
+        
+        function hideProgress() {
+            const container = document.getElementById('progressContainer');
+            container.style.display = 'none';
         }
         
         // 🎯 Enter key support
