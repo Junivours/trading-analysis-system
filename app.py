@@ -3721,7 +3721,7 @@ def index():
                 const data = await response.json();
                 
                 // Clear progress and show results
-                clearInterval(progressInterval);
+                if (progressInterval) clearInterval(progressInterval);
                 completeProgress();
                 
                 if (data.success && data.summary) {
@@ -3767,10 +3767,12 @@ def index():
                     `);
                     showNotification('✅ Monte Carlo analysis completed!', 'success');
                 } else {
+                    if (progressInterval) clearInterval(progressInterval);
+                    hideProgress();
                     showNotification('❌ Monte Carlo failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                clearInterval(progressInterval);
+                if (progressInterval) clearInterval(progressInterval);
                 hideProgress();
                 console.error('Monte Carlo error:', error);
                 showNotification('❌ Monte Carlo error: ' + error.message, 'error');
@@ -4777,7 +4779,7 @@ def index():
                 const increment = progress < 30 ? 3 : progress < 70 ? 1.5 : 0.5;
                 progress += increment + Math.random() * 2;
                 
-                if (progress > 95) progress = 95; // Don't complete until actual finish
+                if (progress > 98) progress = 98; // Don't complete until actual finish
                 
                 progressBar.style.width = progress + '%';
                 percentageEl.textContent = Math.round(progress) + '%';
