@@ -1591,17 +1591,17 @@ def index():
             // Start with immediate update
             updateAnalysis();
             
-            // LIGHTNING FAST: Update every 5 seconds for ULTRA-RESPONSIVE trading
+            // ⚡ BALANCED: Update every 30 seconds for optimal performance
             setInterval(() => {
                 if (!isUpdating) {
                     updateAnalysis();
                 }
-            }, 5000); // 5 seconds for MAXIMUM RESPONSIVENESS
+            }, 30000); // 30 seconds for balanced responsiveness and performance
             
-            // 📊 SEPARATE: Update price display every 3 seconds
+            // 📊 SEPARATE: Update price display every 15 seconds
             setInterval(() => {
                 updatePriceDisplay();
-            }, 3000);
+            }, 15000);
         }
         
         // 💰 DEDICATED Price Display Update Function
@@ -3587,46 +3587,152 @@ def analyze_symbol():
             buy_signals = signals.count("BUY")
             sell_signals = signals.count("SELL")
             
-            # 🚨 TREND-OVERRIDE LOGIC (Verhindert falsche Signale!)
-            if trend_bullish and sell_signals >= buy_signals:
-                # Force BUY in starken Uptrends
-                recommendation = "BUY BTCUSDT" 
-                direction = "LONG"
-                confidence = max(60, confidence)  # Mindest-Confidence in Uptrend
-                signal_debug['trend_override'] = "FORCED BUY in Uptrend"
-            elif trend_bearish and buy_signals >= sell_signals:
-                # Force SELL in starken Downtrends  
-                recommendation = "SELL BTCUSDT"
-                direction = "SHORT"
-                confidence = max(60, confidence)  # Mindest-Confidence in Downtrend
-                signal_debug['trend_override'] = "FORCED SELL in Downtrend"
-            elif buy_signals > sell_signals:
-                recommendation = "BUY BTCUSDT"
-                direction = "LONG"
-            elif sell_signals > buy_signals:
-                recommendation = "SELL BTCUSDT"
-                direction = "SHORT"
+            # 🎯 IMPROVED: WEIGHTED SIGNAL SYSTEM (statt brutaler Override)
+            
+            # Berechne Signal-Scores mit Gewichtungen
+            total_buy_score = 0
+            total_sell_score = 0
+            
+            # 1. Standard Signale zählen (weniger Gewicht)
+            base_buy_signals = buy_signals
+            base_sell_signals = sell_signals
+            
+            # 2. Trend-Bonus (moderate Gewichtung statt Override)
+            if trend_bullish:
+                trend_bonus = 2  # Moderate Verstärkung statt absolute Override
+                total_buy_score += trend_bonus
+                confidence += 15  # Bonus für Trend-Unterstützung
+                signal_debug['trend_boost'] = f"UPTREND adds +{trend_bonus} BUY weight"
+            elif trend_bearish:
+                trend_bonus = 2
+                total_sell_score += trend_bonus  
+                confidence += 15
+                signal_debug['trend_boost'] = f"DOWNTREND adds +{trend_bonus} SELL weight"
+            
+            # 3. Extreme Indikatoren haben Veto-Recht (wichtig!)
+            rsi_extreme = rsi > 85 or rsi < 15
+            if rsi_extreme:
+                if rsi > 85:  # Extrem overbought
+                    total_sell_score += 1.5  # Veto gegen starke Uptrends
+                    signal_debug['rsi_veto'] = f"EXTREME RSI {rsi:.1f} adds SELL weight"
+                elif rsi < 15:  # Extrem oversold
+                    total_buy_score += 1.5
+                    signal_debug['rsi_veto'] = f"EXTREME RSI {rsi:.1f} adds BUY weight"
+            
+            # 4. Finale Gewichtete Entscheidung
+            final_buy_score = base_buy_signals + total_buy_score
+            final_sell_score = base_sell_signals + total_sell_score
+            
+            # 5. Entscheidung basierend auf Scores
+            if final_buy_score > final_sell_score:
+                if final_buy_score >= final_sell_score * 1.5:  # Klarer BUY
+                    recommendation = "BUY BTCUSDT"
+                    direction = "LONG"
+                else:  # Schwacher BUY
+                    recommendation = "BUY BTCUSDT"
+                    direction = "LONG"
+                    confidence = max(confidence - 10, 50)  # Reduzierte Confidence
+            elif final_sell_score > final_buy_score:
+                if final_sell_score >= final_buy_score * 1.5:  # Klarer SELL
+                    recommendation = "SELL BTCUSDT"
+                    direction = "SHORT"
+                else:  # Schwacher SELL
+                    recommendation = "SELL BTCUSDT"
+                    direction = "SHORT"
+                    confidence = max(confidence - 10, 50)
             else:
+                # Gleichstand oder unklar → HOLD
                 recommendation = "HOLD BTCUSDT"
                 direction = "WAIT"
-                confidence = max(30, confidence - 20)
+                confidence = max(40, confidence - 15)
+            
+            # 6. Extreme Situationen: Vorsicht statt Override
+            if rsi > 90 and trend_bullish:
+                direction = "WAIT"  # Vorsicht bei extremen Werten
+                recommendation = "HOLD BTCUSDT"
+                confidence = 45
+                signal_debug['extreme_caution'] = "EXTREME overbought → HOLD despite uptrend"
+            elif rsi < 10 and trend_bearish:
+                direction = "WAIT"
+                recommendation = "HOLD BTCUSDT"  
+                confidence = 45
+                signal_debug['extreme_caution'] = "EXTREME oversold → HOLD despite downtrend"
             
             # Confidence limits
             confidence = min(95, max(25, confidence))
+            
+            # 📊 DETAILLIERTE SIGNAL ANALYSE erstellen
+            detailed_analysis = {
+                'market_condition': 'STRONG_UPTREND' if trend_bullish and final_buy_score > 6 
+                                  else 'WEAK_UPTREND' if trend_bullish 
+                                  else 'STRONG_DOWNTREND' if trend_bearish and final_sell_score > 6
+                                  else 'WEAK_DOWNTREND' if trend_bearish 
+                                  else 'SIDEWAYS',
+                'rsi_analysis': {
+                    'value': round(rsi, 1),
+                    'condition': 'EXTREME_OVERBOUGHT' if rsi > 85 
+                               else 'OVERBOUGHT' if rsi > 70 
+                               else 'EXTREME_OVERSOLD' if rsi < 15 
+                               else 'OVERSOLD' if rsi < 30 
+                               else 'NEUTRAL',
+                    'signal_strength': 'STRONG_SELL' if rsi > 85 and trend_bullish 
+                                     else 'MODERATE_SELL' if rsi > 70 and trend_bullish
+                                     else 'STRONG_BUY' if rsi < 15 and trend_bearish
+                                     else 'MODERATE_BUY' if rsi < 30 and trend_bearish
+                                     else 'NEUTRAL'
+                },
+                'macd_analysis': {
+                    'value': round(macd, 4),
+                    'signal': 'BULLISH_STRONG' if macd > 50 
+                            else 'BULLISH_WEAK' if macd > 0 
+                            else 'BEARISH_WEAK' if macd > -50 
+                            else 'BEARISH_STRONG',
+                    'trend_confirmation': 'CONFIRMED' if (macd > 0 and trend_bullish) or (macd < 0 and trend_bearish) 
+                                        else 'DIVERGING' if (macd < 0 and trend_bullish) or (macd > 0 and trend_bearish)
+                                        else 'NEUTRAL'
+                },
+                'volume_analysis': {
+                    'condition': 'HIGH' if current_price > ema_12 and macd > 0 else 'NORMAL',
+                    'trend_support': 'STRONG' if trend_bullish and macd > 0 else 'WEAK'
+                },
+                'risk_assessment': {
+                    'level': 'HIGH' if rsi > 85 or rsi < 15 
+                           else 'MEDIUM' if rsi > 75 or rsi < 25 
+                           else 'LOW',
+                    'entry_timing': 'POOR' if rsi > 85 and trend_bullish 
+                                  else 'EXCELLENT' if rsi < 30 and trend_bullish 
+                                  else 'GOOD' if trend_bullish and 40 < rsi < 60 
+                                  else 'CAUTION',
+                    'exit_signals': 'PRESENT' if rsi > 80 or rsi < 20 else 'NONE'
+                },
+                'decision_reasoning': [
+                    f"📈 Trend Analysis: {'Strong Uptrend' if trend_bullish else 'Strong Downtrend' if trend_bearish else 'Sideways'} detected",
+                    f"🎯 RSI Signal: {round(rsi, 1)} - {'Extreme territory' if rsi > 85 or rsi < 15 else 'Normal range'}",
+                    f"📊 MACD Momentum: {'Bullish' if macd > 0 else 'Bearish'} with {abs(macd):.2f} strength",
+                    f"⚖️ Signal Balance: {final_buy_score:.1f} BUY vs {final_sell_score:.1f} SELL weight",
+                    f"🛡️ Risk Level: {'HIGH - Extreme RSI' if rsi > 85 or rsi < 15 else 'MODERATE' if rsi > 75 or rsi < 25 else 'LOW'}",
+                    f"🎪 Final Decision: {direction} based on weighted scoring system"
+                ]
+            }
             
             return {
                 'recommendation': recommendation.replace('BTCUSDT', symbol),
                 'direction': direction,
                 'confidence': confidence,
                 'debug_info': signal_debug,  # Alle Debug-Infos
+                # 📊 DETAILLIERTE SIGNAL ANALYSE
+                'detailed_analysis': detailed_analysis,
                 'signals_breakdown': {
-                    'buy_signals': buy_signals,
-                    'sell_signals': sell_signals,
-                    'signal_ratio': f"{buy_signals}:{sell_signals}",
+                    'base_buy_signals': base_buy_signals,
+                    'base_sell_signals': base_sell_signals,
+                    'final_buy_score': round(final_buy_score, 1),
+                    'final_sell_score': round(final_sell_score, 1),
+                    'signal_ratio': f"{final_buy_score:.1f}:{final_sell_score:.1f}",
                     'rsi_signal': f'RSI {rsi:.1f} - Trend: {"BULL" if trend_bullish else "BEAR" if trend_bearish else "SIDE"}',
                     'macd_signal': f'MACD {macd:.4f} - {"BULLISH" if macd > 0 else "BEARISH"}',
                     'trend_signal': 'UPTREND' if trend_bullish else 'DOWNTREND' if trend_bearish else 'SIDEWAYS',
-                    'trend_priority': 'ENFORCED' if 'trend_override' in signal_debug else 'NORMAL'
+                    'decision_method': 'WEIGHTED' if 'trend_boost' in signal_debug else 'NORMAL',
+                    'extreme_warning': 'YES' if 'extreme_caution' in signal_debug else 'NO'
                 }
             }
         
@@ -3819,6 +3925,10 @@ def analyze_symbol():
             'symbol': symbol,
             'decision': signal_data['direction'],
             'confidence': signal_data['confidence'],
+            # ✅ ADD: Direct RSI and MACD values in main response
+            'rsi': round(float(tech_indicators.get('rsi', 50)), 1),
+            'macd': round(float(tech_indicators.get('macd', 0)), 4),
+            'current_price': round(float(current_price), 2),
             'fundamental_score': int(tech_indicators['rsi']),
             'signals': [
                 f"🎯 {signal_data['direction']} Signal with {signal_data['confidence']}% confidence",
@@ -4023,8 +4133,13 @@ def analyze_symbol():
         analysis_result['trading_setup'] = trading_setup
         analysis_result['current_price'] = round(float(current_price), 6)
         
+        # ✅ ADD: Include detailed analysis in main response
+        if 'detailed_analysis' in signal_data:
+            analysis_result['detailed_analysis'] = signal_data['detailed_analysis']
+        
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
+        print(f"🔍 DEBUG - detailed_analysis included: {'YES' if 'detailed_analysis' in analysis_result else 'NO'}")
         
         return jsonify(analysis_result)
         
