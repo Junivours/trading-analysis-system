@@ -3479,122 +3479,7 @@ def analyze_symbol():
         # 3. EXTRACT VALUES FROM TECH INDICATORS  
         current_price = float(market_result['data'][-1]['close'])
         
-        # Generate trading signals using existing logic
-                gains = np.where(deltas > 0, deltas, 0)
-                losses = np.where(deltas < 0, -deltas, 0)
-                
-                # Wilder's smoothing (EXACT TradingView method)
-                avg_gain = np.mean(gains[:period])
-                avg_loss = np.mean(losses[:period])
-                
-                for i in range(period, len(gains)):
-                    avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-                    avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-                
-                if avg_loss == 0:
-                    return 100
-                
-                rs = avg_gain / avg_loss
-                rsi = 100 - (100 / (1 + rs))
-                return rsi
-            
-            # ============================
-            # 📊 TRADINGVIEW EMA
-            # ============================
-            def calculate_tradingview_ema(prices, period):
-                multiplier = 2.0 / (period + 1)
-                ema = np.zeros(len(prices))
-                ema[0] = prices[0]
-                
-                for i in range(1, len(prices)):
-                    ema[i] = (prices[i] * multiplier) + (ema[i-1] * (1 - multiplier))
-                
-                return ema[-1]
-            
-            # ============================
-            # 📈 TRADINGVIEW MACD (Vollständig)
-            # ============================
-            def calculate_tradingview_macd(prices, fast=12, slow=26, signal=9):
-                ema_fast = calculate_tradingview_ema(prices, fast)
-                ema_slow = calculate_tradingview_ema(prices, slow)
-                macd_line = ema_fast - ema_slow
-                
-                # MACD Signal Line (EMA9 of MACD Line)
-                if len(prices) >= slow + signal:
-                    # Für Signal Line brauchen wir historische MACD Werte
-                    macd_values = []
-                    for i in range(signal, len(prices)):
-                        ema_f = calculate_tradingview_ema(prices[:i+1], fast)
-                        ema_s = calculate_tradingview_ema(prices[:i+1], slow)
-                        macd_values.append(ema_f - ema_s)
-                    macd_signal = calculate_tradingview_ema(np.array(macd_values), signal)
-                else:
-                    macd_signal = macd_line
-                    
-                return macd_line, macd_signal
-            
-            # Berechnungen
-            rsi = calculate_tradingview_rsi(closes, 14)
-            macd, macd_signal = calculate_tradingview_macd(closes, 12, 26, 9)
-            ema_12 = calculate_tradingview_ema(closes, 12)
-            ema_26 = calculate_tradingview_ema(closes, 26)
-            sma_50 = np.mean(closes[-50:])
-            
-            # Bollinger Bands
-            bb_period = 20
-            bb_std = 2
-            if len(closes) >= bb_period:
-                bb_middle = np.mean(closes[-bb_period:])
-                bb_std_dev = np.std(closes[-bb_period:])
-                bb_upper = bb_middle + (bb_std_dev * bb_std)
-                bb_lower = bb_middle - (bb_std_dev * bb_std)
-                bb_position = ((closes[-1] - bb_lower) / (bb_upper - bb_lower)) * 100
-            else:
-                bb_middle = bb_upper = bb_lower = closes[-1]
-                bb_position = 50
-            
-            # Stochastic Oscillator
-            k_period = 14
-            if len(highs) >= k_period:
-                lowest_low = np.min(lows[-k_period:])
-                highest_high = np.max(highs[-k_period:])
-                if highest_high != lowest_low:
-                    stoch_k = ((closes[-1] - lowest_low) / (highest_high - lowest_low)) * 100
-                else:
-                    stoch_k = 50
-                
-                # Stoch %D (3-period SMA of %K)
-                if len(closes) >= k_period + 2:
-                    stoch_d = 50  # Simplified für Performance
-                else:
-                    stoch_d = stoch_k
-            else:
-                stoch_k = stoch_d = 50
-            
-            # Volatility und ATR
-            atr = np.mean(highs[-14:] - lows[-14:])
-            volatility = (np.std(closes[-20:]) / np.mean(closes[-20:])) * 100
-            
-            return {
-                'rsi': float(rsi),
-                'macd': float(macd),
-                'macd_signal': float(macd_signal),
-                'macd_histogram': float(macd - macd_signal),
-                'ema_12': float(ema_12),
-                'ema_26': float(ema_26),
-                'sma_50': float(sma_50),
-                'bb_upper': float(bb_upper),
-                'bb_middle': float(bb_middle), 
-                'bb_lower': float(bb_lower),
-                'bb_position': float(bb_position),
-                'stoch_k': float(stoch_k),
-                'stoch_d': float(stoch_d),
-                'atr': float(atr),
-                'volatility': float(volatility),
-                'volume_avg': float(np.mean(volumes[-20:]))
-            }
-        
-        # 3. LIVE TRADING SIGNAL LOGIC - FIXED
+        # 4. GENERATE INTELLIGENT TRADING SIGNALS
         def generate_live_trading_signals(current_price, indicators):
             """Generiert Trading-Signale basierend auf TradingView-Standards - TREND-FOLLOWING"""
             signals = []
@@ -3830,6 +3715,7 @@ def analyze_symbol():
             
             # Calculate intelligent metrics
             momentum_strength = min(100, abs(macd * 1000) + (100 - abs(rsi - 50)))
+            volume_ratio = indicators.get('volume_avg', 1000000) / 1000000  # Normalisiert
             upside_potential = calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength)
             risk_level = calculate_risk_level(rsi, volatility, volume_ratio)
             
