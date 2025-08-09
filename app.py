@@ -3761,101 +3761,104 @@ def analyze_symbol():
             upside_potential = calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength)
             risk_level = calculate_risk_level(rsi, volatility, volume_ratio)
             
-            # 🎯 INTELLIGENT DECISION LOGIC - RSI CRITICAL
+            # 🎯 INTELLIGENT DECISION LOGIC - CONFLUENCE FIRST, RSI ASSISTS
             
-            # 🚨 RSI OVERRIDE: Extreme overbought conditions
-            if rsi > 85:
-                recommendation = f"⛔ AVOID - RSI {rsi:.0f} EXTREME OVERBOUGHT"
-                direction = "AVOID"
-                advisory_message = f"🚨 DANGER ZONE! RSI {rsi:.0f} signals major reversal risk. Wait for RSI < 60!"
-                confidence = max(20, confidence - 40)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 85 → AVOID signal"
-                
-            elif rsi > 80:
-                recommendation = f"⚠️ CAUTION - RSI {rsi:.0f} OVERBOUGHT" 
-                direction = "CAUTION"
-                advisory_message = f"⚠️ HIGH RISK! RSI {rsi:.0f} in danger zone. Consider taking profits!"
-                confidence = max(25, confidence - 30)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 80 → CAUTION signal"
-                
-            elif rsi > 75:
-                recommendation = f"📉 WEAK LONG - RSI {rsi:.0f} Warning"
-                direction = "WEAK_LONG"
-                advisory_message = f"⚠️ Overbought territory! RSI {rsi:.0f} suggests limited upside. Small position only!"
-                confidence = max(30, confidence - 20)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 75 → Reduced confidence"
-                
-            # 🟢 RSI OPPORTUNITY: Oversold conditions
-            elif rsi < 15:
-                recommendation = f"💎 EXCEPTIONAL BUY - RSI {rsi:.0f} EXTREME OVERSOLD"
-                direction = "STRONG_BUY"
-                advisory_message = f"💎 PRIME OPPORTUNITY! RSI {rsi:.0f} extreme oversold. High bounce probability! Target: +{max(upside_potential, 25):.0f}%"
-                confidence = min(95, confidence + 30)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 15 → STRONG BUY boost"
-                
-            elif rsi < 25:
-                recommendation = f"🚀 STRONG BUY - RSI {rsi:.0f} OVERSOLD"
-                direction = "LONG"
-                advisory_message = f"🚀 Excellent entry! RSI {rsi:.0f} oversold. High probability bounce! Target: +{max(upside_potential, 20):.0f}%"
-                confidence = min(90, confidence + 20)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 25 → BUY boost"
-                
-            elif rsi < 35 and trend_bullish:
-                recommendation = f"📈 BUY - RSI {rsi:.0f} HEALTHY PULLBACK"
-                direction = "LONG"
-                advisory_message = f"📈 Good opportunity! RSI {rsi:.0f} healthy pullback in uptrend. Target: +{max(upside_potential, 15):.0f}%"
-                confidence = min(85, confidence + 15)
-                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 35 + uptrend → BUY"
-                
-            # Normal decision logic for healthy RSI levels (25-75)
-            elif final_buy_score > final_sell_score and 25 <= rsi <= 75:
-                if upside_potential > 25 and risk_level < 40 and rsi < 60:  # Ideal zone
-                    recommendation = f"🚀 STRONG BUY - {upside_potential:.0f}% upside potential"
-                    direction = "LONG"
-                    advisory_message = f"🚀 Excellent setup! RSI {rsi:.0f} healthy | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
-                elif upside_potential > 15 and risk_level < 60 and rsi < 70:  # Good zone
-                    recommendation = f"📈 BUY - {upside_potential:.0f}% upside expected"
-                    direction = "LONG"
-                    advisory_message = f"📈 Good opportunity! RSI {rsi:.0f} acceptable | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
-                elif upside_potential > 8 and rsi < 70:  # Moderate zone
-                    recommendation = f"⚖️ MODERATE BUY - {upside_potential:.0f}% potential"
-                    direction = "LONG"
-                    advisory_message = f"⚖️ Limited upside! RSI {rsi:.0f} | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Small position"
-                else:  # RSI getting high or low potential
-                    recommendation = f"🛑 HOLD - RSI {rsi:.0f} limits upside"
-                    direction = "NEUTRAL"
-                    advisory_message = f"🛑 Poor setup! RSI {rsi:.0f} too high | Only +{upside_potential:.0f}% expected | Wait for pullback!"
-                    
+            # 🧠 CONFLUENCE-BASED DECISION (Primary Logic)
+            if final_buy_score > final_sell_score:
+                base_direction = "LONG"
+                signal_strength = final_buy_score - final_sell_score
             elif final_sell_score > final_buy_score:
-                # 🟢 INTELLIGENT SELL LOGIC: Respect oversold conditions
-                if rsi < 20:  # Oversold in bearish trend - CAUTION
-                    recommendation = f"⚠️ CAUTION - RSI {rsi:.0f} OVERSOLD"
-                    direction = "HOLD"
-                    advisory_message = f"⚠️ RSI {rsi:.0f} oversold! Bounce risk high. Wait for confirmation before shorting!"
-                    confidence = max(30, confidence - 25)
-                    signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 20 → SELL blocked due to oversold"
-                    
-                elif rsi < 30 and trend_bearish:  # Mild oversold in downtrend
-                    recommendation = f"📉 WEAK SELL - RSI {rsi:.0f} Oversold Risk"
-                    direction = "WEAK_SELL"
-                    advisory_message = f"📉 Bearish bias but RSI {rsi:.0f} oversold. Small position only! Bounce possible!"
-                    confidence = max(35, confidence - 15)
-                    signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 30 → Reduced SELL confidence"
-                    
-                else:  # Normal sell conditions (RSI > 30)
-                    downside_risk = upside_potential  # Use same calculation but as downside
-                    if final_sell_score >= final_buy_score * 1.5 and rsi > 50:  # Strong sell with healthy RSI
-                        recommendation = f"📉 SELL - {downside_risk:.0f}% downside expected"
-                        direction = "SHORT"
-                        advisory_message = f"📉 Take profits! RSI {rsi:.0f} | Downside risk: -{downside_risk:.0f}% | Risk level: {risk_level:.0f}%"
-                    else:  # Weak sell
-                        recommendation = f"⚠️ WEAK SELL - {downside_risk:.0f}% risk"
-                        direction = "WEAK_SELL" 
-                        advisory_message = f"⚠️ Consider reducing position! RSI {rsi:.0f} | Risk: -{downside_risk:.0f}% | Current risk: {risk_level:.0f}%"
+                base_direction = "SHORT" 
+                signal_strength = final_sell_score - final_buy_score
             else:
-                # Neutral situation → HOLD with guidance
-                recommendation = f"HOLD - Market unclear"
+                base_direction = "NEUTRAL"
+                signal_strength = 0
+            
+            # 🎯 RSI ADJUSTMENT: Modifies but doesn't override confluence
+            rsi_adjustment = ""
+            confidence_adjustment = 0
+            
+            # RSI Extreme Conditions (Strong influence but not complete override)
+            if rsi > 85 and base_direction == "LONG":
+                confidence_adjustment = -35  # Strong reduction
+                rsi_adjustment = f"⚠️ RSI {rsi:.0f} EXTREME - High reversal risk!"
+                if confluence_count < 4:  # Only override if weak confluence
+                    base_direction = "CAUTION"
+                    
+            elif rsi > 80 and base_direction == "LONG":
+                confidence_adjustment = -25  # Moderate reduction
+                rsi_adjustment = f"⚠️ RSI {rsi:.0f} HIGH - Limited upside"
+                
+            elif rsi > 75 and base_direction == "LONG":
+                confidence_adjustment = -15  # Light reduction
+                rsi_adjustment = f"⚠️ RSI {rsi:.0f} elevated"
+                
+            elif rsi < 15:  # Extreme oversold - boost any signal
+                confidence_adjustment = +25  # Strong boost
+                rsi_adjustment = f"💎 RSI {rsi:.0f} EXTREME OVERSOLD - High bounce probability!"
+                if base_direction == "SHORT" and confluence_count < 3:
+                    base_direction = "HOLD"  # Block weak short signals
+                    
+            elif rsi < 25:  # Strong oversold
+                confidence_adjustment = +15  # Moderate boost  
+                rsi_adjustment = f"🚀 RSI {rsi:.0f} OVERSOLD - Good opportunity!"
+                
+            elif rsi < 35 and trend_bullish:  # Healthy pullback
+                confidence_adjustment = +10  # Light boost
+                rsi_adjustment = f"📈 RSI {rsi:.0f} healthy pullback"
+            
+            # Apply confidence adjustment
+            confidence = max(20, min(95, confidence + confidence_adjustment))
+            
+            # 🎯 FINAL DECISION BASED ON CONFLUENCE + RSI ADJUSTMENT
+            if base_direction == "LONG":
+                if upside_potential > 25 and risk_level < 40 and confluence_count >= 3:
+                    recommendation = f"🚀 STRONG BUY - {upside_potential:.0f}% upside | {confluence_count} confirmations {rsi_adjustment}"
+                    direction = "LONG"
+                    advisory_message = f"🚀 Excellent setup! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
+                elif upside_potential > 15 and confluence_count >= 2:
+                    recommendation = f"📈 BUY - {upside_potential:.0f}% upside | {confluence_count} confirmations {rsi_adjustment}"
+                    direction = "LONG"
+                    advisory_message = f"📈 Good opportunity! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
+                elif upside_potential > 8:
+                    recommendation = f"⚖️ MODERATE BUY - {upside_potential:.0f}% potential {rsi_adjustment}"
+                    direction = "LONG"
+                    advisory_message = f"⚖️ Limited setup! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
+                else:
+                    recommendation = f"🛑 HOLD - Poor setup {rsi_adjustment}"
+                    direction = "NEUTRAL"
+                    advisory_message = f"🛑 Wait for better opportunity! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Low upside expected"
+                    
+            elif base_direction == "SHORT":
+                # Intelligent SHORT logic considering RSI oversold protection
+                if rsi < 20:  # Oversold protection
+                    recommendation = f"⚠️ CAUTION - RSI {rsi:.0f} oversold risk"
+                    direction = "HOLD"
+                    advisory_message = f"⚠️ Bearish bias but RSI {rsi:.0f} oversold! Bounce risk high. Wait for confirmation!"
+                elif rsi < 30 and confluence_count < 3:  # Weak sell + mild oversold
+                    recommendation = f"📉 WEAK SELL - RSI {rsi:.0f} oversold risk"
+                    direction = "WEAK_SELL"
+                    advisory_message = f"📉 Limited downside! RSI {rsi:.0f} oversold | Confluence: {confluence_count}/4 | Small position only!"
+                else:  # Normal sell conditions
+                    downside_risk = upside_potential
+                    if confluence_count >= 3:
+                        recommendation = f"📉 SELL - {downside_risk:.0f}% downside | {confluence_count} confirmations"
+                        direction = "SHORT"
+                        advisory_message = f"📉 Strong bearish setup! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Downside: -{downside_risk:.0f}%"
+                    else:
+                        recommendation = f"⚠️ WEAK SELL - {downside_risk:.0f}% risk"
+                        direction = "WEAK_SELL"
+                        advisory_message = f"⚠️ Weak bearish setup! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Risk: -{downside_risk:.0f}%"
+                        
+            elif base_direction == "CAUTION":  # RSI extreme override
+                recommendation = f"⛔ CAUTION - RSI {rsi:.0f} extreme risk"
+                direction = "CAUTION"
+                advisory_message = f"⛔ Multiple signals conflict! Confluence: {confluence_count}/4 suggests {final_buy_score > final_sell_score and 'LONG' or 'SHORT'} but RSI {rsi:.0f} extreme! Wait for clarity!"
+                
+            else:  # NEUTRAL
+                recommendation = f"🔄 HOLD - Market unclear"
                 direction = "NEUTRAL"
+                advisory_message = f"🔄 Mixed signals! Confluence: {confluence_count}/4 | RSI {rsi:.0f} | Wait for clearer setup | Upside: {upside_potential:.0f}%"
                 advisory_message = f"📊 Sideways market! Upside: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Wait for clearer signals"
                 confidence = max(40, confidence - 15)
             
