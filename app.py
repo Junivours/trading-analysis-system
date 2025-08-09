@@ -3473,19 +3473,11 @@ def analyze_symbol():
         
         # 2. USE GLOBAL TRADINGVIEW INDICATORS FUNCTION (avoid duplication)
         tech_indicators = calculate_tradingview_indicators_with_live_data(candles, market_result.get('live_stats', {}))
-            """Exakte TradingView RSI, MACD, EMA Berechnung"""
-            if len(candles) < 50:
-                return {'error': 'Nicht genug Daten für Indikatoren'}
+        
+        if 'error' in tech_indicators:
+            return jsonify({'error': tech_indicators['error']})
             
-            closes = np.array([c['close'] for c in candles])
-            highs = np.array([c['high'] for c in candles])
-            lows = np.array([c['low'] for c in candles])
-            volumes = np.array([c['volume'] for c in candles])
-            
-            # ============================
-            # 🎯 TRADINGVIEW RSI (Wilder's Smoothing)
-            # ============================
-            def calculate_tradingview_rsi(prices, period=14):
+        # 3. EXTRACT VALUES FROM TECH INDICATORS
                 if len(prices) < period + 1:
                     return 50
                 
