@@ -3504,29 +3504,36 @@ def analyze_symbol():
                 elif rsi < 50:  # Mild pullback = BUY
                     signals.append("BUY") 
                     confidence += 20
-                elif rsi > 80:  # Overbought = CAREFUL! (reduced buying)
-                    if rsi > 85:  # Extremely overbought = HOLD/SELL
-                        signals.append("HOLD")  # Too risky to buy
-                        confidence -= 5  # Lower confidence
-                    else:  # Mildly overbought = Weak BUY
-                        signals.append("BUY")  # Still buy but careful
-                        confidence += 3  # Very low confidence
-                else:  # Normal bullish RSI (50-80) = BUY
+                elif rsi > 80:  # 🚨 OVERBOUGHT TERRITORY - DANGEROUS!
+                    if rsi > 85:  # Extremely overbought = STRONG SELL SIGNAL
+                        signals.append("SELL")
+                        signals.append("SELL")  # Double SELL weight
+                        confidence -= 25  # Major confidence hit
+                    else:  # Mildly overbought (80-85) = HOLD/CAUTION
+                        signals.append("HOLD")  # NO MORE BUYING!
+                        confidence -= 15  # Significant confidence reduction
+                elif rsi > 70:  # Getting overbought = REDUCE BUYING
+                    signals.append("HOLD")  # Caution zone
+                    confidence += 5  # Very low confidence for buying
+                else:  # Normal bullish RSI (50-70) = BUY
                     signals.append("BUY")
                     confidence += 15
                     
-            elif trend_bearish:  # In bearish trend - IMMER bearish bias
-                if rsi > 60:  # Overbought in downtrend = STRONG SELL
+            elif trend_bearish:  # In bearish trend - INTELLIGENT analysis
+                if rsi > 70:  # Overbought in downtrend = STRONG SELL
                     signals.append("SELL")
                     signals.append("SELL")  # Double weight
                     confidence += 30
-                elif rsi > 50:  # Mild bounce = SELL
+                elif rsi > 60:  # Dead cat bounce = SELL
                     signals.append("SELL")
                     confidence += 20
-                elif rsi < 20:  # Oversold in downtrend = STILL SELL (reduced confidence)
-                    signals.append("SELL")  # TREND OVERRIDES RSI!
+                elif rsi < 15:  # EXTREME oversold = POTENTIAL BOUNCE (HOLD)
+                    signals.append("HOLD")  # BOUNCE POTENTIAL!
                     confidence += 5
-                else:  # Normal bearish RSI (20-50) = SELL
+                elif rsi < 25:  # Oversold = CAUTION (possible bounce)
+                    signals.append("HOLD")  # Wait for confirmation
+                    confidence += 8
+                else:  # Normal bearish RSI (25-60) = SELL
                     signals.append("SELL")
                     confidence += 15
                     
@@ -3668,20 +3675,30 @@ def analyze_symbol():
             
             # 🧠 INTELLIGENT ADVISORY SYSTEM - Calculate realistic targets
             def calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength):
-                """Calculate realistic upside potential based on multiple factors"""
+                """Calculate realistic upside potential - CRITICAL RSI EVALUATION"""
                 base_potential = 15  # Base potential in %
                 
-                # RSI adjustment
-                if rsi < 30:
-                    rsi_bonus = 15  # Oversold = high upside
-                elif rsi < 50:
-                    rsi_bonus = 8   # Pullback = moderate upside
-                elif rsi < 70:
-                    rsi_bonus = 5   # Normal = small upside
-                elif rsi < 80:
-                    rsi_bonus = 2   # Getting risky
+                # RSI adjustment - MUCH MORE CRITICAL
+                if rsi > 90:
+                    rsi_bonus = -25  # Extreme danger zone
+                elif rsi > 85:
+                    rsi_bonus = -20  # Major reversal risk
+                elif rsi > 80:
+                    rsi_bonus = -15  # High reversal risk
+                elif rsi > 75:
+                    rsi_bonus = -10  # Significant risk
+                elif rsi > 70:
+                    rsi_bonus = -5   # Getting risky
+                elif rsi > 60:
+                    rsi_bonus = 3    # Acceptable
+                elif rsi > 50:
+                    rsi_bonus = 8    # Good zone
+                elif rsi > 30:
+                    rsi_bonus = 12   # Sweet spot
+                elif rsi > 20:
+                    rsi_bonus = 20   # Oversold opportunity
                 else:
-                    rsi_bonus = -5  # Overbought = negative adjustment
+                    rsi_bonus = 25   # Extreme oversold
                 
                 # MACD momentum adjustment
                 macd_bonus = min(10, abs(macd) * 200)  # Strong MACD = more potential
@@ -3692,24 +3709,49 @@ def analyze_symbol():
                 # Volatility risk adjustment
                 volatility_risk = min(5, volatility * 2)  # High volatility = reduce potential
                 
-                total_potential = base_potential + rsi_bonus + macd_bonus + volume_bonus - volatility_risk
-                return max(2, min(45, total_potential))  # Cap between 2-45%
+                # RSI penalty multiplier for extreme levels
+                if rsi > 85:
+                    penalty_multiplier = 0.3  # Severe penalty
+                elif rsi > 80:
+                    penalty_multiplier = 0.5  # Major penalty
+                elif rsi > 75:
+                    penalty_multiplier = 0.7  # Moderate penalty
+                else:
+                    penalty_multiplier = 1.0  # No penalty
+                
+                total_potential = (base_potential + rsi_bonus + macd_bonus + volume_bonus - volatility_risk) * penalty_multiplier
+                return max(1, min(45, total_potential))  # Cap between 1-45%
             
             def calculate_risk_level(rsi, volatility, volume_ratio):
-                """Calculate current risk level"""
+                """Calculate current risk level - PROFESSIONAL ASSESSMENT"""
                 risk = 30  # Base risk
                 
-                if rsi > 80:
-                    risk += 25  # High RSI = high risk
+                # RSI risk assessment - MORE GRANULAR
+                if rsi > 90:
+                    risk += 50   # Extreme danger
+                elif rsi > 85:
+                    risk += 40   # Major reversal risk
+                elif rsi > 80:
+                    risk += 30   # High reversal risk
+                elif rsi > 75:
+                    risk += 20   # Elevated risk
                 elif rsi > 70:
-                    risk += 15
+                    risk += 10   # Moderate risk
+                elif rsi > 60:
+                    risk += 5    # Slight risk
+                elif rsi < 20:
+                    risk -= 10   # Lower risk in oversold
                 elif rsi < 30:
-                    risk -= 10  # Oversold = lower risk
+                    risk -= 5    # Reduced risk
                 
-                risk += volatility * 3  # High volatility = higher risk
+                # Volatility risk
+                risk += min(20, volatility * 15)
                 
-                if volume_ratio < 0.7:
-                    risk += 15  # Low volume = higher risk
+                # Volume risk (low volume = higher risk)
+                if volume_ratio < 0.8:
+                    risk += 10
+                
+                return max(5, min(95, risk))  # Cap between 5-95%
                 
                 return max(5, min(95, risk))  # Cap between 5-95%
             
@@ -3719,35 +3761,97 @@ def analyze_symbol():
             upside_potential = calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength)
             risk_level = calculate_risk_level(rsi, volatility, volume_ratio)
             
-            # 🎯 INTELLIGENT DECISION LOGIC
-            if final_buy_score > final_sell_score:
-                if upside_potential > 25 and risk_level < 40:  # High potential, low risk
-                    recommendation = f"STRONG BUY - {upside_potential:.0f}% upside potential"
+            # 🎯 INTELLIGENT DECISION LOGIC - RSI CRITICAL
+            
+            # 🚨 RSI OVERRIDE: Extreme overbought conditions
+            if rsi > 85:
+                recommendation = f"⛔ AVOID - RSI {rsi:.0f} EXTREME OVERBOUGHT"
+                direction = "AVOID"
+                advisory_message = f"🚨 DANGER ZONE! RSI {rsi:.0f} signals major reversal risk. Wait for RSI < 60!"
+                confidence = max(20, confidence - 40)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 85 → AVOID signal"
+                
+            elif rsi > 80:
+                recommendation = f"⚠️ CAUTION - RSI {rsi:.0f} OVERBOUGHT" 
+                direction = "CAUTION"
+                advisory_message = f"⚠️ HIGH RISK! RSI {rsi:.0f} in danger zone. Consider taking profits!"
+                confidence = max(25, confidence - 30)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 80 → CAUTION signal"
+                
+            elif rsi > 75:
+                recommendation = f"📉 WEAK LONG - RSI {rsi:.0f} Warning"
+                direction = "WEAK_LONG"
+                advisory_message = f"⚠️ Overbought territory! RSI {rsi:.0f} suggests limited upside. Small position only!"
+                confidence = max(30, confidence - 20)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} > 75 → Reduced confidence"
+                
+            # 🟢 RSI OPPORTUNITY: Oversold conditions
+            elif rsi < 15:
+                recommendation = f"💎 EXCEPTIONAL BUY - RSI {rsi:.0f} EXTREME OVERSOLD"
+                direction = "STRONG_BUY"
+                advisory_message = f"💎 PRIME OPPORTUNITY! RSI {rsi:.0f} extreme oversold. High bounce probability! Target: +{max(upside_potential, 25):.0f}%"
+                confidence = min(95, confidence + 30)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 15 → STRONG BUY boost"
+                
+            elif rsi < 25:
+                recommendation = f"🚀 STRONG BUY - RSI {rsi:.0f} OVERSOLD"
+                direction = "LONG"
+                advisory_message = f"🚀 Excellent entry! RSI {rsi:.0f} oversold. High probability bounce! Target: +{max(upside_potential, 20):.0f}%"
+                confidence = min(90, confidence + 20)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 25 → BUY boost"
+                
+            elif rsi < 35 and trend_bullish:
+                recommendation = f"📈 BUY - RSI {rsi:.0f} HEALTHY PULLBACK"
+                direction = "LONG"
+                advisory_message = f"📈 Good opportunity! RSI {rsi:.0f} healthy pullback in uptrend. Target: +{max(upside_potential, 15):.0f}%"
+                confidence = min(85, confidence + 15)
+                signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 35 + uptrend → BUY"
+                
+            # Normal decision logic for healthy RSI levels (25-75)
+            elif final_buy_score > final_sell_score and 25 <= rsi <= 75:
+                if upside_potential > 25 and risk_level < 40 and rsi < 60:  # Ideal zone
+                    recommendation = f"🚀 STRONG BUY - {upside_potential:.0f}% upside potential"
                     direction = "LONG"
-                    advisory_message = f"🚀 Excellent setup! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Strong momentum detected"
-                elif upside_potential > 15 and risk_level < 60:  # Moderate potential
-                    recommendation = f"BUY - {upside_potential:.0f}% upside expected"
+                    advisory_message = f"🚀 Excellent setup! RSI {rsi:.0f} healthy | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
+                elif upside_potential > 15 and risk_level < 60 and rsi < 70:  # Good zone
+                    recommendation = f"📈 BUY - {upside_potential:.0f}% upside expected"
                     direction = "LONG"
-                    advisory_message = f"📈 Good opportunity! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Moderate confidence"
-                elif upside_potential > 8:  # Small potential
-                    recommendation = f"WEAK BUY - {upside_potential:.0f}% potential"
+                    advisory_message = f"📈 Good opportunity! RSI {rsi:.0f} acceptable | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}%"
+                elif upside_potential > 8 and rsi < 70:  # Moderate zone
+                    recommendation = f"⚖️ MODERATE BUY - {upside_potential:.0f}% potential"
                     direction = "LONG"
-                    advisory_message = f"⚠️ Limited upside! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Consider waiting"
-                else:  # Very limited potential
-                    recommendation = f"HOLD - Only {upside_potential:.0f}% upside"
+                    advisory_message = f"⚖️ Limited upside! RSI {rsi:.0f} | Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Small position"
+                else:  # RSI getting high or low potential
+                    recommendation = f"🛑 HOLD - RSI {rsi:.0f} limits upside"
                     direction = "NEUTRAL"
-                    advisory_message = f"🛑 Low potential! Only +{upside_potential:.0f}% expected | Risk: {risk_level:.0f}% | Better to wait"
+                    advisory_message = f"🛑 Poor setup! RSI {rsi:.0f} too high | Only +{upside_potential:.0f}% expected | Wait for pullback!"
                     
             elif final_sell_score > final_buy_score:
-                downside_risk = upside_potential  # Use same calculation but as downside
-                if final_sell_score >= final_buy_score * 1.5:  # Strong sell
-                    recommendation = f"SELL - {downside_risk:.0f}% downside risk"
-                    direction = "SHORT"
-                    advisory_message = f"📉 Take profits! Downside risk: -{downside_risk:.0f}% | Risk level: {risk_level:.0f}%"
-                else:  # Weak sell
-                    recommendation = f"WEAK SELL - {downside_risk:.0f}% risk"
-                    direction = "SHORT" 
-                    advisory_message = f"⚠️ Consider selling! Risk: -{downside_risk:.0f}% | Current risk: {risk_level:.0f}%"
+                # 🟢 INTELLIGENT SELL LOGIC: Respect oversold conditions
+                if rsi < 20:  # Oversold in bearish trend - CAUTION
+                    recommendation = f"⚠️ CAUTION - RSI {rsi:.0f} OVERSOLD"
+                    direction = "HOLD"
+                    advisory_message = f"⚠️ RSI {rsi:.0f} oversold! Bounce risk high. Wait for confirmation before shorting!"
+                    confidence = max(30, confidence - 25)
+                    signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 20 → SELL blocked due to oversold"
+                    
+                elif rsi < 30 and trend_bearish:  # Mild oversold in downtrend
+                    recommendation = f"📉 WEAK SELL - RSI {rsi:.0f} Oversold Risk"
+                    direction = "WEAK_SELL"
+                    advisory_message = f"📉 Bearish bias but RSI {rsi:.0f} oversold. Small position only! Bounce possible!"
+                    confidence = max(35, confidence - 15)
+                    signal_debug['rsi_override'] = f"RSI {rsi:.0f} < 30 → Reduced SELL confidence"
+                    
+                else:  # Normal sell conditions (RSI > 30)
+                    downside_risk = upside_potential  # Use same calculation but as downside
+                    if final_sell_score >= final_buy_score * 1.5 and rsi > 50:  # Strong sell with healthy RSI
+                        recommendation = f"📉 SELL - {downside_risk:.0f}% downside expected"
+                        direction = "SHORT"
+                        advisory_message = f"📉 Take profits! RSI {rsi:.0f} | Downside risk: -{downside_risk:.0f}% | Risk level: {risk_level:.0f}%"
+                    else:  # Weak sell
+                        recommendation = f"⚠️ WEAK SELL - {downside_risk:.0f}% risk"
+                        direction = "WEAK_SELL" 
+                        advisory_message = f"⚠️ Consider reducing position! RSI {rsi:.0f} | Risk: -{downside_risk:.0f}% | Current risk: {risk_level:.0f}%"
             else:
                 # Neutral situation → HOLD with guidance
                 recommendation = f"HOLD - Market unclear"
@@ -3771,25 +3875,62 @@ def analyze_symbol():
             # Confidence limits
             confidence = min(95, max(25, confidence))
             
-            # 📊 DETAILLIERTE SIGNAL ANALYSE erstellen
+            # 📊 DETAILLIERTE SIGNAL ANALYSE erstellen - PROFESSIONELL
             detailed_analysis = {
                 'market_condition': 'STRONG_UPTREND' if trend_bullish and final_buy_score > 6 
                                   else 'WEAK_UPTREND' if trend_bullish 
                                   else 'STRONG_DOWNTREND' if trend_bearish and final_sell_score > 6
                                   else 'WEAK_DOWNTREND' if trend_bearish 
                                   else 'SIDEWAYS',
+                'professional_assessment': {
+                    'overall_rating': 'EXTREMELY_BEARISH' if rsi > 85 and trend_bullish
+                                    else 'BEARISH' if rsi > 75 and trend_bullish
+                                    else 'EXTREMELY_BULLISH' if rsi < 15 and trend_bearish  
+                                    else 'BULLISH' if rsi < 25 and trend_bullish
+                                    else 'NEUTRAL_BULLISH' if trend_bullish and 40 < rsi < 60
+                                    else 'NEUTRAL_BEARISH' if trend_bearish and 40 < rsi < 60
+                                    else 'MIXED_SIGNALS',
+                    'setup_quality': 'AVOID - Extreme overbought!' if rsi > 85
+                                   else 'POOR - Overbought territory' if rsi > 75
+                                   else 'EXCELLENT - Oversold bounce setup' if rsi < 20
+                                   else 'GOOD - Healthy pullback' if 25 < rsi < 35
+                                   else 'IDEAL - Sweet spot entry' if 40 < rsi < 60
+                                   else 'NEUTRAL',
+                    'institutional_view': 'SMART MONEY SELLING' if rsi > 80
+                                        else 'DISTRIBUTION PHASE' if rsi > 70 and trend_bullish
+                                        else 'ACCUMULATION ZONE' if rsi < 25
+                                        else 'CONTINUATION PHASE' if 35 < rsi < 65
+                                        else 'UNCERTAINTY',
+                    'risk_reward_assessment': 'TERRIBLE (1:0.3)' if rsi > 85
+                                            else 'POOR (1:0.7)' if rsi > 75  
+                                            else 'EXCELLENT (1:4)' if rsi < 20
+                                            else 'GOOD (1:2.5)' if 25 < rsi < 35
+                                            else 'ACCEPTABLE (1:2)' if 40 < rsi < 60
+                                            else 'MEDIOCRE (1:1.2)'
+                },
                 'rsi_analysis': {
                     'value': round(rsi, 1),
                     'condition': 'EXTREME_OVERBOUGHT' if rsi > 85 
+                               else 'SEVERELY_OVERBOUGHT' if rsi > 80
                                else 'OVERBOUGHT' if rsi > 70 
+                               else 'SLIGHTLY_OVERBOUGHT' if rsi > 60
                                else 'EXTREME_OVERSOLD' if rsi < 15 
+                               else 'SEVERELY_OVERSOLD' if rsi < 20
                                else 'OVERSOLD' if rsi < 30 
                                else 'NEUTRAL',
-                    'signal_strength': 'STRONG_SELL' if rsi > 85 and trend_bullish 
-                                     else 'MODERATE_SELL' if rsi > 70 and trend_bullish
-                                     else 'STRONG_BUY' if rsi < 15 and trend_bearish
-                                     else 'MODERATE_BUY' if rsi < 30 and trend_bearish
-                                     else 'NEUTRAL'
+                    'signal_strength': 'STRONG_SELL_SIGNAL' if rsi > 85
+                                     else 'MODERATE_SELL_SIGNAL' if rsi > 80
+                                     else 'WEAK_SELL_SIGNAL' if rsi > 70
+                                     else 'STRONG_BUY_SIGNAL' if rsi < 15
+                                     else 'MODERATE_BUY_SIGNAL' if rsi < 25
+                                     else 'WEAK_BUY_SIGNAL' if rsi < 35 and trend_bullish
+                                     else 'NO_CLEAR_SIGNAL',
+                    'professional_interpretation': f'RSI {rsi:.1f} indicates {"MAJOR SELL ZONE - Price likely to fall 10-25%" if rsi > 85 else "SELL ZONE - Consider profit taking" if rsi > 75 else "BUY ZONE - Oversold bounce expected" if rsi < 25 else "NEUTRAL ZONE - Wait for better setup" if 40 < rsi < 60 else "MIXED SIGNALS"}',
+                    'entry_recommendation': 'AVOID - Wait for RSI < 60' if rsi > 80
+                                          else 'SCALE OUT 50%' if rsi > 70
+                                          else 'EXCELLENT ENTRY' if rsi < 25
+                                          else 'GOOD ENTRY' if 30 < rsi < 50
+                                          else 'WAIT FOR PULLBACK'
                 },
                 'macd_analysis': {
                     'value': round(macd, 4),
@@ -3799,32 +3940,65 @@ def analyze_symbol():
                             else 'BEARISH_STRONG',
                     'trend_confirmation': 'CONFIRMED' if (macd > 0 and trend_bullish) or (macd < 0 and trend_bearish) 
                                         else 'DIVERGING' if (macd < 0 and trend_bullish) or (macd > 0 and trend_bearish)
-                                        else 'NEUTRAL'
+                                        else 'NEUTRAL',
+                    'momentum_analysis': f'MACD {macd:.2f} shows {"STRONG bullish momentum - but RSI warns of reversal!" if macd > 20 and rsi > 75 else "HEALTHY bullish momentum" if macd > 0 and rsi < 70 else "BEARISH momentum - avoid longs" if macd < -20 else "WEAK momentum"}'
+                },
+                'confluence_analysis': {
+                    'signal_alignment': 'CONFLICTED' if (rsi > 75 and macd > 0) or (rsi < 25 and macd < 0)
+                                      else 'ALIGNED_BULLISH' if rsi < 50 and macd > 0 and trend_bullish
+                                      else 'ALIGNED_BEARISH' if rsi > 50 and macd < 0 and trend_bearish  
+                                      else 'MIXED',
+                    'probability_assessment': 'LOW (25%)' if rsi > 80 
+                                            else 'MEDIUM (60%)' if 50 < rsi < 70
+                                            else 'HIGH (85%)' if rsi < 30 and trend_bullish
+                                            else 'MODERATE (70%)',
+                    'institutional_confirmation': 'BEARISH DIVERGENCE' if rsi > 75 and trend_bullish
+                                                else 'BULLISH CONVERGENCE' if rsi < 35 and trend_bullish
+                                                else 'NEUTRAL'
                 },
                 'volume_analysis': {
                     'condition': 'HIGH' if current_price > ema_12 and macd > 0 else 'NORMAL',
-                    'trend_support': 'STRONG' if trend_bullish and macd > 0 else 'WEAK'
+                    'trend_support': 'STRONG' if trend_bullish and macd > 0 else 'WEAK',
+                    'professional_view': 'DISTRIBUTION' if rsi > 75 and trend_bullish
+                                       else 'ACCUMULATION' if rsi < 30
+                                       else 'CONTINUATION'
                 },
                 'risk_assessment': {
-                    'level': 'HIGH' if rsi > 85 or rsi < 15 
-                           else 'MEDIUM' if rsi > 75 or rsi < 25 
+                    'level': 'EXTREME_HIGH' if rsi > 90
+                           else 'HIGH' if rsi > 80 or rsi < 10
+                           else 'ELEVATED' if rsi > 75 or rsi < 15
+                           else 'MEDIUM' if rsi > 70 or rsi < 25 
                            else 'LOW',
-                    'entry_timing': 'POOR' if rsi > 85 and trend_bullish 
-                                  else 'EXCELLENT' if rsi < 30 and trend_bullish 
-                                  else 'GOOD' if trend_bullish and 40 < rsi < 60 
-                                  else 'CAUTION',
-                    'exit_signals': 'PRESENT' if rsi > 80 or rsi < 20 else 'NONE'
+                    'entry_timing': 'TERRIBLE - Major reversal risk!' if rsi > 85 
+                                  else 'POOR - Overbought conditions' if rsi > 75
+                                  else 'EXCELLENT - Oversold opportunity' if rsi < 25
+                                  else 'GOOD - Healthy entry zone' if 35 < rsi < 55
+                                  else 'WAIT - Better opportunities ahead',
+                    'exit_signals': 'IMMEDIATE_EXIT' if rsi > 90
+                                  else 'STRONG_EXIT' if rsi > 85
+                                  else 'PARTIAL_EXIT' if rsi > 75
+                                  else 'HOLD_OR_ADD' if rsi < 30
+                                  else 'MONITOR',
+                    'stop_loss_recommendation': f'TIGHT (2%) - High reversal risk' if rsi > 80
+                                              else f'NORMAL (3-5%) - Standard risk' if 30 < rsi < 70
+                                              else f'WIDE (7%) - Volatility expected' if rsi < 25
+                                              else 'STANDARD (4%)',
+                    'position_sizing': 'AVOID (0%)' if rsi > 85
+                                     else 'MINIMAL (25%)' if rsi > 75
+                                     else 'FULL SIZE (100%)' if rsi < 25
+                                     else 'HALF SIZE (50%)'
                 },
                 'decision_reasoning': [
-                    f"📈 Trend Analysis: {'Strong Uptrend' if trend_bullish else 'Strong Downtrend' if trend_bearish else 'Sideways'} detected",
-                    f"🎯 RSI Signal: {round(rsi, 1)} - {'Extreme territory' if rsi > 85 or rsi < 15 else 'Normal range'}",
-                    f"📊 MACD Momentum: {'Bullish' if macd > 0 else 'Bearish'} with {abs(macd):.2f} strength",
-                    f"🎪 CONFLUENCE: {confluence_count} indicators confirm signal ({', '.join(confluence_details)})",
-                    f"⚖️ Signal Balance: {final_buy_score:.1f} BUY vs {final_sell_score:.1f} SELL weight (Confluence Bonus: +{confluence_bonus})",
-                    f"🛡️ Risk Level: {'HIGH - Extreme RSI' if rsi > 85 or rsi < 15 else 'MODERATE' if rsi > 75 or rsi < 25 else 'LOW'}",
-                    f"🧠 ADVISORY: {advisory_message}",
-                    f"📊 UPSIDE POTENTIAL: +{upside_potential:.0f}% | RISK LEVEL: {risk_level:.0f}%",
-                    f"🎪 Final Decision: {direction} based on intelligent multi-signal analysis"
+                    f"📈 TREND ANALYSIS: {'🟢 Strong Uptrend confirmed - EMA12 > EMA26, price above key levels' if trend_bullish else '🔴 Strong Downtrend confirmed - price below EMAs, bearish structure' if trend_bearish else '🟡 Sideways consolidation - range-bound action'}",
+                    f"🎯 RSI PROFESSIONAL ASSESSMENT: RSI {round(rsi, 1)} {'🚨 CRITICAL OVERBOUGHT - High probability of 10-25% correction incoming' if rsi > 85 else '⚠️ OVERBOUGHT - Consider profit taking, avoid new longs' if rsi > 75 else '✅ OVERSOLD OPPORTUNITY - Bounce highly probable, excellent buy zone' if rsi < 25 else '💎 PRIME BUY ZONE - Oversold with upside potential' if rsi < 35 and trend_bullish else '⏳ NEUTRAL ZONE - Wait for better risk/reward setup' if 40 < rsi < 60 else '📊 MIXED SIGNALS - Exercise caution'}",
+                    f"📊 MACD MOMENTUM: {'🚀 Strong bullish momentum confirmed' if macd > 50 else '📈 Moderate bullish momentum' if macd > 0 else '📉 Bearish momentum developing' if macd > -50 else '💥 Strong bearish momentum - avoid longs'}",
+                    f"⚖️ RISK/REWARD ANALYSIS: Current setup offers {'🎯 EXCELLENT 1:3+ ratio - High probability trade' if (rsi < 30 and trend_bullish) or (rsi > 80 and trend_bearish) else '✅ GOOD 1:2 ratio - Acceptable trade' if 35 < rsi < 65 else '⚠️ POOR risk/reward - Consider waiting'}",
+                    f"🎪 CONFLUENCE ANALYSIS: {confluence_count} indicators align - {'🔥 VERY HIGH probability setup' if confluence_count >= 4 else '✅ HIGH probability setup' if confluence_count >= 3 else '⚠️ MODERATE setup - need more confirmation' if confluence_count >= 2 else '❌ LOW probability - avoid trade'}",
+                    f"💰 POSITION SIZING: {'🟢 FULL POSITION justified - Low risk, high reward' if (rsi < 25 or rsi > 85) and confluence_count >= 3 else '🟡 HALF POSITION recommended - Moderate setup' if confluence_count >= 2 else '🔴 SMALL POSITION only - High risk environment'}",
+                    f"⏰ ENTRY TIMING: {'⭐ EXCELLENT - Enter immediately' if (rsi < 25 and trend_bullish) or (rsi > 85 and trend_bearish) else '✅ GOOD - Safe to enter' if trend_bullish and 30 < rsi < 60 else '⚠️ WAIT - Better opportunities coming' if rsi > 75 or (rsi > 50 and trend_bearish) else '❌ POOR - Avoid entry'}",
+                    f"🧠 PROFESSIONAL VERDICT: {advisory_message}",
+                    f"📊 STATISTICAL EDGE: +{upside_potential:.0f}% upside potential with {risk_level:.0f}% risk - {'🎯 Favorable edge' if upside_potential > risk_level * 1.5 else '⚠️ Marginal edge' if upside_potential > risk_level else '❌ Negative edge'}",
+                    f"🎪 FINAL RECOMMENDATION: {direction} based on {'🔥 MULTIPLE HIGH-PROBABILITY SIGNALS' if confluence_count >= 4 else '✅ SOLID TECHNICAL SETUP' if confluence_count >= 3 else '⚠️ MODERATE PROBABILITY SETUP' if confluence_count >= 2 else '❌ LOW PROBABILITY - AVOID'}"
                 ],
                 'advisory_system': {
                     'upside_potential': f"+{upside_potential:.0f}%",
