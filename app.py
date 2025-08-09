@@ -4574,6 +4574,29 @@ def index():
             alert('🔍 Advanced Technical Scan - Coming in next update!\\n\\n📊 Features:\\n• Multi-timeframe analysis\\n• Pattern recognition\\n• Volume profile analysis\\n• Advanced indicators suite');
         }
         
+        // 🔧 Railway Status Check
+        async function checkRailwayStatus() {
+            try {
+                const response = await fetch('/api/system/status');
+                const data = await response.json();
+                
+                if (data.success && data.is_railway) {
+                    const statusPanel = document.getElementById('railwayStatusPanel');
+                    if (statusPanel) {
+                        statusPanel.style.display = 'block';
+                    }
+                    
+                    // Log status for debugging
+                    console.log('🚂 Railway Environment Detected:', {
+                        backtesting: data.features.backtesting_available,
+                        neural: data.features.neural_engine_available
+                    });
+                }
+            } catch (error) {
+                console.log('ℹ️ Status check failed (probably local environment):', error.message);
+            }
+        }
+        
         // 🎯 Enter key support
         document.getElementById('symbolInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -6351,8 +6374,8 @@ def adaptive_analysis():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/system/status', methods=['GET'])
-def get_system_status():
-    """🔧 System status endpoint for Railway/Production detection"""
+def get_railway_status():
+    """🔧 Railway/Production status endpoint for environment detection"""
     try:
         return jsonify({
             "success": True,
