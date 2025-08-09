@@ -3475,12 +3475,11 @@ def analyze_symbol():
         
         if 'error' in tech_indicators:
             return jsonify({'error': tech_indicators['error']})
-            
-        # 3. EXTRACT VALUES FROM TECH INDICATORS
-                if len(prices) < period + 1:
-                    return 50
-                
-                deltas = np.diff(prices)
+        
+        # 3. EXTRACT VALUES FROM TECH INDICATORS  
+        current_price = float(market_result['data'][-1]['close'])
+        
+        # Generate trading signals using existing logic
                 gains = np.where(deltas > 0, deltas, 0)
                 losses = np.where(deltas < 0, -deltas, 0)
                 
@@ -3620,9 +3619,13 @@ def analyze_symbol():
                 elif rsi < 50:  # Mild pullback = BUY
                     signals.append("BUY") 
                     confidence += 20
-                elif rsi > 80:  # Overbought in uptrend = STILL BUY (reduced confidence)
-                    signals.append("BUY")  # TREND OVERRIDES RSI!
-                    confidence += 5  # Lower confidence but still bullish
+                elif rsi > 80:  # Overbought = CAREFUL! (reduced buying)
+                    if rsi > 85:  # Extremely overbought = HOLD/SELL
+                        signals.append("HOLD")  # Too risky to buy
+                        confidence -= 5  # Lower confidence
+                    else:  # Mildly overbought = Weak BUY
+                        signals.append("BUY")  # Still buy but careful
+                        confidence += 3  # Very low confidence
                 else:  # Normal bullish RSI (50-80) = BUY
                     signals.append("BUY")
                     confidence += 15
