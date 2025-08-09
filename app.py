@@ -2422,6 +2422,85 @@ def index():
                         </div>
                     </div>
                 </div>
+                
+                <!-- 🧠 DETAILED ANALYSIS BREAKDOWN -->
+                ${analysis.detailed_analysis ? `
+                <div class="result-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border: 2px solid rgba(99, 102, 241, 0.3);">
+                    <h3 style="color: #6366f1; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem;">
+                        🧠 Detailed Signal Analysis - WHY ${analysis.decision}?
+                    </h3>
+                    
+                    <!-- Market Condition & Overview -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                        <div style="background: rgba(99, 102, 241, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
+                            <h4 style="color: #6366f1; margin-bottom: 1rem;">📊 Market Condition</h4>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: #10b981; margin-bottom: 0.5rem;">
+                                ${analysis.detailed_analysis.market_condition}
+                            </div>
+                            <div style="opacity: 0.8; font-size: 0.9rem;">
+                                Current market state based on trend analysis
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <h4 style="color: #10b981; margin-bottom: 1rem;">🎯 RSI Analysis</h4>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: #6366f1; margin-bottom: 0.5rem;">
+                                ${analysis.detailed_analysis.rsi_analysis.condition} (${analysis.detailed_analysis.rsi_analysis.value})
+                            </div>
+                            <div style="opacity: 0.8; font-size: 0.9rem;">
+                                Signal: ${analysis.detailed_analysis.rsi_analysis.signal_strength}
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                            <h4 style="color: #f59e0b; margin-bottom: 1rem;">📈 MACD Analysis</h4>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: #8b5cf6; margin-bottom: 0.5rem;">
+                                ${analysis.detailed_analysis.macd_analysis.signal} (${analysis.detailed_analysis.macd_analysis.value})
+                            </div>
+                            <div style="opacity: 0.8; font-size: 0.9rem;">
+                                Trend: ${analysis.detailed_analysis.macd_analysis.trend_confirmation}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Risk Assessment -->
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3); margin-bottom: 2rem;">
+                        <h4 style="color: #ef4444; margin-bottom: 1rem;">🛡️ Risk Assessment & Entry Timing</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Risk Level</div>
+                                <div style="font-size: 1.6rem; font-weight: 700; color: ${analysis.detailed_analysis.risk_assessment.level === 'HIGH' ? '#ef4444' : analysis.detailed_analysis.risk_assessment.level === 'MEDIUM' ? '#f59e0b' : '#10b981'};">
+                                    ${analysis.detailed_analysis.risk_assessment.level}
+                                </div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Entry Timing</div>
+                                <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.detailed_analysis.risk_assessment.entry_timing === 'EXCELLENT' ? '#10b981' : analysis.detailed_analysis.risk_assessment.entry_timing === 'GOOD' ? '#34d399' : analysis.detailed_analysis.risk_assessment.entry_timing === 'POOR' ? '#ef4444' : '#f59e0b'};">
+                                    ${analysis.detailed_analysis.risk_assessment.entry_timing}
+                                </div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Exit Signals</div>
+                                <div style="font-size: 1.3rem; font-weight: 700; color: ${analysis.detailed_analysis.risk_assessment.exit_signals === 'PRESENT' ? '#f59e0b' : '#10b981'};">
+                                    ${analysis.detailed_analysis.risk_assessment.exit_signals}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Decision Reasoning -->
+                    <div style="background: rgba(139, 92, 246, 0.1); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(139, 92, 246, 0.3);">
+                        <h4 style="color: #8b5cf6; margin-bottom: 1rem;">🎪 Decision Reasoning - Step by Step</h4>
+                        <div style="display: grid; gap: 0.75rem;">
+                            ${analysis.detailed_analysis.decision_reasoning.map((reason, index) => `
+                                <div style="background: rgba(0, 0, 0, 0.2); padding: 1rem; border-radius: 8px; border-left: 4px solid #8b5cf6;">
+                                    <strong style="color: #a78bfa;">${index + 1}.</strong> ${reason}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
             `;
         }
         
