@@ -3714,6 +3714,56 @@ def analyze_symbol():
                     total_buy_score += 1.5
                     signal_debug['rsi_veto'] = f"EXTREME RSI {rsi:.1f} adds BUY weight"
             
+            # 🎯 NEW: CONFLUENCE BONUS - Multiple indicators confirming signal
+            confluence_count = 0
+            confluence_details = []
+            
+            # Check for bullish confluence
+            if trend_bullish:
+                confluence_count += 1
+                confluence_details.append("UPTREND")
+            
+            if 30 <= rsi <= 70:  # Healthy RSI range
+                confluence_count += 1  
+                confluence_details.append(f"HEALTHY_RSI({rsi:.1f})")
+            
+            if macd > 0:  # Bullish MACD
+                confluence_count += 1
+                confluence_details.append(f"BULLISH_MACD({macd:.2f})")
+            
+            # Volume check (if available in indicators)
+            volume_high = indicators.get('volume_ratio', 1.0) > 1.2  # 20% above average
+            if volume_high:
+                confluence_count += 1
+                confluence_details.append("HIGH_VOLUME")
+            
+            # Apply confluence bonus
+            confluence_bonus = 0
+            if confluence_count >= 3:  # 3+ indicators confirm
+                if trend_bullish:
+                    confluence_bonus = 2.5  # Strong bonus for multiple confirmations
+                    total_buy_score += confluence_bonus
+                    confidence += 20
+                    signal_debug['confluence_bonus'] = f"CONFLUENCE BONUS: {confluence_count} confirmations ({', '.join(confluence_details)}) adds +{confluence_bonus} BUY"
+                elif trend_bearish and macd < 0 and rsi > 70:  # Bearish confluence
+                    confluence_bonus = 2.5
+                    total_sell_score += confluence_bonus
+                    confidence += 20
+                    signal_debug['confluence_bonus'] = f"CONFLUENCE BONUS: Bearish confluence adds +{confluence_bonus} SELL"
+            elif confluence_count == 2:  # Moderate confluence
+                if trend_bullish:
+                    confluence_bonus = 1.0
+                    total_buy_score += confluence_bonus
+                    confidence += 10
+                    signal_debug['confluence_bonus'] = f"MODERATE CONFLUENCE: {confluence_count} confirmations adds +{confluence_bonus} BUY"
+                elif trend_bearish:
+                    confluence_bonus = 1.0
+                    total_sell_score += confluence_bonus 
+                    confidence += 10
+                    signal_debug['confluence_bonus'] = f"MODERATE CONFLUENCE: {confluence_count} confirmations adds +{confluence_bonus} SELL"
+            else:
+                signal_debug['confluence_bonus'] = f"LOW CONFLUENCE: Only {confluence_count} confirmations, no bonus"
+            
             # 4. Finale Gewichtete Entscheidung
             final_buy_score = base_buy_signals + total_buy_score
             final_sell_score = base_sell_signals + total_sell_score
@@ -3804,9 +3854,10 @@ def analyze_symbol():
                     f"📈 Trend Analysis: {'Strong Uptrend' if trend_bullish else 'Strong Downtrend' if trend_bearish else 'Sideways'} detected",
                     f"🎯 RSI Signal: {round(rsi, 1)} - {'Extreme territory' if rsi > 85 or rsi < 15 else 'Normal range'}",
                     f"📊 MACD Momentum: {'Bullish' if macd > 0 else 'Bearish'} with {abs(macd):.2f} strength",
-                    f"⚖️ Signal Balance: {final_buy_score:.1f} BUY vs {final_sell_score:.1f} SELL weight",
+                    f"🎪 CONFLUENCE: {confluence_count} indicators confirm signal ({', '.join(confluence_details)})",
+                    f"⚖️ Signal Balance: {final_buy_score:.1f} BUY vs {final_sell_score:.1f} SELL weight (Confluence Bonus: +{confluence_bonus})",
                     f"🛡️ Risk Level: {'HIGH - Extreme RSI' if rsi > 85 or rsi < 15 else 'MODERATE' if rsi > 75 or rsi < 25 else 'LOW'}",
-                    f"🎪 Final Decision: {direction} based on weighted scoring system"
+                    f"🎪 Final Decision: {direction} based on weighted scoring system with confluence analysis"
                 ]
             }
             
@@ -3827,7 +3878,12 @@ def analyze_symbol():
                     'macd_signal': f'MACD {macd:.4f} - {"BULLISH" if macd > 0 else "BEARISH"}',
                     'trend_signal': 'UPTREND' if trend_bullish else 'DOWNTREND' if trend_bearish else 'SIDEWAYS',
                     'decision_method': 'WEIGHTED' if 'trend_boost' in signal_debug else 'NORMAL',
-                    'extreme_warning': 'YES' if 'extreme_caution' in signal_debug else 'NO'
+                    'extreme_warning': 'YES' if 'extreme_caution' in signal_debug else 'NO',
+                    # 🎯 NEW: Confluence Analysis
+                    'confluence_count': confluence_count,
+                    'confluence_details': confluence_details,
+                    'confluence_bonus': confluence_bonus,
+                    'confluence_strength': 'STRONG' if confluence_count >= 3 else 'MODERATE' if confluence_count == 2 else 'WEAK'
                 }
             }
         
