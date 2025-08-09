@@ -3781,39 +3781,105 @@ def analyze_symbol():
             final_buy_score = base_buy_signals + total_buy_score
             final_sell_score = base_sell_signals + total_sell_score
             
-            # 5. Entscheidung basierend auf Scores
+            # 🧠 INTELLIGENT ADVISORY SYSTEM - Calculate realistic targets
+            def calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength):
+                """Calculate realistic upside potential based on multiple factors"""
+                base_potential = 15  # Base potential in %
+                
+                # RSI adjustment
+                if rsi < 30:
+                    rsi_bonus = 15  # Oversold = high upside
+                elif rsi < 50:
+                    rsi_bonus = 8   # Pullback = moderate upside
+                elif rsi < 70:
+                    rsi_bonus = 5   # Normal = small upside
+                elif rsi < 80:
+                    rsi_bonus = 2   # Getting risky
+                else:
+                    rsi_bonus = -5  # Overbought = negative adjustment
+                
+                # MACD momentum adjustment
+                macd_bonus = min(10, abs(macd) * 200)  # Strong MACD = more potential
+                
+                # Volume confirmation adjustment
+                volume_bonus = min(8, (volume_ratio - 1) * 10)  # High volume = more potential
+                
+                # Volatility risk adjustment
+                volatility_risk = min(5, volatility * 2)  # High volatility = reduce potential
+                
+                total_potential = base_potential + rsi_bonus + macd_bonus + volume_bonus - volatility_risk
+                return max(2, min(45, total_potential))  # Cap between 2-45%
+            
+            def calculate_risk_level(rsi, volatility, volume_ratio):
+                """Calculate current risk level"""
+                risk = 30  # Base risk
+                
+                if rsi > 80:
+                    risk += 25  # High RSI = high risk
+                elif rsi > 70:
+                    risk += 15
+                elif rsi < 30:
+                    risk -= 10  # Oversold = lower risk
+                
+                risk += volatility * 3  # High volatility = higher risk
+                
+                if volume_ratio < 0.7:
+                    risk += 15  # Low volume = higher risk
+                
+                return max(5, min(95, risk))  # Cap between 5-95%
+            
+            # Calculate intelligent metrics
+            momentum_strength = min(100, abs(macd * 1000) + (100 - abs(rsi - 50)))
+            upside_potential = calculate_upside_potential(rsi, macd, volume_ratio, volatility, momentum_strength)
+            risk_level = calculate_risk_level(rsi, volatility, volume_ratio)
+            
+            # 🎯 INTELLIGENT DECISION LOGIC
             if final_buy_score > final_sell_score:
-                if final_buy_score >= final_sell_score * 1.5:  # Klarer BUY
-                    recommendation = "BUY BTCUSDT"
+                if upside_potential > 25 and risk_level < 40:  # High potential, low risk
+                    recommendation = f"STRONG BUY - {upside_potential:.0f}% upside potential"
                     direction = "LONG"
-                else:  # Schwacher BUY
-                    recommendation = "BUY BTCUSDT"
+                    advisory_message = f"🚀 Excellent setup! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Strong momentum detected"
+                elif upside_potential > 15 and risk_level < 60:  # Moderate potential
+                    recommendation = f"BUY - {upside_potential:.0f}% upside expected"
                     direction = "LONG"
-                    confidence = max(confidence - 10, 50)  # Reduzierte Confidence
+                    advisory_message = f"📈 Good opportunity! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Moderate confidence"
+                elif upside_potential > 8:  # Small potential
+                    recommendation = f"WEAK BUY - {upside_potential:.0f}% potential"
+                    direction = "LONG"
+                    advisory_message = f"⚠️ Limited upside! Target: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Consider waiting"
+                else:  # Very limited potential
+                    recommendation = f"HOLD - Only {upside_potential:.0f}% upside"
+                    direction = "NEUTRAL"
+                    advisory_message = f"🛑 Low potential! Only +{upside_potential:.0f}% expected | Risk: {risk_level:.0f}% | Better to wait"
+                    
             elif final_sell_score > final_buy_score:
-                if final_sell_score >= final_buy_score * 1.5:  # Klarer SELL
-                    recommendation = "SELL BTCUSDT"
+                downside_risk = upside_potential  # Use same calculation but as downside
+                if final_sell_score >= final_buy_score * 1.5:  # Strong sell
+                    recommendation = f"SELL - {downside_risk:.0f}% downside risk"
                     direction = "SHORT"
-                else:  # Schwacher SELL
-                    recommendation = "SELL BTCUSDT"
-                    direction = "SHORT"
-                    confidence = max(confidence - 10, 50)
+                    advisory_message = f"📉 Take profits! Downside risk: -{downside_risk:.0f}% | Risk level: {risk_level:.0f}%"
+                else:  # Weak sell
+                    recommendation = f"WEAK SELL - {downside_risk:.0f}% risk"
+                    direction = "SHORT" 
+                    advisory_message = f"⚠️ Consider selling! Risk: -{downside_risk:.0f}% | Current risk: {risk_level:.0f}%"
             else:
-                # Gleichstand oder unklar → HOLD
-                recommendation = "HOLD BTCUSDT"
-                direction = "WAIT"
+                # Neutral situation → HOLD with guidance
+                recommendation = f"HOLD - Market unclear"
+                direction = "NEUTRAL"
+                advisory_message = f"📊 Sideways market! Upside: +{upside_potential:.0f}% | Risk: {risk_level:.0f}% | Wait for clearer signals"
                 confidence = max(40, confidence - 15)
             
-            # 6. Extreme Situationen: Vorsicht statt Override
-            if rsi > 90 and trend_bullish:
-                direction = "WAIT"  # Vorsicht bei extremen Werten
-                recommendation = "HOLD BTCUSDT"
-                confidence = 45
-                signal_debug['extreme_caution'] = "EXTREME overbought → HOLD despite uptrend"
-            elif rsi < 10 and trend_bearish:
-                direction = "WAIT"
-                recommendation = "HOLD BTCUSDT"  
-                confidence = 45
+            # 6. Extreme Situations: Override with Advisory
+            if rsi > 90:
+                recommendation = "DANGER - Extremely overbought!"
+                direction = "SELL"
+                advisory_message = f"🚨 EXTREME RISK! RSI {rsi:.0f} - Consider immediate profit taking! Crash risk very high!"
+                confidence = 85
+            elif rsi < 10:
+                recommendation = "OVERSOLD BOUNCE - High potential!"
+                direction = "BUY"
+                advisory_message = f"🎯 EXTREME OVERSOLD! RSI {rsi:.0f} - Bounce potential 20-40%! High reward opportunity!"
+                confidence = 80
                 signal_debug['extreme_caution'] = "EXTREME oversold → HOLD despite downtrend"
             
             # Confidence limits
@@ -3870,8 +3936,16 @@ def analyze_symbol():
                     f"🎪 CONFLUENCE: {confluence_count} indicators confirm signal ({', '.join(confluence_details)})",
                     f"⚖️ Signal Balance: {final_buy_score:.1f} BUY vs {final_sell_score:.1f} SELL weight (Confluence Bonus: +{confluence_bonus})",
                     f"🛡️ Risk Level: {'HIGH - Extreme RSI' if rsi > 85 or rsi < 15 else 'MODERATE' if rsi > 75 or rsi < 25 else 'LOW'}",
-                    f"🎪 Final Decision: {direction} based on weighted scoring system with confluence analysis"
-                ]
+                    f"🧠 ADVISORY: {advisory_message}",
+                    f"📊 UPSIDE POTENTIAL: +{upside_potential:.0f}% | RISK LEVEL: {risk_level:.0f}%",
+                    f"🎪 Final Decision: {direction} based on intelligent multi-signal analysis"
+                ],
+                'advisory_system': {
+                    'upside_potential': f"+{upside_potential:.0f}%",
+                    'risk_level': f"{risk_level:.0f}%",
+                    'advisory_message': advisory_message,
+                    'momentum_strength': f"{momentum_strength:.0f}/100"
+                }
             }
             
             return {
