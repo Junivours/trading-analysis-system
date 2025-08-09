@@ -2032,6 +2032,10 @@ def index():
             console.log('🔍 DEBUG - technical_indicators:', analysis.technical_indicators);
             console.log('🔍 DEBUG - trend value:', analysis.technical_indicators?.trend);
             console.log('🔍 DEBUG - current_volume:', analysis.technical_indicators?.current_volume);
+            // 🆕 DEBUG: Check detailed_analysis specifically
+            console.log('🧠 DEBUG - detailed_analysis exists:', 'detailed_analysis' in analysis);
+            console.log('🧠 DEBUG - detailed_analysis type:', typeof analysis.detailed_analysis);
+            console.log('🧠 DEBUG - detailed_analysis value:', analysis.detailed_analysis);
             
             const resultsDiv = document.getElementById('results');
             
@@ -2500,7 +2504,22 @@ def index():
                         </div>
                     </div>
                 </div>
-                ` : ''}
+                ` : `
+                <!-- 🚨 DETAILED ANALYSIS MISSING - DEBUG -->
+                <div class="result-card" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.1); border: 2px solid rgba(239, 68, 68, 0.3);">
+                    <h3 style="color: #ef4444; margin-bottom: 1rem;">🚨 DEBUG: Detailed Analysis Missing</h3>
+                    <div style="background: rgba(0, 0, 0, 0.3); padding: 1rem; border-radius: 8px; font-family: monospace; color: #fbbf24;">
+                        analysis.detailed_analysis = ${typeof analysis.detailed_analysis}<br>
+                        Available keys: ${Object.keys(analysis).join(', ')}<br>
+                        <br>
+                        <strong>Basic Analysis Available:</strong><br>
+                        Decision: ${analysis.decision}<br>
+                        Confidence: ${analysis.confidence}%<br>
+                        RSI: ${analysis.rsi || 'N/A'}<br>
+                        MACD: ${analysis.macd || 'N/A'}
+                    </div>
+                </div>
+                `}
             `;
         }
         
