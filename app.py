@@ -1829,6 +1829,76 @@ def index():
             </div>
         </div>
 
+        <!-- 🚀 Advanced Trading Tools Panel -->
+        <div class="container" style="margin-top: 2rem;">
+            <div class="result-card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border: 2px solid rgba(99, 102, 241, 0.3);">
+                <h3 style="color: #6366f1; text-align: center; margin-bottom: 1.5rem; font-size: 1.4rem;">🚀 Advanced Trading Tools</h3>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                    <button onclick="runAdvancedBacktest()" style="
+                        background: linear-gradient(135deg, #667eea, #764ba2); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1.2rem; 
+                        font-size: 1.1rem; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        🔬 Professional Backtest
+                    </button>
+                    
+                    <button onclick="runMonteCarloSim()" style="
+                        background: linear-gradient(135deg, #f093fb, #f5576c); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1.2rem; 
+                        font-size: 1.1rem; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        🎲 Monte Carlo Analysis
+                    </button>
+                    
+                    <button onclick="getEnhancedPredictions()" style="
+                        background: linear-gradient(135deg, #4facfe, #00f2fe); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1.2rem; 
+                        font-size: 1.1rem; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        🤖 LSTM Predictions
+                    </button>
+                    
+                    <button onclick="trainEnhancedModels()" style="
+                        background: linear-gradient(135deg, #43e97b, #38f9d7); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1.2rem; 
+                        font-size: 1.1rem; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        🎯 Train LSTM Models
+                    </button>
+                </div>
+                
+                <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem; text-align: center;">
+                    <div style="color: #10b981; font-weight: 600; margin-bottom: 0.5rem;">🤖 Powered by Google Research Technology</div>
+                    <div style="opacity: 0.8; font-size: 0.9rem;">JAX + TensorFlow • Same framework used by DeepMind & Google AI</div>
+                </div>
+            </div>
+        </div>
+
         <!-- 🎯 POPUP OVERLAY -->
         <div id="popupOverlay" class="popup-overlay" onclick="closePopup()">
             <div class="popup-content" onclick="event.stopPropagation()">
@@ -1838,6 +1908,15 @@ def index():
                 </div>
                 <div id="popupBody" class="popup-body">
                     <!-- Content will be loaded dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 🚀 Advanced Results Section -->
+        <div id="advanced-results" style="display: none; margin-top: 2rem;">
+            <div class="container">
+                <div id="advanced-content">
+                    <!-- Advanced features results will be displayed here -->
                 </div>
             </div>
         </div>
