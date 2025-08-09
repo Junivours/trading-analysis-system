@@ -1616,7 +1616,7 @@ def index():
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ symbol: symbol }),
-                    signal: AbortSignal.timeout(3000)
+                    signal: AbortSignal.timeout(10000)  // ✅ INCREASED: 3s -> 10s timeout
                 });
                 
                 if (response.ok) {
@@ -1626,7 +1626,14 @@ def index():
                     }
                 }
             } catch (error) {
-                console.log('Price update failed:', error.message);
+                // ✅ IMPROVED: Better error handling for different error types
+                if (error.name === 'AbortError') {
+                    console.log('Price update timeout - retrying...');
+                } else if (error.name === 'TypeError') {
+                    console.log('Network error during price update');
+                } else {
+                    console.log('Price update failed:', error.message);
+                }
             }
         }
         
@@ -1722,9 +1729,9 @@ def index():
                 const symbol = symbolElement.value?.toUpperCase() || 'BTCUSDT';
                 const startTime = performance.now();
                 
-                // LIGHTNING SPEED: Ultra-aggressive timeout for instant response
+                // ✅ IMPROVED: Reasonable timeout for stable analysis
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 second timeout
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // ✅ INCREASED: 4s -> 15s timeout
                 
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
@@ -1753,8 +1760,17 @@ def index():
                 }
                 
             } catch (error) {
-                console.error('Update error:', error);
-                showError('❌ Network error - Retrying...');
+                // ✅ IMPROVED: Better error handling for AbortError and other errors
+                if (error.name === 'AbortError') {
+                    console.error('Analysis timeout - API taking longer than expected');
+                    showError('⏱️ Analysis timeout - Please try again');
+                } else if (error.name === 'TypeError') {
+                    console.error('Network error during analysis');
+                    showError('🌐 Network error - Check connection');
+                } else {
+                    console.error('Update error:', error);
+                    showError('❌ Analysis error - Retrying...');
+                }
             } finally {
                 isUpdating = false;
                 hideLoader();
