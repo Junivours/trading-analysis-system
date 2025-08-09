@@ -587,8 +587,8 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
         print(f"❌ Live Indicators Error: {e}")
         return {'error': str(e)}
 
-    def calculate_technical_indicators_old(self, data):
-        """📈 ADVANCED Technical Indicators - 20% Weight with MEGA DETAILS"""
+# ❌ DEPRECATED OLD METHOD - MARKED FOR DELETION
+# TODO: Remove this entire method - it's a duplicate of calculate_technical_indicators
         try:
             closes = [item['close'] for item in data]
             highs = [item['high'] for item in data]
@@ -3471,8 +3471,8 @@ def analyze_symbol():
         
         candles = market_result['data']  # Korrekte Datenextraktion
         
-        # 2. TRADINGVIEW-KOMPATIBLE TECHNISCHE INDIKATOREN
-        def calculate_tradingview_indicators(candles):
+        # 2. USE GLOBAL TRADINGVIEW INDICATORS FUNCTION (avoid duplication)
+        tech_indicators = calculate_tradingview_indicators_with_live_data(candles, market_result.get('live_stats', {}))
             """Exakte TradingView RSI, MACD, EMA Berechnung"""
             if len(candles) < 50:
                 return {'error': 'Nicht genug Daten für Indikatoren'}
@@ -4351,9 +4351,6 @@ def analyze_symbol():
             }
         
         print(f"🔍 DEBUG - detailed_analysis in result: {'YES' if 'detailed_analysis' in analysis_result else 'NO'}")
-        print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
-        print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
-        print(f"🔍 DEBUG - detailed_analysis included: {'YES' if 'detailed_analysis' in analysis_result else 'NO'}")
         print(f"🔍 DEBUG - final response keys: {list(analysis_result.keys())}")
         
         return jsonify(analysis_result)
