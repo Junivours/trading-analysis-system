@@ -1,0 +1,61 @@
+# Railway Ignore File
+# Exclude unnecessary files from deployment
+
+# Cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Local development files
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Trading system specific
+trading_cache.pkl
+trading_system.log
+models/*.pkl
+models/*.h5
+*.model
+
+# Documentation and analysis
+code_analysis.md
+multiasset_fixes.md
+DEPLOYMENT.md
+test_detailed_analysis.py
+start_commands.txt
