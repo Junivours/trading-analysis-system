@@ -57,28 +57,60 @@ except ImportError as e:
 
 # ========================================================================================
 # 🤖 JAX NEURAL NETWORK ENGINE - 10% Weight in Trading Decisions
-# 🔬 ENHANCED FEATURES: Backtesting Engine + LSTM Neural Networks
+# 🔬 ENHANCED FEATURES: Backtesting Engine + LSTM Neural Networks (Railway Optimized)
 # ========================================================================================
+
+# Railway Environment Detection
+import os
+IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+IS_PRODUCTION = os.environ.get('FLASK_ENV') == 'production'
 
 try:
     from backtesting_engine import AdvancedBacktestingEngine
-    from enhanced_neural_engine import EnhancedNeuralEngine
-    ADVANCED_FEATURES = True
-    print("🚀 Advanced features loaded: Backtesting + Enhanced Neural Networks")
+    BACKTESTING_AVAILABLE = True
+    print("✅ Backtesting Engine loaded successfully")
     
-    # 📊 Advanced Features Status aktualisieren
     if OPTIMIZATION_AVAILABLE:
-        status_manager.update_component_status('neural_engine', SystemStatus.ONLINE)
         status_manager.update_component_status('backtesting', SystemStatus.ONLINE)
         
 except ImportError as e:
-    ADVANCED_FEATURES = False
-    print("⚠️ Advanced features not available")
+    BACKTESTING_AVAILABLE = False
+    print(f"⚠️ Backtesting not available: {e}")
     
-    # Status aktualisieren
+    if OPTIMIZATION_AVAILABLE:
+        status_manager.update_component_status('backtesting', SystemStatus.OFFLINE, str(e))
+
+# Enhanced Neural Engine - Conditional Loading for Railway
+try:
+    # Only load heavy ML dependencies if not on Railway or explicitly enabled
+    if not IS_RAILWAY or os.environ.get('ENABLE_ML_FEATURES') == 'true':
+        from enhanced_neural_engine import EnhancedNeuralEngine
+        NEURAL_ENGINE_AVAILABLE = True
+        print("✅ Enhanced Neural Engine loaded successfully")
+        
+        if OPTIMIZATION_AVAILABLE:
+            status_manager.update_component_status('neural_engine', SystemStatus.ONLINE)
+    else:
+        NEURAL_ENGINE_AVAILABLE = False
+        print("⚠️ Neural Engine disabled on Railway (memory optimization)")
+        
+        if OPTIMIZATION_AVAILABLE:
+            status_manager.update_component_status('neural_engine', SystemStatus.OFFLINE, "Disabled for Railway deployment")
+        
+except ImportError as e:
+    NEURAL_ENGINE_AVAILABLE = False
+    print(f"⚠️ Neural Engine not available: {e}")
+    
     if OPTIMIZATION_AVAILABLE:
         status_manager.update_component_status('neural_engine', SystemStatus.OFFLINE, str(e))
-        status_manager.update_component_status('backtesting', SystemStatus.OFFLINE, str(e))
+
+# Combined availability flag
+ADVANCED_FEATURES = BACKTESTING_AVAILABLE or NEURAL_ENGINE_AVAILABLE
+
+if ADVANCED_FEATURES:
+    print(f"🚀 Advanced features status: Backtesting={BACKTESTING_AVAILABLE}, Neural={NEURAL_ENGINE_AVAILABLE}")
+else:
+    print("⚠️ No advanced features available")
 
 # 🔧 OPTIMIERTE BINANCE API KLASSE
 class OptimizedBinanceAPI:
@@ -420,14 +452,27 @@ binance_api = OptimizedBinanceAPI()
 # Initialize JAX Neural Engine
 jax_engine = JAXNeuralEngine()
 
-# Initialize Advanced Features
-if ADVANCED_FEATURES:
-    backtest_engine = AdvancedBacktestingEngine()
-    enhanced_neural_engine = EnhancedNeuralEngine()
-    print("🔬 Advanced engines initialized")
-else:
-    backtest_engine = None
-    enhanced_neural_engine = None
+# Initialize Advanced Features - Railway Optimized
+backtest_engine = None
+enhanced_neural_engine = None
+
+if BACKTESTING_AVAILABLE:
+    try:
+        backtest_engine = AdvancedBacktestingEngine()
+        print("✅ Backtesting Engine initialized")
+    except Exception as e:
+        print(f"❌ Backtesting Engine initialization failed: {e}")
+        BACKTESTING_AVAILABLE = False
+
+if NEURAL_ENGINE_AVAILABLE:
+    try:
+        enhanced_neural_engine = EnhancedNeuralEngine()
+        print("✅ Enhanced Neural Engine initialized")
+    except Exception as e:
+        print(f"❌ Neural Engine initialization failed: {e}")
+        NEURAL_ENGINE_AVAILABLE = False
+
+print(f"🔬 Advanced engines status: Backtesting={backtest_engine is not None}, Neural={enhanced_neural_engine is not None}")
 
 # 📊 Cache-System initialisieren (falls verfügbar)
 if OPTIMIZATION_AVAILABLE:
@@ -1896,6 +1941,16 @@ def index():
                     <div style="color: #10b981; font-weight: 600; margin-bottom: 0.5rem;">🤖 Powered by Google Research Technology</div>
                     <div style="opacity: 0.8; font-size: 0.9rem;">JAX + TensorFlow • Same framework used by DeepMind & Google AI</div>
                 </div>
+                
+                <!-- Railway Status Indicator -->
+                <div id="railwayStatusPanel" style="display: none; background: rgba(251, 146, 60, 0.1); padding: 1rem; border-radius: 8px; margin-top: 0.5rem; text-align: center; border: 1px solid rgba(251, 146, 60, 0.3);">
+                    <div style="color: #f59e0b; font-weight: 600; margin-bottom: 0.5rem;">⚡ Railway Server Mode</div>
+                    <div style="opacity: 0.8; font-size: 0.85rem;">
+                        <span style="color: #10b981;">✅ Professional Backtest Available</span><br>
+                        <span style="color: #10b981;">✅ Monte Carlo Analysis Available</span><br>
+                        <span style="color: #f59e0b;">⚠️ Neural Networks Limited (Memory Constraints)</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1956,6 +2011,9 @@ def index():
                 console.error('Critical element missing: symbolInput');
                 return;
             }
+            
+            // 🚀 Check Railway status and show status panel if needed
+            checkRailwayStatus();
             
             // 🚀 IMMEDIATE: Load initial price data
             updatePriceDisplay();
@@ -3488,6 +3546,21 @@ def index():
             }, 300);
         }
 
+        // 🚀 RAILWAY STATUS CHECK
+        function checkRailwayStatus() {
+            fetch('/api/system/status')
+                .then(response => response.json())
+                .then(data => {
+                    const railwayPanel = document.getElementById('railwayStatusPanel');
+                    if (data.is_railway) {
+                        railwayPanel.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.log('Status check failed:', error);
+                });
+        }
+
         // 🚀 ADVANCED FEATURES FUNCTIONS
         async function runAdvancedBacktest() {
             const symbol = getSymbolValue();
@@ -3646,6 +3719,11 @@ def index():
                 
                 const data = await response.json();
                 
+                if (data.error) {
+                    showNotification(data.error, 'warning');
+                    return;
+                }
+                
                 if (data.success && data.predictions) {
                     const predictions = data.predictions;
                     let predictionHtml = `<h4>🤖 LSTM Predictions for ${symbol}</h4>`;
@@ -3690,6 +3768,11 @@ def index():
                 });
                 
                 const data = await response.json();
+                
+                if (data.error) {
+                    showNotification(data.error, 'warning');
+                    return;
+                }
                 
                 if (data.success && data.training_results) {
                     let trainingHtml = `<h4>🎯 Model Training Results for ${symbol}</h4>`;
@@ -5553,14 +5636,17 @@ def analyze_symbol():
 def run_backtest():
     """🔬 Professional backtesting endpoint"""
     try:
-        if not ADVANCED_FEATURES or not backtest_engine:
-            return jsonify({"error": "Backtesting engine not available"})
+        if not BACKTESTING_AVAILABLE:
+            return jsonify({"error": "Professional backtesting not available on this server configuration"})
+        
+        if not backtest_engine:
+            return jsonify({"error": "Backtesting engine not initialized"})
         
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT')
         interval = data.get('interval', '1h')
         initial_capital = data.get('initial_capital', 10000)
-        lookback_days = data.get('lookback_days', 365)
+        lookback_days = data.get('lookback_days', 180 if IS_RAILWAY else 365)  # Reduce data on Railway
         stop_loss = data.get('stop_loss', 0.05)
         take_profit = data.get('take_profit', 0.10)
         
@@ -5606,13 +5692,16 @@ def run_backtest():
 def run_monte_carlo():
     """🎲 Monte Carlo simulation endpoint"""
     try:
-        if not ADVANCED_FEATURES or not backtest_engine:
-            return jsonify({"error": "Backtesting engine not available"})
+        if not BACKTESTING_AVAILABLE:
+            return jsonify({"error": "Monte Carlo simulation not available on this server configuration"})
+        
+        if not backtest_engine:
+            return jsonify({"error": "Backtesting engine not initialized"})
         
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT')
         interval = data.get('interval', '1h')
-        simulations = data.get('simulations', 50)
+        simulations = data.get('simulations', 30 if IS_RAILWAY else 50)  # Reduce simulations on Railway
         
         print(f"🎲 Running Monte Carlo simulation ({simulations} runs)")
         
@@ -5648,8 +5737,11 @@ def run_monte_carlo():
 def get_enhanced_prediction():
     """🤖 Enhanced neural network prediction endpoint"""
     try:
-        if not ADVANCED_FEATURES or not enhanced_neural_engine:
-            return jsonify({"error": "Enhanced neural engine not available"})
+        if not NEURAL_ENGINE_AVAILABLE:
+            return jsonify({"error": "LSTM/Neural predictions not available on this server configuration. Try Professional Backtest instead."})
+        
+        if not enhanced_neural_engine:
+            return jsonify({"error": "Enhanced neural engine not initialized"})
         
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT')
@@ -5683,8 +5775,11 @@ def get_enhanced_prediction():
 def train_enhanced_models():
     """🎯 Train enhanced neural network models"""
     try:
-        if not ADVANCED_FEATURES or not enhanced_neural_engine:
-            return jsonify({"error": "Enhanced neural engine not available"})
+        if not NEURAL_ENGINE_AVAILABLE:
+            return jsonify({"error": "Model training not available on this server configuration. Neural features disabled due to memory constraints."})
+        
+        if not enhanced_neural_engine:
+            return jsonify({"error": "Enhanced neural engine not initialized"})
         
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT')
@@ -6254,6 +6349,28 @@ def adaptive_analysis():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    """🔧 System status endpoint for Railway/Production detection"""
+    try:
+        return jsonify({
+            "success": True,
+            "is_railway": IS_RAILWAY,
+            "is_production": IS_PRODUCTION,
+            "features": {
+                "backtesting_available": BACKTESTING_AVAILABLE,
+                "neural_engine_available": NEURAL_ENGINE_AVAILABLE,
+                "advanced_features": BACKTESTING_AVAILABLE or NEURAL_ENGINE_AVAILABLE
+            },
+            "environment": "Railway" if IS_RAILWAY else "Production" if IS_PRODUCTION else "Development",
+            "server_constraints": {
+                "memory_optimized": IS_RAILWAY,
+                "neural_networks_limited": IS_RAILWAY and not NEURAL_ENGINE_AVAILABLE
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 # ========================================================================================
 # 🚀 MAIN APPLICATION RUNNER
