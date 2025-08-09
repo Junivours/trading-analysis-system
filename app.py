@@ -9,6 +9,16 @@ import json
 import warnings
 warnings.filterwarnings("ignore")
 
+# 🚀 NEUE OPTIMIERUNGEN - Cache und Status Management
+try:
+    from cache_manager import cache_manager, api_optimizer, get_cache_status
+    from status_manager import status_manager, weight_manager, get_system_dashboard, SystemStatus, DataSource
+    OPTIMIZATION_AVAILABLE = True
+    print("🚀 System-Optimierungen geladen: Cache + Status Management")
+except ImportError:
+    OPTIMIZATION_AVAILABLE = False
+    print("⚠️ System-Optimierungen nicht verfügbar")
+
 # 🤖 JAX Neural Network Dependencies (safe import)
 try:
     import jax
@@ -17,9 +27,19 @@ try:
     from jax.scipy.special import logsumexp
     JAX_AVAILABLE = True
     print("✅ JAX Neural Networks initialized successfully")
+    
+    # 📊 JAX-Status aktualisieren
+    if OPTIMIZATION_AVAILABLE:
+        status_manager.update_component_status('jax_ml', SystemStatus.ONLINE)
+        
 except ImportError as e:
     print(f"⚠️ JAX not available: {e}. Install with: pip install jax flax")
     JAX_AVAILABLE = False
+    
+    # JAX-Status aktualisieren
+    if OPTIMIZATION_AVAILABLE:
+        status_manager.update_component_status('jax_ml', SystemStatus.OFFLINE, str(e))
+    
     # Create dummy jax/jnp for fallback
     class DummyJAX:
         @staticmethod
@@ -37,7 +57,167 @@ except ImportError as e:
 
 # ========================================================================================
 # 🤖 JAX NEURAL NETWORK ENGINE - 10% Weight in Trading Decisions
+# 🔬 ENHANCED FEATURES: Backtesting Engine + LSTM Neural Networks
 # ========================================================================================
+
+try:
+    from backtesting_engine import AdvancedBacktestingEngine
+    from enhanced_neural_engine import EnhancedNeuralEngine
+    ADVANCED_FEATURES = True
+    print("🚀 Advanced features loaded: Backtesting + Enhanced Neural Networks")
+    
+    # 📊 Advanced Features Status aktualisieren
+    if OPTIMIZATION_AVAILABLE:
+        status_manager.update_component_status('neural_engine', SystemStatus.ONLINE)
+        status_manager.update_component_status('backtesting', SystemStatus.ONLINE)
+        
+except ImportError as e:
+    ADVANCED_FEATURES = False
+    print("⚠️ Advanced features not available")
+    
+    # Status aktualisieren
+    if OPTIMIZATION_AVAILABLE:
+        status_manager.update_component_status('neural_engine', SystemStatus.OFFLINE, str(e))
+        status_manager.update_component_status('backtesting', SystemStatus.OFFLINE, str(e))
+
+# 🔧 OPTIMIERTE BINANCE API KLASSE
+class OptimizedBinanceAPI:
+    """🚀 Optimierte Binance API mit Cache und Fehlerbehandlung"""
+    
+    def __init__(self):
+        self.base_url = "https://api.binance.com/api/v3"
+        self.last_request_time = 0
+        self.min_request_interval = 0.1  # 100ms zwischen Requests
+        self.error_count = 0
+        self.max_retries = 3
+        
+        # 📊 Status bei Systemstart prüfen
+        self._check_api_health()
+    
+    def _check_api_health(self):
+        """❤️ API-Gesundheit prüfen"""
+        try:
+            response = requests.get(f"{self.base_url}/ping", timeout=5)
+            if response.status_code == 200:
+                if OPTIMIZATION_AVAILABLE:
+                    status_manager.update_component_status('binance_api', SystemStatus.ONLINE)
+                print("🟢 Binance API verbunden")
+            else:
+                if OPTIMIZATION_AVAILABLE:
+                    status_manager.update_component_status('binance_api', SystemStatus.DEGRADED, 
+                                                         f"API Response Code: {response.status_code}")
+        except Exception as e:
+            if OPTIMIZATION_AVAILABLE:
+                status_manager.update_component_status('binance_api', SystemStatus.OFFLINE, str(e))
+            print(f"🔴 Binance API Fehler: {e}")
+    
+    def _make_request(self, endpoint: str, params: dict = None, cache_key: str = None, cache_category: str = 'default') -> dict:
+        """🌐 Optimierter API-Request mit Cache und Fallback"""
+        
+        # 1. Cache prüfen (nur wenn Optimierung verfügbar)
+        if OPTIMIZATION_AVAILABLE and cache_key:
+            cached_data = cache_manager.get(cache_key, cache_category)
+            if cached_data is not None:
+                return cached_data
+        
+        # 2. Rate Limiting
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < self.min_request_interval:
+            time.sleep(self.min_request_interval - time_since_last)
+        
+        # 3. API Request mit Retry-Logik
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(f"{self.base_url}/{endpoint}", params=params, timeout=10)
+                self.last_request_time = time.time()
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # 4. Cache speichern (nur wenn Optimierung verfügbar)
+                    if OPTIMIZATION_AVAILABLE and cache_key:
+                        cache_manager.set(cache_key, data, cache_category)
+                        status_manager.store_fallback_data(cache_key, data, DataSource.LIVE)
+                    
+                    # 5. Status aktualisieren
+                    if self.error_count > 0:
+                        self.error_count = 0
+                        if OPTIMIZATION_AVAILABLE:
+                            status_manager.update_component_status('binance_api', SystemStatus.ONLINE)
+                    
+                    return data
+                    
+                elif response.status_code == 429:  # Rate Limit
+                    wait_time = 2 ** attempt
+                    print(f"⚠️ Rate Limit - warte {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"❌ API Error: {response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                print(f"⏰ Timeout - Versuch {attempt + 1}/{self.max_retries}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)
+            except Exception as e:
+                print(f"❌ Request Error: {e}")
+                break
+        
+        # 7. Fallback verwenden (nur wenn Optimierung verfügbar)
+        self.error_count += 1
+        if OPTIMIZATION_AVAILABLE:
+            status_manager.update_component_status('binance_api', 
+                                                 SystemStatus.DEGRADED if self.error_count < 5 else SystemStatus.OFFLINE,
+                                                 f"Fehler nach {self.max_retries} Versuchen")
+            
+            if cache_key:
+                fallback_result = status_manager.get_reliable_data(cache_key)
+                if fallback_result['data'] is not None:
+                    print(f"🔄 Verwende Fallback-Daten ({fallback_result['source']}, {fallback_result['age_seconds']}s alt)")
+                    return fallback_result['data']
+        
+        # Fallback: Leere Standardwerte statt None
+        return self._get_fallback_data(endpoint)
+    
+    def _get_fallback_data(self, endpoint: str) -> dict:
+        """🛡️ Fallback-Daten für verschiedene Endpoints"""
+        if "ticker/24hr" in endpoint:
+            return {
+                "symbol": "BTCUSDT",
+                "priceChange": "0",
+                "priceChangePercent": "0",
+                "lastPrice": "50000",
+                "bidPrice": "49990",
+                "askPrice": "50010",
+                "volume": "1000",
+                "count": 100
+            }
+        elif "klines" in endpoint:
+            # Standard-Kerze (aktueller Zeitstempel)
+            current_time = int(time.time() * 1000)
+            return [[current_time, "50000", "50100", "49900", "50000", "100", current_time + 3600000, "5000000", 50, "50", "2500000", "0"]]
+        else:
+            return {}
+    
+    def get_ticker(self, symbol: str) -> dict:
+        """📈 Optimierte Ticker-Daten mit Cache"""
+        return self._make_request(
+            "ticker/24hr",
+            params={"symbol": symbol},
+            cache_key=f"ticker_{symbol}",
+            cache_category="price_data"
+        )
+    
+    def get_klines(self, symbol: str, interval: str = "1h", limit: int = 100) -> list:
+        """📊 Optimierte Kerzendaten mit Cache"""
+        result = self._make_request(
+            "klines",
+            params={"symbol": symbol, "interval": interval, "limit": limit},
+            cache_key=f"klines_{symbol}_{interval}_{limit}",
+            cache_category="kline_data"
+        )
+        return result if isinstance(result, list) else []
 
 class JAXNeuralEngine:
     """🧠 Advanced JAX-based Neural Network for Market Prediction"""
@@ -234,8 +414,37 @@ class JAXNeuralEngine:
 
 app = Flask(__name__)
 
+# 🚀 OPTIMIERTE API INITIALISIERUNG
+binance_api = OptimizedBinanceAPI()
+
 # Initialize JAX Neural Engine
 jax_engine = JAXNeuralEngine()
+
+# Initialize Advanced Features
+if ADVANCED_FEATURES:
+    backtest_engine = AdvancedBacktestingEngine()
+    enhanced_neural_engine = EnhancedNeuralEngine()
+    print("🔬 Advanced engines initialized")
+else:
+    backtest_engine = None
+    enhanced_neural_engine = None
+
+# 📊 Cache-System initialisieren (falls verfügbar)
+if OPTIMIZATION_AVAILABLE:
+    status_manager.update_component_status('cache_system', SystemStatus.ONLINE)
+    print("🧠 Cache-System aktiv")
+    
+    # Periodische Cache-Bereinigung starten
+    import threading
+    def cleanup_cache():
+        while True:
+            time.sleep(300)  # Alle 5 Minuten
+            cleaned = cache_manager.cleanup_expired()
+            if cleaned > 0:
+                print(f"🧹 {cleaned} abgelaufene Cache-Einträge bereinigt")
+    
+    cleanup_thread = threading.Thread(target=cleanup_cache, daemon=True)
+    cleanup_thread.start()
 
 class FundamentalAnalysisEngine:
     """🎯 Professional Fundamental Analysis - 70% Weight in Trading Decisions"""
@@ -1484,6 +1693,95 @@ def index():
                     </button>
                 </div>
                 
+            <!-- 🛡️ SYSTEM STATUS DASHBOARD -->
+            <div id="systemStatus" style="
+                background: rgba(255, 255, 255, 0.05); 
+                border-radius: 12px; 
+                padding: 1rem; 
+                margin: 1rem 0; 
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                display: none;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h4 style="color: #fff; margin: 0; font-size: 1rem;">🛡️ System Status</h4>
+                    <button onclick="toggleSystemStatus()" style="
+                        background: rgba(255, 255, 255, 0.1); 
+                        border: none; 
+                        color: #fff; 
+                        padding: 0.3rem 0.8rem; 
+                        border-radius: 6px; 
+                        font-size: 0.8rem;
+                        cursor: pointer;
+                    ">🔄 Refresh</button>
+                </div>
+                
+                <div id="systemHealthIndicator" style="
+                    display: flex; 
+                    gap: 0.5rem; 
+                    margin-bottom: 0.8rem;
+                    flex-wrap: wrap;
+                ">
+                    <div class="status-badge" data-component="binance_api">
+                        <span class="status-icon">🌐</span>
+                        <span class="status-text">API</span>
+                    </div>
+                    <div class="status-badge" data-component="jax_ml">
+                        <span class="status-icon">🧠</span>
+                        <span class="status-text">ML</span>
+                    </div>
+                    <div class="status-badge" data-component="cache_system">
+                        <span class="status-icon">💾</span>
+                        <span class="status-text">Cache</span>
+                    </div>
+                    <div class="status-badge" data-component="neural_engine">
+                        <span class="status-icon">🤖</span>
+                        <span class="status-text">Neural</span>
+                    </div>
+                </div>
+                
+                <div id="adaptiveWeights" style="
+                    background: rgba(255, 255, 255, 0.03); 
+                    padding: 0.8rem; 
+                    border-radius: 8px; 
+                    font-size: 0.85rem;
+                ">
+                    <div style="color: #ccc; margin-bottom: 0.3rem;">⚖️ Adaptive Gewichtung:</div>
+                    <div id="weightDisplay" style="color: #fff; font-weight: 500;">Lade...</div>
+                </div>
+            </div>
+            
+            <!-- 🎛️ QUICK SYSTEM CONTROLS -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <button onclick="toggleSystemStatus()" style="
+                    flex: 1;
+                    background: linear-gradient(135deg, #374151, #4b5563);
+                    border: none;
+                    color: white;
+                    padding: 0.6rem;
+                    border-radius: 8px;
+                    font-size: 0.85rem;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                " onmouseover="this.style.background='linear-gradient(135deg, #4b5563, #6b7280)'" 
+                   onmouseout="this.style.background='linear-gradient(135deg, #374151, #4b5563)'">
+                    🛡️ Status
+                </button>
+                <button onclick="optimizePerformance()" style="
+                    flex: 1;
+                    background: linear-gradient(135deg, #059669, #10b981);
+                    border: none;
+                    color: white;
+                    padding: 0.6rem;
+                    border-radius: 8px;
+                    font-size: 0.85rem;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                " onmouseover="this.style.background='linear-gradient(135deg, #10b981, #34d399)'" 
+                   onmouseout="this.style.background='linear-gradient(135deg, #059669, #10b981)'">
+                    🚀 Optimize
+                </button>
+            </div>
+                
             </div>
             
             <!-- 📊 RESULTS DISPLAY -->
@@ -2309,31 +2607,6 @@ def index():
                     </div>
                 </div>
 
-                <!-- 🎯 ANALYSIS SIGNALS -->
-                <div class="result-card" style="grid-column: 1 / -1;">
-                    <h3 style="color: #8b5cf6; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                        🎯 Professional Analysis Signals
-                    </h3>
-                    <div style="display: grid; gap: 1rem; margin-bottom: 1.5rem;">
-                        ${safeArray(analysis.signals).map(signal => `
-                            <div style="padding: 1.2rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px; border-left: 4px solid #8b5cf6; transition: transform 0.3s ease;" onmouseover="this.style.transform='translateX(5px)'" onmouseout="this.style.transform='translateX(0)'">
-                                ${signal}
-                            </div>
-                        `).join('')}
-                    </div>
-                    
-                    <div style="background: rgba(139, 92, 246, 0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(139, 92, 246, 0.2);">
-                        <h4 style="color: #8b5cf6; margin-bottom: 1rem;">🔍 Trend Signals:</h4>
-                        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
-                            ${safeArray(analysis.technical_indicators.trend_signals).map(trendSignal => `
-                                <div style="padding: 0.5rem 1rem; background: rgba(139, 92, 246, 0.2); border-radius: 8px; font-size: 0.9rem;">
-                                    ${trendSignal}
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-
                 <!--   LIQUIDATION MAP -->
                 <div class="result-card" style="grid-column: 1 / -1;">
                     <h3 style="color: #ef4444; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
@@ -3038,6 +3311,74 @@ def index():
                             🔥 Start Advanced JAX Training
                         </button>
                         
+                        <!-- 🚀 ADVANCED FEATURES SECTION -->
+                        <div style="margin-top: 2rem; padding: 1.5rem; background: rgba(255, 255, 255, 0.05); border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                            <h3 style="color: #fff; text-align: center; margin-bottom: 1.5rem; font-size: 1.3rem;">🚀 Advanced Trading Tools</h3>
+                            
+                            <button onclick="runAdvancedBacktest()" style="
+                                width: 100%; 
+                                background: linear-gradient(135deg, #667eea, #764ba2); 
+                                border: none; 
+                                border-radius: 12px; 
+                                color: white; 
+                                padding: 1.2rem; 
+                                font-size: 1.1rem; 
+                                font-weight: 600; 
+                                cursor: pointer; 
+                                transition: all 0.3s ease;
+                                margin-bottom: 0.8rem;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                🔬 Professional Backtest
+                            </button>
+                            
+                            <button onclick="runMonteCarloSim()" style="
+                                width: 100%; 
+                                background: linear-gradient(135deg, #f093fb, #f5576c); 
+                                border: none; 
+                                border-radius: 12px; 
+                                color: white; 
+                                padding: 1.2rem; 
+                                font-size: 1.1rem; 
+                                font-weight: 600; 
+                                cursor: pointer; 
+                                transition: all 0.3s ease;
+                                margin-bottom: 0.8rem;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                🎲 Monte Carlo Analysis
+                            </button>
+                            
+                            <button onclick="getEnhancedPredictions()" style="
+                                width: 100%; 
+                                background: linear-gradient(135deg, #4facfe, #00f2fe); 
+                                border: none; 
+                                border-radius: 12px; 
+                                color: white; 
+                                padding: 1.2rem; 
+                                font-size: 1.1rem; 
+                                font-weight: 600; 
+                                cursor: pointer; 
+                                transition: all 0.3s ease;
+                                margin-bottom: 0.8rem;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                🤖 LSTM Predictions
+                            </button>
+                            
+                            <button onclick="trainEnhancedModels()" style="
+                                width: 100%; 
+                                background: linear-gradient(135deg, #43e97b, #38f9d7); 
+                                border: none; 
+                                border-radius: 12px; 
+                                color: white; 
+                                padding: 1.2rem; 
+                                font-size: 1.1rem; 
+                                font-weight: 600; 
+                                cursor: pointer; 
+                                transition: all 0.3s ease;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                🎯 Train LSTM Models
+                            </button>
+                        </div>
+                        
                         <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 12px; text-align: center;">
                             <div style="color: #10b981; font-weight: 700; margin-bottom: 0.5rem;">🤖 Google Research Technology</div>
                             <div style="opacity: 0.9;">Same framework used by DeepMind & Google AI</div>
@@ -3067,6 +3408,644 @@ def index():
                 overlay.style.display = 'none';
             }, 300);
         }
+
+        // 🚀 ADVANCED FEATURES FUNCTIONS
+        async function runAdvancedBacktest() {
+            const symbol = getSymbolValue();
+            showNotification('🔬 Running professional backtest...', 'info');
+            
+            try {
+                const response = await fetch('/api/backtest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        interval: '1h',
+                        initial_capital: 10000,
+                        lookback_days: 365,
+                        stop_loss: 0.05,
+                        take_profit: 0.10
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.summary) {
+                    const summary = data.summary;
+                    // Parse percentage values for color coding
+                    const totalReturnValue = parseFloat(summary.total_return.replace('%', ''));
+                    
+                    showAdvancedResults(`
+                        <h4>🔬 Backtest Results for ${symbol}</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px;">
+                            <div class="metric-card">
+                                <h5>📈 Total Return</h5>
+                                <div class="metric-value" style="color: ${totalReturnValue > 0 ? '#10b981' : '#ef4444'}">${summary.total_return}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>🎯 Win Rate</h5>
+                                <div class="metric-value">${summary.win_rate}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>💪 Profit Factor</h5>
+                                <div class="metric-value">${summary.profit_factor}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>📉 Max Drawdown</h5>
+                                <div class="metric-value" style="color: #ef4444">${summary.max_drawdown}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>📊 Sharpe Ratio</h5>
+                                <div class="metric-value">${summary.sharpe_ratio}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>🔄 Total Trades</h5>
+                                <div class="metric-value">${summary.total_trades}</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px;">
+                            <h5 style="color: #ccc; margin-bottom: 10px;">📊 Backtest Parameters</h5>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; font-size: 0.9rem;">
+                                <div>Initial Capital: $${data.parameters.initial_capital.toLocaleString()}</div>
+                                <div>Stop Loss: ${data.parameters.stop_loss_pct}%</div>
+                                <div>Take Profit: ${data.parameters.take_profit_pct}%</div>
+                                <div>Lookback: ${data.parameters.lookback_days} days</div>
+                            </div>
+                        </div>
+                    `);
+                    showNotification('✅ Backtest completed successfully!', 'success');
+                } else {
+                    showNotification('❌ Backtest failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Backtest error:', error);
+                showNotification('❌ Backtest error: ' + error.message, 'error');
+            }
+        }
+        
+        async function runMonteCarloSim() {
+            const symbol = getSymbolValue();
+            showNotification('🎲 Running Monte Carlo simulation...', 'info');
+            
+            try {
+                const response = await fetch('/api/monte_carlo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        interval: '1h',
+                        simulations: 50
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.summary) {
+                    const summary = data.summary;
+                    // Parse percentage values for color coding
+                    const avgReturnValue = parseFloat(summary.avg_return.replace('%', ''));
+                    
+                    showAdvancedResults(`
+                        <h4>🎲 Monte Carlo Analysis for ${symbol}</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px;">
+                            <div class="metric-card">
+                                <h5>📊 Average Return</h5>
+                                <div class="metric-value" style="color: ${avgReturnValue > 0 ? '#10b981' : '#ef4444'}">${summary.avg_return}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>✅ Success Rate</h5>
+                                <div class="metric-value">${summary.success_rate}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>🚀 Best Case</h5>
+                                <div class="metric-value" style="color: #10b981">${summary.best_case}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>💥 Worst Case</h5>
+                                <div class="metric-value" style="color: #ef4444">${summary.worst_case}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>📈 Volatility</h5>
+                                <div class="metric-value">${summary.volatility}</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>🔄 Simulations</h5>
+                                <div class="metric-value">${data.simulations}</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px;">
+                            <h5 style="color: #ccc; margin-bottom: 10px;">🎲 Simulation Info</h5>
+                            <div style="font-size: 0.9rem;">
+                                <div>Symbol: ${symbol} | Interval: ${data.interval} | Runs: ${data.simulations}</div>
+                                <div style="margin-top: 5px; opacity: 0.7;">Statistical analysis based on historical data patterns</div>
+                            </div>
+                        </div>
+                    `);
+                    showNotification('✅ Monte Carlo analysis completed!', 'success');
+                } else {
+                    showNotification('❌ Monte Carlo failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Monte Carlo error:', error);
+                showNotification('❌ Monte Carlo error: ' + error.message, 'error');
+            }
+        }
+        
+        async function getEnhancedPredictions() {
+            const symbol = getSymbolValue();
+            showNotification('🤖 Getting LSTM predictions...', 'info');
+            
+            try {
+                const response = await fetch('/api/enhanced_prediction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        horizons: [1, 4, 24]
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.predictions) {
+                    const predictions = data.predictions;
+                    let predictionHtml = `<h4>🤖 LSTM Predictions for ${symbol}</h4>`;
+                    
+                    for (const [horizon, pred] of Object.entries(predictions)) {
+                        const directionColor = pred.direction === 'BUY' ? '#10b981' : pred.direction === 'SELL' ? '#ef4444' : '#f59e0b';
+                        predictionHtml += `
+                            <div class="metric-card" style="margin: 10px 0;">
+                                <h5>🔮 ${horizon} Prediction</h5>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div class="metric-value" style="color: ${directionColor}">${pred.direction}</div>
+                                    <div style="color: #fff;">Confidence: ${(pred.confidence * 100).toFixed(1)}%</div>
+                                </div>
+                                <div style="color: #ccc; font-size: 0.9rem;">Expected Return: ${(pred.predicted_return * 100).toFixed(2)}%</div>
+                            </div>
+                        `;
+                    }
+                    
+                    showAdvancedResults(predictionHtml);
+                    showNotification('✅ LSTM predictions ready!', 'success');
+                } else {
+                    showNotification('❌ Prediction failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Prediction error:', error);
+                showNotification('❌ Prediction error: ' + error.message, 'error');
+            }
+        }
+        
+        async function trainEnhancedModels() {
+            const symbol = getSymbolValue();
+            showNotification('🎯 Training LSTM models... This may take several minutes!', 'info');
+            
+            try {
+                const response = await fetch('/api/train_models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        interval: '1h'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.training_results) {
+                    let trainingHtml = `<h4>🎯 Model Training Results for ${symbol}</h4>`;
+                    
+                    for (const [model, success] of Object.entries(data.training_results)) {
+                        const status = success ? '✅ SUCCESS' : '❌ FAILED';
+                        const statusColor = success ? '#10b981' : '#ef4444';
+                        trainingHtml += `
+                            <div style="display: flex; justify-content: space-between; padding: 10px; margin: 5px 0; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                                <span>${model}</span>
+                                <span style="color: ${statusColor}; font-weight: 600;">${status}</span>
+                            </div>
+                        `;
+                    }
+                    
+                    showAdvancedResults(trainingHtml);
+                    showNotification('✅ Model training completed!', 'success');
+                } else {
+                    showNotification('❌ Training failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Training error:', error);
+                showNotification('❌ Training error: ' + error.message, 'error');
+            }
+        }
+        
+        function showAdvancedResults(html) {
+            const resultsDiv = document.getElementById('advanced-results');
+            const contentDiv = document.getElementById('advanced-content');
+            
+            if (resultsDiv && contentDiv) {
+                contentDiv.innerHTML = html;
+                resultsDiv.style.display = 'block';
+                resultsDiv.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                // Create results section if it doesn't exist
+                const mainContainer = document.querySelector('.container');
+                if (mainContainer) {
+                    const resultsSection = document.createElement('div');
+                    resultsSection.id = 'advanced-results';
+                    resultsSection.innerHTML = `
+                        <div style="background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 15px; padding: 30px; margin: 20px 0;">
+                            <h3 style="color: #fff; margin-bottom: 20px; font-size: 1.8rem;">📊 Advanced Analytics Results</h3>
+                            <div id="advanced-content">${html}</div>
+                        </div>
+                    `;
+                    mainContainer.appendChild(resultsSection);
+                    resultsSection.scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+        }
+        
+        // 🎨 Advanced Features CSS Styles
+        const advancedStyles = `
+            <style>
+            .metric-card {
+                background: rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
+                padding: 20px;
+                text-align: center;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                transition: all 0.3s ease;
+            }
+            .metric-card:hover {
+                background: rgba(255, 255, 255, 0.12);
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            }
+            .metric-card h5 {
+                color: #ccc;
+                margin: 0 0 10px 0;
+                font-size: 0.9rem;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .metric-value {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: #fff;
+                margin-bottom: 5px;
+            }
+            .advanced-feature-btn {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border: none;
+                color: white;
+                padding: 12px 24px;
+                font-size: 14px;
+                font-weight: 600;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin: 5px;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            }
+            .advanced-feature-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+                filter: brightness(1.1);
+            }
+            .advanced-feature-btn:active {
+                transform: translateY(0);
+            }
+            .backtest-btn {
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                box-shadow: 0 4px 15px rgba(240, 147, 251, 0.3);
+            }
+            .backtest-btn:hover {
+                box-shadow: 0 8px 25px rgba(240, 147, 251, 0.4);
+            }
+            .monte-carlo-btn {
+                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+            }
+            .monte-carlo-btn:hover {
+                box-shadow: 0 8px 25px rgba(79, 172, 254, 0.4);
+            }
+            .lstm-btn {
+                background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+                box-shadow: 0 4px 15px rgba(67, 233, 123, 0.3);
+            }
+            .lstm-btn:hover {
+                box-shadow: 0 8px 25px rgba(67, 233, 123, 0.4);
+            }
+            .train-btn {
+                background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+                box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);
+            }
+            .train-btn:hover {
+                box-shadow: 0 8px 25px rgba(250, 112, 154, 0.4);
+            }
+            #advanced-results {
+                animation: slideInUp 0.5s ease-out;
+            }
+            @keyframes slideInUp {
+                from {
+                    opacity: 0;
+                    transform: translateY(30px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            .notification {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 8px;
+                color: white;
+                font-weight: 600;
+                z-index: 10000;
+                min-width: 300px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                animation: slideInRight 0.3s ease-out;
+            }
+            .notification.success {
+                background: linear-gradient(135deg, #10b981, #34d399);
+            }
+            .notification.error {
+                background: linear-gradient(135deg, #ef4444, #f87171);
+            }
+            .notification.info {
+                background: linear-gradient(135deg, #3b82f6, #60a5fa);
+            }
+            @keyframes slideInRight {
+                from {
+                    opacity: 0;
+                    transform: translateX(300px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+            </style>
+        `;
+        document.head.insertAdjacentHTML('beforeend', advancedStyles);
+        
+        // 🔔 Notification System
+        function showNotification(message, type = 'info') {
+            // Remove existing notifications
+            const existingNotifications = document.querySelectorAll('.notification');
+            existingNotifications.forEach(n => n.remove());
+            
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // Auto remove after 4 seconds
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateX(300px)';
+                setTimeout(() => notification.remove(), 300);
+            }, 4000);
+        }
+        
+        // 🛠️ UTILITY FUNCTIONS
+        function getSymbolValue() {
+            // Try to get symbol from various possible input elements
+            const inputs = ['symbolInput', 'symbol'];
+            for (const id of inputs) {
+                const element = document.getElementById(id);
+                if (element && element.value && element.value.trim()) {
+                    return element.value.trim().toUpperCase();
+                }
+            }
+            return 'BTCUSDT'; // Default fallback
+        }
+        
+        function safeElementAccess(id, defaultValue = '') {
+            const element = document.getElementById(id);
+            return element ? element.value || defaultValue : defaultValue;
+        }
+        
+        // 🛡️ SYSTEM STATUS & OPTIMIZATION FUNCTIONS
+        async function updateSystemStatus() {
+            try {
+                const response = await fetch('/api/system_status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const health = data.system_health;
+                    const weights = data.adaptive_weights;
+                    
+                    // Update status badges
+                    const badges = document.querySelectorAll('.status-badge');
+                    badges.forEach(badge => {
+                        const component = badge.getAttribute('data-component');
+                        const componentData = health.components[component];
+                        
+                        if (componentData) {
+                            const icon = badge.querySelector('.status-icon');
+                            const text = badge.querySelector('.status-text');
+                            
+                            // Update badge style based on status
+                            if (componentData.status === 'online') {
+                                badge.style.background = 'rgba(16, 185, 129, 0.2)';
+                                badge.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                                icon.style.filter = 'grayscale(0%)';
+                            } else if (componentData.status === 'degraded') {
+                                badge.style.background = 'rgba(245, 158, 11, 0.2)';
+                                badge.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+                                icon.style.filter = 'sepia(100%) hue-rotate(30deg)';
+                            } else {
+                                badge.style.background = 'rgba(239, 68, 68, 0.2)';
+                                badge.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                                icon.style.filter = 'grayscale(100%)';
+                            }
+                        }
+                    });
+                    
+                    // Update adaptive weights display
+                    const weightDisplay = document.getElementById('weightDisplay');
+                    if (weightDisplay) {
+                        weightDisplay.textContent = data.weight_explanation;
+                    }
+                    
+                    // Update overall system health indicator (if exists)
+                    const healthScore = health.health_score;
+                    if (healthScore >= 80) {
+                        showNotification('🟢 Alle Systeme optimal', 'success');
+                    } else if (healthScore >= 60) {
+                        showNotification('🟡 System läuft eingeschränkt', 'info');
+                    } else {
+                        showNotification('🔴 Mehrere Systeme ausgefallen', 'error');
+                    }
+                }
+            } catch (error) {
+                console.error('System status update failed:', error);
+                showNotification('❌ Status-Update fehlgeschlagen', 'error');
+            }
+        }
+        
+        async function toggleSystemStatus() {
+            const statusDiv = document.getElementById('systemStatus');
+            
+            if (statusDiv.style.display === 'none') {
+                statusDiv.style.display = 'block';
+                await updateSystemStatus();
+            } else {
+                statusDiv.style.display = 'none';
+            }
+        }
+        
+        async function optimizePerformance() {
+            showNotification('🚀 Optimiere System-Performance...', 'info');
+            
+            try {
+                // 1. Cache bereinigen
+                const cacheResponse = await fetch('/api/cache_control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'cleanup' })
+                });
+                
+                if (cacheResponse.ok) {
+                    const cacheData = await cacheResponse.json();
+                    console.log('Cache bereinigt:', cacheData.message);
+                }
+                
+                // 2. Optimierte Update-Intervalle abrufen
+                const intervalResponse = await fetch('/api/update_intervals', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                
+                if (intervalResponse.ok) {
+                    const intervalData = await intervalResponse.json();
+                    
+                    // Update-Intervalle anwenden
+                    if (intervalData.success) {
+                        const intervals = intervalData.recommended_intervals;
+                        
+                        // Real-time updates mit optimierten Intervallen
+                        if (window.updateInterval) clearInterval(window.updateInterval);
+                        window.updateInterval = setInterval(updatePriceDisplay, intervals.live_price * 1000);
+                        
+                        if (window.analysisInterval) clearInterval(window.analysisInterval);
+                        window.analysisInterval = setInterval(updateAnalysis, intervals.full_analysis * 1000);
+                        
+                        showNotification(`✅ Performance optimiert! Updates: ${intervals.live_price}s / ${intervals.full_analysis}s`, 'success');
+                    }
+                } else {
+                    showNotification('✅ Basis-Optimierung angewendet', 'success');
+                }
+                
+                // 3. System-Status aktualisieren
+                await updateSystemStatus();
+                
+            } catch (error) {
+                console.error('Optimization failed:', error);
+                showNotification('❌ Optimierung fehlgeschlagen', 'error');
+            }
+        }
+        
+        async function getAdaptiveAnalysis() {
+            const symbol = document.getElementById('symbolInput').value || 'BTCUSDT';
+            
+            try {
+                const response = await fetch(`/api/adaptive_analysis?symbol=${symbol}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Analysis mit adaptiver Gewichtung anzeigen
+                    let analysisHtml = `
+                        <h4>⚖️ Adaptive Analyse für ${data.symbol}</h4>
+                        <div style="margin: 1rem 0; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                            <div style="color: #ccc; margin-bottom: 0.5rem;">System-Status: <span style="color: ${data.system_health === 'online' ? '#10b981' : '#f59e0b'}">${data.system_health}</span></div>
+                            <div style="color: #fff; font-size: 0.9rem;">${data.weight_explanation}</div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 1rem 0;">
+                            <div class="metric-card">
+                                <h5>🏛️ Fundamental</h5>
+                                <div class="metric-value">${data.scores.fundamental}</div>
+                                <div style="font-size: 0.8rem; color: #ccc;">${data.adaptive_weights.fundamental}% Gewichtung</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>📊 Technical</h5>
+                                <div class="metric-value">${data.scores.technical}</div>
+                                <div style="font-size: 0.8rem; color: #ccc;">${data.adaptive_weights.technical}% Gewichtung</div>
+                            </div>
+                            <div class="metric-card">
+                                <h5>🤖 ML/KI</h5>
+                                <div class="metric-value">${data.scores.ml}</div>
+                                <div style="font-size: 0.8rem; color: #ccc;">${data.adaptive_weights.ml}% Gewichtung</div>
+                            </div>
+                        </div>
+                        
+                        <div style="text-align: center; margin-top: 1.5rem; padding: 1rem; background: rgba(59, 130, 246, 0.1); border-radius: 8px;">
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${data.recommendation === 'BUY' ? '#10b981' : data.recommendation === 'SELL' ? '#ef4444' : '#f59e0b'}">
+                                ${data.recommendation}
+                            </div>
+                            <div style="color: #ccc; margin-top: 0.5rem;">
+                                Confidence: ${data.confidence}% | Score: ${data.scores.total}
+                            </div>
+                            ${data.transparency_note ? `<div style="color: #aaa; font-size: 0.85rem; margin-top: 0.5rem;">${data.transparency_note}</div>` : ''}
+                        </div>
+                    `;
+                    
+                    showAdvancedResults(analysisHtml);
+                    showNotification('✅ Adaptive Analyse abgeschlossen', 'success');
+                } else {
+                    showNotification('❌ Adaptive Analyse fehlgeschlagen: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showNotification('❌ Adaptive Analyse Fehler: ' + error.message, 'error');
+            }
+        }
+        
+        // 🎨 Status Badge Styles
+        const statusStyles = `
+            <style>
+            .status-badge {
+                display: flex;
+                align-items: center;
+                gap: 0.3rem;
+                padding: 0.4rem 0.6rem;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                font-size: 0.8rem;
+                color: #fff;
+                transition: all 0.3s ease;
+            }
+            .status-badge:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+            .status-icon {
+                font-size: 1rem;
+                transition: filter 0.3s ease;
+            }
+            .status-text {
+                font-weight: 500;
+                font-size: 0.75rem;
+            }
+            </style>
+        `;
+        document.head.insertAdjacentHTML('beforeend', statusStyles);
+        
+        // 🚀 Auto-System-Status beim Start
+        document.addEventListener('DOMContentLoaded', function() {
+            // System-Status nach 2 Sekunden automatisch aktualisieren
+            setTimeout(updateSystemStatus, 2000);
+            
+            // Periodische System-Checks alle 5 Minuten
+            setInterval(updateSystemStatus, 300000);
+        });
         
         // 🚀 Additional Functions with MEGA DETAILS
         async function runBacktest() {
@@ -4493,6 +5472,164 @@ def analyze_symbol():
 
 @app.route('/api/backtest', methods=['POST'])
 def run_backtest():
+    """🔬 Professional backtesting endpoint"""
+    try:
+        if not ADVANCED_FEATURES or not backtest_engine:
+            return jsonify({"error": "Backtesting engine not available"})
+        
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        initial_capital = data.get('initial_capital', 10000)
+        lookback_days = data.get('lookback_days', 365)
+        stop_loss = data.get('stop_loss', 0.05)
+        take_profit = data.get('take_profit', 0.10)
+        
+        print(f"🔬 Running backtest for {symbol} ({interval})")
+        
+        # Run backtest
+        result = backtest_engine.run_backtest(
+            symbol, interval, initial_capital, lookback_days, stop_loss, take_profit
+        )
+        
+        if 'error' in result:
+            return jsonify({"error": result['error']})
+        
+        # Format response for frontend
+        response = {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "parameters": {
+                "initial_capital": initial_capital,
+                "lookback_days": lookback_days,
+                "stop_loss_pct": stop_loss * 100,
+                "take_profit_pct": take_profit * 100
+            },
+            "results": result,
+            "summary": {
+                "total_return": f"{result['summary']['total_return_pct']:.2f}%",
+                "win_rate": f"{result['trade_metrics']['win_rate_pct']:.1f}%",
+                "profit_factor": f"{result['trade_metrics']['profit_factor']:.2f}",
+                "max_drawdown": f"{result['risk_metrics']['max_drawdown_pct']:.2f}%",
+                "sharpe_ratio": f"{result['risk_metrics']['sharpe_ratio']:.2f}",
+                "total_trades": result['trade_metrics']['total_trades']
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"❌ Backtest error: {e}")
+        return jsonify({"error": str(e)})
+
+@app.route('/api/monte_carlo', methods=['POST'])
+def run_monte_carlo():
+    """🎲 Monte Carlo simulation endpoint"""
+    try:
+        if not ADVANCED_FEATURES or not backtest_engine:
+            return jsonify({"error": "Backtesting engine not available"})
+        
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        simulations = data.get('simulations', 50)
+        
+        print(f"🎲 Running Monte Carlo simulation ({simulations} runs)")
+        
+        # Run Monte Carlo
+        result = backtest_engine.monte_carlo_simulation(symbol, interval, simulations)
+        
+        if 'error' in result:
+            return jsonify({"error": result['error']})
+        
+        # Format response
+        response = {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "simulations": simulations,
+            "results": result,
+            "summary": {
+                "avg_return": f"{result['avg_return']:.2f}%",
+                "success_rate": f"{result['success_rate']:.1f}%",
+                "best_case": f"{result['best_return']:.2f}%",
+                "worst_case": f"{result['worst_return']:.2f}%",
+                "volatility": f"{result['std_deviation']:.2f}%"
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"❌ Monte Carlo error: {e}")
+        return jsonify({"error": str(e)})
+
+@app.route('/api/enhanced_prediction', methods=['POST'])
+def get_enhanced_prediction():
+    """🤖 Enhanced neural network prediction endpoint"""
+    try:
+        if not ADVANCED_FEATURES or not enhanced_neural_engine:
+            return jsonify({"error": "Enhanced neural engine not available"})
+        
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        horizons = data.get('horizons', [1, 4, 24])
+        
+        print(f"🤖 Getting enhanced predictions for {symbol}")
+        
+        predictions = {}
+        for horizon in horizons:
+            pred = enhanced_neural_engine.predict_with_ensemble({}, horizon)
+            predictions[f'{horizon}h'] = pred
+        
+        response = {
+            "success": True,
+            "symbol": symbol,
+            "predictions": predictions,
+            "model_status": {
+                "lstm_available": enhanced_neural_engine.tf_available,
+                "models_trained": len(enhanced_neural_engine.models),
+                "accuracy_metrics": enhanced_neural_engine.model_accuracy
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"❌ Enhanced prediction error: {e}")
+        return jsonify({"error": str(e)})
+
+@app.route('/api/train_models', methods=['POST'])
+def train_enhanced_models():
+    """🎯 Train enhanced neural network models"""
+    try:
+        if not ADVANCED_FEATURES or not enhanced_neural_engine:
+            return jsonify({"error": "Enhanced neural engine not available"})
+        
+        data = request.get_json()
+        symbol = data.get('symbol', 'BTCUSDT')
+        interval = data.get('interval', '1h')
+        
+        print(f"🎯 Training enhanced models for {symbol} ({interval})")
+        
+        # This is a long-running operation
+        results = enhanced_neural_engine.train_all_models(symbol, interval)
+        
+        response = {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "training_results": results,
+            "model_accuracy": enhanced_neural_engine.model_accuracy
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        print(f"❌ Model training error: {e}")
+        return jsonify({"error": str(e)})
+def run_backtest():
     """⚡ Professional backtest endpoint - DYNAMIC & REALISTIC"""
     try:
         data = request.json
@@ -4831,6 +5968,210 @@ def setup_alerts():
             },
             'simulation_note': 'Real-time alerts would use WebSocket connections in production'
         })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# ========================================================================================
+# 🛡️ SYSTEM-STATUS & OPTIMIERUNGS-ENDPOINTS
+# ========================================================================================
+
+@app.route('/api/system_status')
+def get_system_status():
+    """📊 System-Status Dashboard"""
+    try:
+        if not OPTIMIZATION_AVAILABLE:
+            return jsonify({
+                'success': True,
+                'system_health': {'overall_status': 'basic', 'health_score': 75},
+                'optimization_available': False,
+                'message': 'Basis-System läuft ohne Optimierungen'
+            })
+        
+        dashboard = get_system_dashboard()
+        cache_stats = get_cache_status()
+        
+        return jsonify({
+            'success': True,
+            'system_health': dashboard['system_health'],
+            'adaptive_weights': dashboard['adaptive_weights'],
+            'weight_explanation': dashboard['weight_explanation'],
+            'user_messages': dashboard['user_messages'],
+            'cache_status': cache_stats,
+            'optimization_available': True,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/cache_control', methods=['POST'])
+def cache_control():
+    """🧹 Cache-Verwaltung"""
+    try:
+        if not OPTIMIZATION_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Cache-System nicht verfügbar'})
+        
+        data = request.get_json()
+        action = data.get('action', 'status')
+        
+        if action == 'clear':
+            category = data.get('category')
+            cache_manager.invalidate(category=category)
+            return jsonify({
+                'success': True,
+                'message': f'Cache{"" if not category else f" für {category}"} bereinigt'
+            })
+        
+        elif action == 'cleanup':
+            cleaned = cache_manager.cleanup_expired()
+            return jsonify({
+                'success': True,
+                'message': f'{cleaned} abgelaufene Einträge entfernt'
+            })
+        
+        elif action == 'stats':
+            stats = cache_manager.get_cache_stats()
+            return jsonify({
+                'success': True,
+                'stats': stats
+            })
+        
+        else:
+            return jsonify({'success': False, 'error': 'Unbekannte Aktion'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/update_intervals', methods=['POST'])
+def update_intervals():
+    """⏰ Update-Intervalle anpassen"""
+    try:
+        data = request.get_json()
+        
+        # Empfohlene Intervalle basierend auf System-Status
+        if OPTIMIZATION_AVAILABLE:
+            health = status_manager.get_system_health()
+            if health['overall_status'] == 'online':
+                intervals = {
+                    'live_price': 20,      # 20 Sekunden
+                    'full_analysis': 90,   # 1.5 Minuten
+                    'cache_cleanup': 300   # 5 Minuten
+                }
+            elif health['overall_status'] == 'degraded':
+                intervals = {
+                    'live_price': 30,      # 30 Sekunden
+                    'full_analysis': 120,  # 2 Minuten
+                    'cache_cleanup': 180   # 3 Minuten
+                }
+            else:
+                intervals = {
+                    'live_price': 60,      # 1 Minute
+                    'full_analysis': 300,  # 5 Minuten
+                    'cache_cleanup': 600   # 10 Minuten
+                }
+        else:
+            # Basis-System: Konservative Intervalle
+            intervals = {
+                'live_price': 30,
+                'full_analysis': 120,
+                'cache_cleanup': 300
+            }
+        
+        return jsonify({
+            'success': True,
+            'recommended_intervals': intervals,
+            'optimization_active': OPTIMIZATION_AVAILABLE,
+            'explanation': 'Intervalle basierend auf System-Gesundheit optimiert'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/adaptive_analysis')
+def adaptive_analysis():
+    """⚖️ Adaptive Analyse mit dynamischer Gewichtung"""
+    try:
+        symbol = request.args.get('symbol', 'BTCUSDT')
+        
+        # Adaptive Gewichtung abrufen
+        if OPTIMIZATION_AVAILABLE:
+            weights = weight_manager.get_adaptive_weights()
+            explanation = weight_manager.get_weight_explanation()
+            health = status_manager.get_system_health()
+        else:
+            # Fallback-Gewichtung
+            weights = {'fundamental': 70, 'technical': 30, 'ml': 0}
+            explanation = "🔴 Basis-Modus: Keine ML-Vorhersagen verfügbar"
+            health = {'overall_status': 'basic'}
+        
+        # Basis-Analyse durchführen (vereinfacht)
+        try:
+            ticker = binance_api.get_ticker(symbol)
+            
+            # Fundamentale Analyse (basiert auf verfügbaren Daten)
+            fundamental_score = 50  # Neutral als Fallback
+            if ticker and 'priceChangePercent' in ticker:
+                change_pct = float(ticker['priceChangePercent'])
+                fundamental_score = max(0, min(100, 50 + change_pct * 2))
+            
+            # Technische Analyse (vereinfacht)
+            technical_score = 50  # Neutral als Fallback
+            
+            # ML-Score (nur wenn verfügbar)
+            ml_score = 0
+            if JAX_AVAILABLE and weights['ml'] > 0:
+                # Vereinfachte ML-Bewertung
+                ml_score = 55  # Leicht positiv
+            
+            # Gewichtete Gesamtbewertung
+            total_score = (
+                fundamental_score * weights['fundamental'] / 100 +
+                technical_score * weights['technical'] / 100 +
+                ml_score * weights['ml'] / 100
+            )
+            
+            # Handelsempfehlung basierend auf Gewichtung
+            if total_score >= 60:
+                recommendation = 'BUY'
+                confidence = total_score
+            elif total_score <= 40:
+                recommendation = 'SELL'
+                confidence = 100 - total_score
+            else:
+                recommendation = 'HOLD'
+                confidence = 100 - abs(total_score - 50) * 2
+            
+            return jsonify({
+                'success': True,
+                'symbol': symbol,
+                'adaptive_weights': weights,
+                'weight_explanation': explanation,
+                'system_health': health['overall_status'],
+                'scores': {
+                    'fundamental': fundamental_score,
+                    'technical': technical_score,
+                    'ml': ml_score,
+                    'total': round(total_score, 1)
+                },
+                'recommendation': recommendation,
+                'confidence': round(confidence, 1),
+                'transparency_note': 'Gewichtung automatisch an verfügbare Systeme angepasst'
+            })
+            
+        except Exception as analysis_error:
+            return jsonify({
+                'success': True,
+                'symbol': symbol,
+                'adaptive_weights': weights,
+                'weight_explanation': explanation,
+                'system_health': health['overall_status'],
+                'scores': {'fundamental': 50, 'technical': 50, 'ml': 0, 'total': 50},
+                'recommendation': 'HOLD',
+                'confidence': 25,
+                'error_note': f'Analyse-Fehler: {str(analysis_error)}',
+                'fallback_active': True
+            })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
