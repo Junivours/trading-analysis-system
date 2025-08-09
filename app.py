@@ -566,7 +566,7 @@ class FundamentalAnalysisEngine:
 def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
     """📈 Enhanced indicators using REAL 24h data from Binance"""
     try:
-        engine = FundamentalAnalysisEngine()
+        # Use global engine instance (avoid creating new instances)
         base_indicators = engine.calculate_technical_indicators(data)
         
         if 'error' in base_indicators:
@@ -3463,8 +3463,7 @@ def analyze_symbol():
         if not symbol:
             return jsonify({'success': False, 'error': 'Symbol is required'})
         
-        # 1. LIVE MARKET DATA - Verwende verbesserte Engine Klasse
-        engine = FundamentalAnalysisEngine()
+        # 1. LIVE MARKET DATA - Use global engine instance
         market_result = engine.get_market_data(symbol, timeframe, 200)
         if not market_result.get('success', False):
             return jsonify({'error': market_result.get('error', 'Failed to get market data')})
@@ -3995,8 +3994,7 @@ def analyze_symbol():
         
         print(f"🔄 Live-Analyse für {symbol} gestartet...")
         
-        # Live Marktdaten holen - Verwende Engine Klasse
-        engine = FundamentalAnalysisEngine()
+        # Live Marktdaten holen - Use global engine instance  
         market_result = engine.get_market_data(symbol, timeframe, 200)
         if not market_result.get('success', False):
             return jsonify({'success': False, 'error': market_result.get('error', 'Failed to get market data')})
@@ -4510,8 +4508,7 @@ def jax_training():
         data = request.get_json()
         symbol = data.get('symbol', 'BTCUSDT')
         
-        # Get market data for training
-        engine = FundamentalAnalysisEngine()
+        # Get market data for training - Use global engine instance
         market_result = engine.get_market_data(symbol, '4h', 500)  # More data for training
         
         if not market_result.get('success', False):
@@ -4555,13 +4552,12 @@ def multi_asset_analysis():
         
         results = []
         
-        # Ensure engine is available
-        analysis_engine = FundamentalAnalysisEngine()
+        # Use global engine instance for multi-asset analysis
         
         for symbol in symbols:
             try:
                 # Hole Marktdaten für jeden Coin
-                market_data = analysis_engine.get_market_data(symbol, timeframe, limit=100)  # ✅ Mehr Daten für 24h
+                market_data = engine.get_market_data(symbol, timeframe, limit=100)  # ✅ Mehr Daten für 24h
                 if not market_data.get('success', False):
                     continue
                 
