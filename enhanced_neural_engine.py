@@ -47,7 +47,132 @@ class EnhancedNeuralEngine:
         self.model_dir = "models"
         os.makedirs(self.model_dir, exist_ok=True)
         
+        # Load existing models on startup
+        self.load_existing_models()
+        
         print("🤖 Enhanced Neural Network Engine initialized")
+    
+    def get_model_path(self, symbol: str, interval: str, horizon: int, model_type: str = "lstm") -> str:
+        """Get the file path for a specific model"""
+        filename = f"{symbol}_{interval}_{horizon}h_{model_type}.h5"
+        return os.path.join(self.model_dir, filename)
+    
+    def get_scaler_path(self, symbol: str, interval: str, horizon: int) -> str:
+        """Get the file path for a specific scaler"""
+        filename = f"{symbol}_{interval}_{horizon}h_scaler.pkl"
+        return os.path.join(self.model_dir, filename)
+    
+    def get_metadata_path(self, symbol: str, interval: str, horizon: int) -> str:
+        """Get the file path for model metadata"""
+        filename = f"{symbol}_{interval}_{horizon}h_metadata.json"
+        return os.path.join(self.model_dir, filename)
+    
+    def save_model(self, symbol: str, interval: str, horizon: int, model, scaler, accuracy: float):
+        """Save trained model, scaler and metadata"""
+        try:
+            model_path = self.get_model_path(symbol, interval, horizon)
+            scaler_path = self.get_scaler_path(symbol, interval, horizon)
+            metadata_path = self.get_metadata_path(symbol, interval, horizon)
+            
+            # Save TensorFlow model
+            model.save(model_path)
+            
+            # Save scaler
+            with open(scaler_path, 'wb') as f:
+                pickle.dump(scaler, f)
+            
+            # Save metadata
+            metadata = {
+                'symbol': symbol,
+                'interval': interval,
+                'horizon': horizon,
+                'accuracy': accuracy,
+                'trained_at': datetime.now().isoformat(),
+                'sequence_length': self.sequence_length
+            }
+            
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            print(f"✅ Model saved: {symbol}_{interval}_{horizon}h (accuracy: {accuracy:.3f})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error saving model: {e}")
+            return False
+    
+    def load_model(self, symbol: str, interval: str, horizon: int) -> Tuple[Optional[object], Optional[object], Optional[float]]:
+        """Load trained model, scaler and metadata"""
+        try:
+            model_path = self.get_model_path(symbol, interval, horizon)
+            scaler_path = self.get_scaler_path(symbol, interval, horizon)
+            metadata_path = self.get_metadata_path(symbol, interval, horizon)
+            
+            # Check if all files exist
+            if not all(os.path.exists(path) for path in [model_path, scaler_path, metadata_path]):
+                return None, None, None
+            
+            # Load model
+            model = load_model(model_path)
+            
+            # Load scaler
+            with open(scaler_path, 'rb') as f:
+                scaler = pickle.load(f)
+            
+            # Load metadata
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            accuracy = metadata.get('accuracy', 0.0)
+            trained_at = metadata.get('trained_at', 'Unknown')
+            
+            print(f"✅ Model loaded: {symbol}_{interval}_{horizon}h (accuracy: {accuracy:.3f}, trained: {trained_at})")
+            return model, scaler, accuracy
+            
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            return None, None, None
+    
+    def load_existing_models(self):
+        """Load all existing models on startup"""
+        if not os.path.exists(self.model_dir):
+            return
+        
+        print("🔍 Scanning for existing trained models...")
+        loaded_count = 0
+        
+        for filename in os.listdir(self.model_dir):
+            if filename.endswith('_metadata.json'):
+                try:
+                    # Parse filename to extract symbol, interval, horizon
+                    name_parts = filename.replace('_metadata.json', '').split('_')
+                    if len(name_parts) >= 3:
+                        symbol = name_parts[0]
+                        interval = name_parts[1]
+                        horizon_str = name_parts[2].replace('h', '')
+                        horizon = int(horizon_str)
+                        
+                        # Try to load the model
+                        model, scaler, accuracy = self.load_model(symbol, interval, horizon)
+                        if model is not None:
+                            model_key = f"{symbol}_{interval}_{horizon}h"
+                            self.models[model_key] = model
+                            self.scalers[model_key] = scaler
+                            self.model_accuracy[model_key] = accuracy
+                            loaded_count += 1
+                            
+                except Exception as e:
+                    print(f"⚠️ Could not load model {filename}: {e}")
+        
+        if loaded_count > 0:
+            print(f"🎯 Loaded {loaded_count} pre-trained models from disk")
+        else:
+            print("📝 No existing models found - training will be required")
+    
+    def is_model_trained(self, symbol: str, interval: str, horizon: int) -> bool:
+        """Check if a model is already trained and loaded"""
+        model_key = f"{symbol}_{interval}_{horizon}h"
+        return model_key in self.models and self.models[model_key] is not None
         
     def fetch_training_data(self, symbol: str, interval: str, days: int = 365) -> pd.DataFrame:
         """Fetch comprehensive training data"""
@@ -333,14 +458,17 @@ class EnhancedNeuralEngine:
                 'test_loss': test_loss
             }
             
-            # Save model
-            model_path = os.path.join(self.model_dir, f"{model_name}.h5")
-            model.save(model_path)
+            # Get the scaler for saving
+            scaler_X = self.scalers[f'X_{target_col}']
+            
+            # Save model with new persistence system
+            success = self.save_model(symbol, interval, horizon, model, scaler_X, direction_accuracy/100)
             
             print(f"✅ LSTM training completed!")
             print(f"📊 Direction Accuracy: {direction_accuracy:.1f}%")
             print(f"📉 MAE: {mae:.6f}")
-            print(f"💾 Model saved to: {model_path}")
+            if success:
+                print(f"💾 Model persistently saved - no need to retrain!")
             
             return True
             
@@ -414,27 +542,55 @@ class EnhancedNeuralEngine:
         
         # Train LSTM models for each horizon
         for horizon in self.prediction_horizon:
-            print(f"\n📈 Training models for {horizon}h prediction horizon")
+            print(f"\n📈 Checking models for {horizon}h prediction horizon")
             
-            # LSTM training
-            lstm_success = self.train_lstm_model(symbol, interval, horizon)
-            results[f'lstm_{horizon}h'] = lstm_success
-            
-            # Ensemble training (using same data preparation)
-            if lstm_success:
-                try:
-                    df = self.fetch_training_data(symbol, interval, days=500)
-                    df = self.engineer_features(df)
-                    target_col = f'future_return_{horizon}h'
-                    X, y = self.prepare_lstm_data(df, target_col)
-                    
-                    if len(X) > 0:
-                        ensemble_models = self.build_ensemble_model(X, y, f"ensemble_{horizon}h")
-                        self.models[f'ensemble_{horizon}h'] = ensemble_models
-                        results[f'ensemble_{horizon}h'] = bool(ensemble_models)
+            # Check if LSTM model is already trained
+            if self.is_model_trained(symbol, interval, horizon):
+                print(f"✅ LSTM model for {horizon}h already trained - skipping!")
+                results[f'lstm_{horizon}h'] = True
+                
+                # Still need to load ensemble models if available
+                ensemble_key = f'ensemble_{horizon}h'
+                if ensemble_key not in self.models:
+                    print(f"🔍 Training ensemble model for {horizon}h...")
+                    try:
+                        df = self.fetch_training_data(symbol, interval, days=500)
+                        df = self.engineer_features(df)
+                        target_col = f'future_return_{horizon}h'
+                        X, y = self.prepare_lstm_data(df, target_col)
                         
-                except Exception as e:
-                    print(f"❌ Error training ensemble for {horizon}h: {e}")
+                        if len(X) > 0:
+                            ensemble_models = self.build_ensemble_model(X, y, f"ensemble_{horizon}h")
+                            self.models[ensemble_key] = ensemble_models
+                            results[f'ensemble_{horizon}h'] = bool(ensemble_models)
+                    except Exception as e:
+                        print(f"❌ Error training ensemble for {horizon}h: {e}")
+                        results[f'ensemble_{horizon}h'] = False
+                else:
+                    print(f"✅ Ensemble model for {horizon}h already available")
+                    results[f'ensemble_{horizon}h'] = True
+            else:
+                print(f"🎯 Training new LSTM model for {horizon}h...")
+                # LSTM training
+                lstm_success = self.train_lstm_model(symbol, interval, horizon)
+                results[f'lstm_{horizon}h'] = lstm_success
+                
+                # Ensemble training (using same data preparation)
+                if lstm_success:
+                    try:
+                        df = self.fetch_training_data(symbol, interval, days=500)
+                        df = self.engineer_features(df)
+                        target_col = f'future_return_{horizon}h'
+                        X, y = self.prepare_lstm_data(df, target_col)
+                        
+                        if len(X) > 0:
+                            ensemble_models = self.build_ensemble_model(X, y, f"ensemble_{horizon}h")
+                            self.models[f'ensemble_{horizon}h'] = ensemble_models
+                            results[f'ensemble_{horizon}h'] = bool(ensemble_models)
+                            
+                    except Exception as e:
+                        print(f"❌ Error training ensemble for {horizon}h: {e}")
+                        results[f'ensemble_{horizon}h'] = False
                     results[f'ensemble_{horizon}h'] = False
         
         # Summary

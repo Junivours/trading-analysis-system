@@ -1941,6 +1941,20 @@ def index():
                     " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
                         🎯 Train LSTM Models
                     </button>
+                    
+                    <button onclick="checkModelStatus()" style="
+                        background: linear-gradient(135deg, #8b5cf6, #6366f1); 
+                        border: none; 
+                        border-radius: 12px; 
+                        color: white; 
+                        padding: 1.2rem; 
+                        font-size: 1.1rem; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        🔍 Model Status
+                    </button>
                 </div>
                 
                 <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem; text-align: center;">
@@ -3878,6 +3892,68 @@ def index():
                 hideProgress();
                 console.error('Training error:', error);
                 showNotification('❌ Training error: ' + error.message, 'error');
+            }
+        }
+        
+        // 🔍 Check Model Status
+        async function checkModelStatus(symbol = null) {
+            if (!symbol) symbol = getSymbolValue();
+            
+            try {
+                const response = await fetch(`/api/model_status?symbol=${symbol}&interval=1h`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const summary = data.summary;
+                    let statusHtml = `
+                        <h4>🤖 LSTM Model Status for ${symbol}</h4>
+                        <div style="background: rgba(59, 130, 246, 0.1); padding: 15px; border-radius: 10px; margin: 15px 0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <span style="color: #3b82f6; font-weight: 600;">Models Trained:</span>
+                                <span style="color: #10b981; font-size: 1.2rem; font-weight: 700;">${summary.trained_models}/${summary.total_models}</span>
+                            </div>
+                    `;
+                    
+                    if (summary.training_needed) {
+                        statusHtml += `
+                            <div style="color: #f59e0b; font-size: 0.9rem;">
+                                ⏱️ Estimated training time: ${summary.estimated_training_time}
+                            </div>
+                        `;
+                    } else {
+                        statusHtml += `
+                            <div style="color: #10b981; font-size: 0.9rem;">
+                                ✅ All models ready - instant predictions!
+                            </div>
+                        `;
+                    }
+                    
+                    statusHtml += `</div><div style="display: grid; gap: 10px;">`;
+                    
+                    for (const [horizon, info] of Object.entries(data.models)) {
+                        const statusColor = info.trained ? '#10b981' : '#f59e0b';
+                        const icon = info.trained ? '✅' : '⏳';
+                        statusHtml += `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                                <span>${icon} ${horizon} Prediction</span>
+                                <div style="text-align: right;">
+                                    <div style="color: ${statusColor}; font-weight: 600;">
+                                        ${info.trained ? Math.round(info.accuracy) + '% accuracy' : 'Not trained'}
+                                    </div>
+                                    <div style="color: #94a3b8; font-size: 0.8rem;">${info.message}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    statusHtml += `</div>`;
+                    showAdvancedResults(statusHtml);
+                    showNotification('📊 Model status checked', 'info');
+                } else {
+                    showNotification('❌ Could not check model status: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showNotification('❌ Error checking model status: ' + error.message, 'error');
             }
         }
         
@@ -5968,6 +6044,59 @@ def train_enhanced_models():
         
     except Exception as e:
         print(f"❌ Model training error: {e}")
+        return jsonify({"error": str(e)})
+
+@app.route('/api/model_status', methods=['GET'])
+def get_model_status():
+    """🔍 Check which models are already trained"""
+    try:
+        if not NEURAL_ENGINE_AVAILABLE or not enhanced_neural_engine:
+            return jsonify({"error": "Neural engine not available"})
+        
+        symbol = request.args.get('symbol', 'BTCUSDT')
+        interval = request.args.get('interval', '1h')
+        
+        status = {}
+        total_trained = 0
+        
+        # Check each prediction horizon
+        for horizon in [1, 4, 24]:
+            is_trained = enhanced_neural_engine.is_model_trained(symbol, interval, horizon)
+            model_key = f"{horizon}h"
+            
+            if is_trained:
+                # Get model accuracy if available
+                model_name = f"lstm_{symbol}_{interval}_{horizon}h"
+                accuracy_info = enhanced_neural_engine.model_accuracy.get(model_name, {})
+                
+                status[model_key] = {
+                    "trained": True,
+                    "accuracy": accuracy_info.get('direction_accuracy', 0),
+                    "message": f"✅ Model ready - no training needed!"
+                }
+                total_trained += 1
+            else:
+                status[model_key] = {
+                    "trained": False,
+                    "accuracy": 0,
+                    "message": f"⏳ Training required (~{60 if horizon == 1 else 90 if horizon == 4 else 120}s)"
+                }
+        
+        return jsonify({
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "models": status,
+            "summary": {
+                "total_models": 3,
+                "trained_models": total_trained,
+                "training_needed": total_trained < 3,
+                "estimated_training_time": f"{(3 - total_trained) * 90}s" if total_trained < 3 else "0s"
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Model status error: {e}")
         return jsonify({"error": str(e)})
 def run_backtest():
     """⚡ Professional backtest endpoint - DYNAMIC & REALISTIC"""
