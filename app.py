@@ -2315,19 +2315,7 @@ def simple_dashboard():
     </html>
     '''
 
-@app.route('/health')
-def health():
-    """🏥 Health Check Endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'modules': {
-            'binance_api': binance_api is not None,
-            'jax_engine': jax_engine is not None,
-            'backtesting': backtest_engine is not None,
-            'fundamental': fundamental_engine is not None
-        }
-    })
+# Health check route removed - consolidated in app_railway.py
 
 # ========================================================================================
 # 🚀 TRADING API ENDPOINTS - Professional Trading Features

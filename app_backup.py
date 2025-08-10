@@ -1221,15 +1221,7 @@ def favicon():
     """🎯 Favicon endpoint to prevent 404 errors"""
     return '', 204
 
-@app.route('/health')
-def health_check():
-    """🔍 Health check endpoint for Railway deployment"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'ULTIMATE TRADING V3',
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'version': '3.0.0'
-    }), 200
+# Health check route removed - consolidated in app_railway.py
 
 @app.route('/')
 def index():

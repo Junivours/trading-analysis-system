@@ -298,19 +298,7 @@ fundamental_engine = FundamentalAnalysisEngine()
 def favicon():
     return '', 204
 
-@app.route('/health')
-def health():
-    """🏥 Health Check Endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'modules': {
-            'binance_api': binance_api is not None,
-            'jax_engine': jax_engine is not None,
-            'backtesting': backtest_engine is not None,
-            'fundamental': fundamental_engine is not None
-        }
-    })
+# Health check route removed - consolidated in app_railway.py
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

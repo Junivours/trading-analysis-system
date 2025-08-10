@@ -377,16 +377,7 @@ def dashboard():
     """Main dashboard"""
     return render_template_string(DASHBOARD_HTML, timestamp=datetime.now().strftime('%H:%M:%S'))
 
-@app.route('/health')
-def health():
-    """Health check for Railway"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'service': 'trading-intelligence-system',
-        'version': '1.0.0',
-        'uptime': 'active'
-    }), 200
+# Health check route removed - consolidated in app_railway.py
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_market():
