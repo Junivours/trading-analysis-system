@@ -1,15 +1,38 @@
 """
-🚀 RAILWAY-OPTIMIZED TRADING INTELLIGENCE SYSTEM
+🚀 ULTRA-LIGHTWEIGHT TRADING SYSTEM FOR RAILWAY
 ================================================================
-Lightweight version optimized for Railway deployment
+Minimal version with only Flask and requests - no heavy dependencies
 """
 
 import os
 import time
 import json
-import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask, render_template_string, request, jsonify
+
+try:
+    import requests
+except ImportError:
+    # Fallback if requests is not available
+    import urllib.request
+    import urllib.parse
+    requests = None
+
+def get_binance_data(url):
+    """Universal function to get data from Binance API"""
+    try:
+        if requests:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+        else:
+            # Fallback using urllib
+            with urllib.request.urlopen(url, timeout=10) as response:
+                data = response.read().decode('utf-8')
+                return json.loads(data)
+    except Exception as e:
+        print(f"API Error: {e}")
+    return None
 
 # Simple caching system
 cache = {}
@@ -255,10 +278,9 @@ def analyze_market():
         
         # Get market data from Binance
         binance_url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        response = requests.get(binance_url, timeout=10)
+        market_data = get_binance_data(binance_url)
         
-        if response.status_code == 200:
-            market_data = response.json()
+        if market_data:
             
             # Simple analysis
             price = float(market_data['lastPrice'])
@@ -305,10 +327,9 @@ def trading_signals():
         
         # Get current price
         binance_url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-        response = requests.get(binance_url, timeout=10)
+        price_data = get_binance_data(binance_url)
         
-        if response.status_code == 200:
-            price_data = response.json()
+        if price_data:
             current_price = float(price_data['price'])
             
             # Simple signal generation
@@ -340,10 +361,9 @@ def market_data():
         
         # Get 24hr ticker data
         binance_url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        response = requests.get(binance_url, timeout=10)
+        ticker_data = get_binance_data(binance_url)
         
-        if response.status_code == 200:
-            ticker_data = response.json()
+        if ticker_data:
             
             return jsonify({
                 'success': True,

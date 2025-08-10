@@ -12,37 +12,57 @@
 3. Wähle das Repository `Junivours/trading-analysis-system`
 
 ### 3. Deployment-Konfiguration
-- Railway erkennt automatisch die `nixpacks.toml` und `railway.json`
-- Das System startet automatisch mit `python app.py`
-- Port wird automatisch von Railway konfiguriert
 
-### 4. Environment Variables (Optional)
+#### Option A: Nixpacks (Standard)
+Railway verwendet automatisch `nixpacks.toml` und `railway.json`
+
+#### Option B: Docker (Falls Nixpacks Probleme macht)
+1. Lösche `railway.json`
+2. Benenne `railway-docker.json` zu `railway.json` um
+3. Railway verwendet dann das `Dockerfile`
+
+### 4. Nix-Probleme beheben (Falls notwendig)
+Wenn der Fehler "extern verwaltete Umgebung" auftritt:
+```bash
+# Railway Settings → Environment Variables hinzufügen:
+PIP_BREAK_SYSTEM_PACKAGES=true
+PYTHONUSERBASE=/opt/venv
+```
+
+### 5. Environment Variables (Optional)
 ```
 SECRET_KEY=your-secret-key
 FLASK_ENV=production
-BINANCE_API_KEY=optional
-BINANCE_SECRET_KEY=optional
+PIP_BREAK_SYSTEM_PACKAGES=true
 ```
 
-### 5. Deployment starten
+### 6. Deployment starten
 - Railway deployt automatisch bei jedem Push zum main branch
 - Erste Deployment dauert ca. 2-3 Minuten
 - System ist dann unter einer Railway-URL verfügbar
 
 ### Features des Trading Systems:
-- 🧠 KI-basierte Marktanalyse
-- 📊 Live Trading Signale  
-- 🎯 Pattern Recognition
-- ⚡ Real-time Coin Search
-- 📈 Advanced Backtesting
-- 🔥 Liquidation Maps
+- 🧠 Live Market Analysis
+- 📊 Real-time Trading Signals  
+- 🎯 Price Monitoring
+- ⚡ Ultra-lightweight (nur Flask + requests)
+- 📈 24h Market Data
+- 🔥 No external dependencies
 
 ### URLs nach Deployment:
 - Live App: `https://your-app-name.railway.app`
-- API Docs: `https://your-app-name.railway.app/docs`
+- Health Check: `https://your-app-name.railway.app/health`
 
-### Support:
-Bei Problemen checke die Railway Logs oder erstelle ein GitHub Issue.
+### Troubleshooting:
+1. **Nix-Fehler:** Nutze Docker-Option oder setze Environment Variables
+2. **Build-Fehler:** Prüfe Railway Logs für Details
+3. **API-Fehler:** Binance API funktioniert ohne Keys
+
+### 📱 Teste lokal:
+```bash
+python app_railway.py
+# Öffne http://localhost:5000
+```
 
 ---
-**🚀 Trading System ready for production!**
+**🚀 Two deployment options - Nixpacks oder Docker!**
