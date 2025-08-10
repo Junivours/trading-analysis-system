@@ -386,9 +386,12 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
-    })
+        'version': '1.0.0',
+        'service': 'trading-analysis-system'
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    print(f"🚀 Starting Trading Analysis System on port {port}")
+    print(f"📊 Health check available at http://0.0.0.0:{port}/health")
     app.run(host='0.0.0.0', port=port, debug=False)
