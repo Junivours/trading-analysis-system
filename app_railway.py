@@ -380,14 +380,7 @@ def market_data():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/health')
-def health_check():
-    """Health check endpoint for Railway"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
-    })
+# Health check removed - using main app.py health endpoint
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

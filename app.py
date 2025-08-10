@@ -2317,17 +2317,27 @@ def simple_dashboard():
 
 @app.route('/health')
 def health():
-    """🏥 Health Check Endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'modules': {
-            'binance_api': binance_api is not None,
-            'jax_engine': jax_engine is not None,
-            'backtesting': backtest_engine is not None,
-            'fundamental': fundamental_engine is not None
-        }
-    })
+    """🏥 Health Check Endpoint for Railway Deployment"""
+    try:
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'service': 'trading-analysis-system',
+            'version': '1.0.0',
+            'port': os.environ.get('PORT', '5000'),
+            'modules': {
+                'binance_api': binance_api is not None,
+                'jax_engine': jax_engine is not None,
+                'backtesting': backtest_engine is not None,
+                'fundamental': fundamental_engine is not None
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now().isoformat(),
+            'error': str(e)
+        }), 500
 
 # ========================================================================================
 # 🚀 TRADING API ENDPOINTS - Professional Trading Features
