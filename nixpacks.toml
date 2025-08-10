@@ -5,14 +5,14 @@ nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv"]
 cmds = [
   "python -m venv /opt/venv",
   ". /opt/venv/bin/activate && pip install --upgrade pip",
-  ". /opt/venv/bin/activate && pip install Flask==2.3.3 gunicorn==21.2.0"
+  ". /opt/venv/bin/activate && pip install -r requirements-railway.txt"
 ]
 
 [phases.build]
-cmds = ["echo '🚀 Stable Trading System ready'"]
+cmds = ["echo '🚀 Trading Analysis System ready for Railway'"]
 
 [start]
-cmd = ". /opt/venv/bin/activate && gunicorn app_stable:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300"
+cmd = ". /opt/venv/bin/activate && gunicorn app_railway:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --max-requests 1000 --preload"
 
 [variables]
 PYTHONPATH = "/app"
