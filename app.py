@@ -3292,7 +3292,7 @@ def index():
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Signal Status</div>
                             <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.macd_analysis.signal === 'BULLISH_CURVE' ? '#10b981' : analysis.macd_analysis.signal === 'BEARISH_CURVE' ? '#ef4444' : '#6b7280'};">
-                                ${analysis.macd_analysis.signal.replace('_', ' ')}
+                                ${analysis.macd_analysis.signal ? analysis.macd_analysis.signal.replace('_', ' ') : 'NO SIGNAL'}
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px;">
@@ -3333,30 +3333,30 @@ def index():
 
                 <!-- 💼 POSITION MANAGEMENT -->
                 ${analysis.position_analysis ? `
-                <div class="result-card" style="border: 2px solid ${analysis.position_analysis.recommendation.includes('REDUCE') ? '#ef4444' : analysis.position_analysis.recommendation.includes('INCREASE') ? '#10b981' : '#6b7280'};">
+                <div class="result-card" style="border: 2px solid ${analysis.position_analysis.recommendation && analysis.position_analysis.recommendation.includes('REDUCE') ? '#ef4444' : analysis.position_analysis.recommendation && analysis.position_analysis.recommendation.includes('INCREASE') ? '#10b981' : '#6b7280'};">
                     <h3 style="color: #ec4899; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
                         💼 Position Management
                     </h3>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
                         <div style="text-align: center; padding: 1rem; background: rgba(236, 72, 153, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Remaining Potential</div>
-                            <div style="font-size: 1.4rem; font-weight: 700; color: ${analysis.position_analysis.remaining_potential > 0 ? '#10b981' : '#ef4444'};">
-                                ${analysis.position_analysis.remaining_potential > 0 ? '+' : ''}${safeToFixed(analysis.position_analysis.remaining_potential, 1)}%
+                            <div style="font-size: 1.4rem; font-weight: 700; color: ${(analysis.position_analysis.remaining_potential || 0) > 0 ? '#10b981' : '#ef4444'};">
+                                ${(analysis.position_analysis.remaining_potential || 0) > 0 ? '+' : ''}${safeToFixed(analysis.position_analysis.remaining_potential || 0, 1)}%
                             </div>
                         </div>
                         <div style="text-align: center; padding: 1rem; background: rgba(236, 72, 153, 0.1); border-radius: 12px;">
                             <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Risk Level</div>
-                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.position_analysis.risk_level === 'LOW' ? '#10b981' : analysis.position_analysis.risk_level === 'MEDIUM' ? '#f59e0b' : '#ef4444'};">
-                                ${analysis.position_analysis.risk_level}
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${(analysis.position_analysis.risk_level || 'MEDIUM') === 'LOW' ? '#10b981' : (analysis.position_analysis.risk_level || 'MEDIUM') === 'MEDIUM' ? '#f59e0b' : '#ef4444'};">
+                                ${analysis.position_analysis.risk_level || 'MEDIUM'}
                             </div>
                         </div>
                     </div>
                     <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
                         <div style="font-weight: 700; color: #ec4899; margin-bottom: 0.5rem;">Recommendation:</div>
-                        <div style="color: #e2e8f0; line-height: 1.4;">${analysis.position_analysis.recommendation}</div>
+                        <div style="color: #e2e8f0; line-height: 1.4;">${analysis.position_analysis.recommendation || 'No recommendation available'}</div>
                     </div>
                     <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; color: #a1a1aa;">
-                        <strong>Analysis:</strong> ${analysis.position_analysis.reasoning}
+                        <strong>Analysis:</strong> ${analysis.position_analysis.reasoning || 'Analysis pending...'}
                     </div>
                 </div>
                 ` : ''}
@@ -4740,7 +4740,7 @@ def index():
                     const badges = document.querySelectorAll('.status-badge');
                     badges.forEach(badge => {
                         const component = badge.getAttribute('data-component');
-                        const componentData = health.components[component];
+                        const componentData = health.components && health.components[component];
                         
                         if (componentData) {
                             const icon = badge.querySelector('.status-icon');
@@ -4750,16 +4750,17 @@ def index():
                             if (componentData.status === 'online') {
                                 badge.style.background = 'rgba(16, 185, 129, 0.2)';
                                 badge.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-                                icon.style.filter = 'grayscale(0%)';
+                                if (icon) icon.style.filter = 'grayscale(0%)';
                             } else if (componentData.status === 'degraded') {
                                 badge.style.background = 'rgba(245, 158, 11, 0.2)';
                                 badge.style.border = '1px solid rgba(245, 158, 11, 0.3)';
-                                icon.style.filter = 'sepia(100%) hue-rotate(30deg)';
+                                if (icon) icon.style.filter = 'sepia(100%) hue-rotate(30deg)';
                             } else {
                                 badge.style.background = 'rgba(239, 68, 68, 0.2)';
                                 badge.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-                                icon.style.filter = 'grayscale(100%)';
+                                if (icon) icon.style.filter = 'grayscale(100%)';
                             }
+                        }
                         }
                     });
                     
