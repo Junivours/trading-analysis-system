@@ -1,4 +1,4 @@
-# 🚀 DOCKERFILE FOR RAILWAY - BOMBASTIC APP.PY v2.0
+# 🚀 DOCKERFILE FOR RAILWAY - BOMBASTIC APP.PY v2.1
 FROM python:3.11-slim
 
 # Set working directory
@@ -20,12 +20,11 @@ COPY templates/ ./templates/
 COPY utils/ ./utils/
 
 # Set environment variables
-ENV PORT=5000
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Expose the port
-EXPOSE $PORT
+# Railway will set PORT at runtime, expose default port
+EXPOSE 5000
 
-# Run the bombastic trading app
+# Run the bombastic trading app (Railway provides PORT env var)
 CMD ["python", "app.py"]
