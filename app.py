@@ -3318,13 +3318,13 @@ def index():
                         <div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(245, 158, 11, 0.1); border-radius: 12px;">
                             <h4 style="color: #f59e0b; margin-bottom: 1rem; font-size: 1.1rem;">${timeframe.toUpperCase()} Timeframe</h4>
                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
-                                ${patterns.map(pattern => `
+                                ${Array.isArray(patterns) ? patterns.map(pattern => `
                                     <div style="padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 8px; border-left: 4px solid ${pattern.confidence > 80 ? '#10b981' : pattern.confidence > 60 ? '#f59e0b' : '#6b7280'};">
                                         <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 0.5rem;">${pattern.pattern}</div>
                                         <div style="font-size: 0.85rem; color: #a1a1aa; margin-bottom: 0.25rem;">Confidence: <span style="color: ${pattern.confidence > 80 ? '#10b981' : pattern.confidence > 60 ? '#f59e0b' : '#6b7280'};">${pattern.confidence}%</span></div>
                                         <div style="font-size: 0.8rem; color: #71717a;">${pattern.signal}</div>
                                     </div>
-                                `).join('')}
+                                `).join('') : '<div style="color: #a1a1aa;">No patterns detected</div>'}
                             </div>
                         </div>
                     `).join('')}
@@ -4638,57 +4638,6 @@ def index():
                 font-weight: 700;
                 color: #fff;
                 margin-bottom: 5px;
-            }
-            .advanced-feature-btn {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border: none;
-                color: white;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: 600;
-                border-radius: 8px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin: 5px;
-                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-            }
-            .advanced-feature-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-                filter: brightness(1.1);
-            }
-            .advanced-feature-btn:active {
-                transform: translateY(0);
-            }
-            .backtest-btn {
-                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                box-shadow: 0 4px 15px rgba(240, 147, 251, 0.3);
-            }
-            .backtest-btn:hover {
-                box-shadow: 0 8px 25px rgba(240, 147, 251, 0.4);
-            }
-            .monte-carlo-btn {
-                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-                box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
-            }
-            .monte-carlo-btn:hover {
-                box-shadow: 0 8px 25px rgba(79, 172, 254, 0.4);
-            }
-            .lstm-btn {
-                background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-                box-shadow: 0 4px 15px rgba(67, 233, 123, 0.3);
-            }
-            .lstm-btn:hover {
-                box-shadow: 0 8px 25px rgba(67, 233, 123, 0.4);
-            }
-            .train-btn {
-                background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-                box-shadow: 0 4px 15px rgba(250, 112, 154, 0.3);
-            }
-            .train-btn:hover {
-                box-shadow: 0 8px 25px rgba(250, 112, 154, 0.4);
             }
             #advanced-results {
                 animation: slideInUp 0.5s ease-out;
@@ -6244,20 +6193,22 @@ def analyze_symbol():
         if current_position:
             try:
                 position_analysis = engine.analyze_position_potential(tech_indicators, current_position)
-                analysis_result['position_management'] = position_analysis
+                analysis_result['position_analysis'] = position_analysis
                 print(f"🎯 Position Analysis: {current_position} -> {position_analysis.get('action', 'N/A')}")
             except Exception as pos_error:
                 print(f"❌ Position analysis error: {pos_error}")
-                analysis_result['position_management'] = {
+                analysis_result['position_analysis'] = {
                     'error': str(pos_error),
                     'position_type': current_position.upper() if current_position else 'NONE',
-                    'recommendations': ['Analysis failed - using fallback mode'],
-                    'action': 'WAIT'
+                    'recommendation': 'Analysis failed - using fallback mode',
+                    'risk_level': 'HIGH',
+                    'remaining_potential': 0.0,
+                    'reasoning': f'Error: {str(pos_error)}'
                 }
         
         # Add advanced analysis to results
-        analysis_result['macd_curve_analysis'] = macd_analysis
-        analysis_result['chart_patterns'] = chart_patterns
+        analysis_result['macd_analysis'] = macd_analysis
+        analysis_result['chart_patterns'] = chart_patterns.get('patterns', {}) if chart_patterns else {}
         
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
