@@ -446,6 +446,577 @@ if OPTIMIZATION_AVAILABLE:
     cleanup_thread = threading.Thread(target=cleanup_cache, daemon=True)
     cleanup_thread.start()
 
+class AdvancedTradingEngine:
+    """🚀 Advanced Trading Engine with MACD Curve Detection & Chart Patterns"""
+    
+    def __init__(self):
+        self.macd_history = []  # Store MACD history for curve detection
+        self.pattern_cache = {}  # Cache for pattern recognition
+        
+    def detect_macd_curve_reversal(self, market_data, tech_indicators):
+        """🎯 MACD Bogen-Erkennung mit RSI-Bestätigung"""
+        try:
+            current_macd = tech_indicators.get('macd_histogram', 0)
+            macd_line = tech_indicators.get('macd_line', 0)
+            macd_signal = tech_indicators.get('macd_signal', 0)
+            current_rsi = tech_indicators.get('rsi', 50)
+            
+            # Extract recent MACD values from market data
+            closes = [candle['close'] for candle in market_data[-50:]]  # Last 50 candles
+            macd_values = self._calculate_macd_series(closes)
+            
+            if len(macd_values) < 10:
+                return {'status': 'insufficient_data', 'signal': 'WAIT'}
+            
+            # 🎯 BOGEN-ERKENNUNG: Suche nach Trendwechseln
+            curve_signals = []
+            trend_change = self._detect_macd_trend_change(macd_values)
+            
+            # 📊 LONG SETUP: MACD von negativ zu positiv
+            if trend_change == 'bullish_reversal':
+                if 25 <= current_rsi <= 35:  # RSI Bestätigung
+                    curve_signals.append({
+                        'type': 'STRONG_LONG_SETUP',
+                        'message': '🟢 MACD Bogen bestätigt + RSI oversold - LONG AUFBAUEN',
+                        'confidence': 95,
+                        'action': 'BUILD_LONG_POSITION'
+                    })
+                elif current_rsi < 50:
+                    curve_signals.append({
+                        'type': 'MODERATE_LONG_SETUP',
+                        'message': '📈 MACD dreht bullish - Long-Potenzial entwickelt sich',
+                        'confidence': 75,
+                        'action': 'PREPARE_LONG'
+                    })
+                else:
+                    curve_signals.append({
+                        'type': 'EARLY_WARNING',
+                        'message': '⚠️ MACD Bogen voraus - Position verkleinern, Long vorbereiten',
+                        'confidence': 60,
+                        'action': 'REDUCE_SHORT_PREPARE_LONG'
+                    })
+            
+            # 📉 SHORT SETUP: MACD von positiv zu negativ
+            elif trend_change == 'bearish_reversal':
+                if 65 <= current_rsi <= 75:  # RSI Bestätigung
+                    curve_signals.append({
+                        'type': 'STRONG_SHORT_SETUP',
+                        'message': '🔴 MACD Bogen bestätigt + RSI overbought - SHORT AUFBAUEN',
+                        'confidence': 95,
+                        'action': 'BUILD_SHORT_POSITION'
+                    })
+                elif current_rsi > 50:
+                    curve_signals.append({
+                        'type': 'MODERATE_SHORT_SETUP',
+                        'message': '📉 MACD dreht bearish - Short-Potenzial entwickelt sich',
+                        'confidence': 75,
+                        'action': 'PREPARE_SHORT'
+                    })
+                else:
+                    curve_signals.append({
+                        'type': 'EARLY_WARNING',
+                        'message': '⚠️ MACD Bogen voraus - Position verkleinern, Short vorbereiten',
+                        'confidence': 60,
+                        'action': 'REDUCE_LONG_PREPARE_SHORT'
+                    })
+            
+            # 🎯 MOMENTUM-ANALYSE
+            momentum_strength = self._analyze_macd_momentum(macd_values)
+            
+            return {
+                'status': 'active',
+                'current_macd': current_macd,
+                'macd_line': macd_line,
+                'macd_signal': macd_signal,
+                'current_rsi': current_rsi,
+                'trend_change': trend_change,
+                'curve_signals': curve_signals,
+                'momentum_strength': momentum_strength,
+                'historical_macd': macd_values[-10:],  # Last 10 values for display
+                'analysis_time': datetime.now().strftime('%H:%M:%S')
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e),
+                'signal': 'WAIT'
+            }
+    
+    def _calculate_macd_series(self, prices, fast=12, slow=26, signal=9):
+        """📊 Berechne MACD-Serie für Trend-Analyse"""
+        if len(prices) < slow:
+            return []
+        
+        # EMA Berechnung
+        def calculate_ema(data, period):
+            if len(data) < period:
+                return data[-1] if data else 0
+            alpha = 2 / (period + 1)
+            ema = data[0]
+            ema_series = [ema]
+            for price in data[1:]:
+                ema = alpha * price + (1 - alpha) * ema
+                ema_series.append(ema)
+            return ema_series
+        
+        ema_fast = calculate_ema(prices, fast)
+        ema_slow = calculate_ema(prices, slow)
+        
+        # MACD Line
+        macd_line = []
+        for i in range(len(ema_slow)):
+            if i < len(ema_fast):
+                macd_line.append(ema_fast[i] - ema_slow[i])
+        
+        return macd_line
+    
+    def _detect_macd_trend_change(self, macd_values):
+        """🎯 Erkenne MACD-Trendwechsel (Bögen)"""
+        if len(macd_values) < 5:
+            return 'insufficient_data'
+        
+        recent = macd_values[-5:]  # Last 5 values
+        previous = macd_values[-10:-5] if len(macd_values) >= 10 else macd_values[:-5]
+        
+        # Check for bullish reversal (negative to positive)
+        if any(val < 0 for val in previous) and any(val > 0 for val in recent):
+            # Verify the trend is strengthening
+            if recent[-1] > recent[-2] > recent[-3]:
+                return 'bullish_reversal'
+        
+        # Check for bearish reversal (positive to negative)
+        if any(val > 0 for val in previous) and any(val < 0 for val in recent):
+            # Verify the trend is strengthening
+            if recent[-1] < recent[-2] < recent[-3]:
+                return 'bearish_reversal'
+        
+        # Check for momentum building
+        if all(val < 0 for val in recent) and recent[-1] > recent[-2] > recent[-3]:
+            return 'bullish_building'
+        
+        if all(val > 0 for val in recent) and recent[-1] < recent[-2] < recent[-3]:
+            return 'bearish_building'
+        
+        return 'neutral'
+    
+    def _analyze_macd_momentum(self, macd_values):
+        """📈 Analysiere MACD-Momentum"""
+        if len(macd_values) < 3:
+            return 'insufficient_data'
+        
+        recent_change = macd_values[-1] - macd_values[-3]
+        momentum_strength = abs(recent_change)
+        
+        if momentum_strength > 100:
+            return 'very_strong'
+        elif momentum_strength > 50:
+            return 'strong'
+        elif momentum_strength > 20:
+            return 'moderate'
+        else:
+            return 'weak'
+    
+    def detect_chart_patterns(self, symbol, timeframes=['15m', '1h', '4h']):
+        """📊 PROFESSIONELLE CHART-PATTERN-ERKENNUNG"""
+        try:
+            all_patterns = {}
+            
+            for timeframe in timeframes:
+                print(f"🔍 Analysiere {symbol} auf {timeframe} Timeframe...")
+                
+                # Get market data for this timeframe
+                market_result = engine.get_market_data(symbol, timeframe, 200)
+                if not market_result.get('success', False):
+                    continue
+                
+                candles = market_result['data']
+                patterns = self._analyze_patterns_for_timeframe(candles, timeframe)
+                
+                if patterns:
+                    all_patterns[timeframe] = patterns
+            
+            return {
+                'symbol': symbol,
+                'patterns_found': len(all_patterns),
+                'timeframes_analyzed': list(all_patterns.keys()),
+                'patterns': all_patterns,
+                'analysis_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+        except Exception as e:
+            return {
+                'error': f'Pattern detection failed: {str(e)}',
+                'symbol': symbol,
+                'patterns_found': 0
+            }
+    
+    def _analyze_patterns_for_timeframe(self, candles, timeframe):
+        """🎯 Analysiere Chart-Patterns für spezifischen Timeframe"""
+        if len(candles) < 50:
+            return []
+        
+        highs = [candle['high'] for candle in candles]
+        lows = [candle['low'] for candle in candles]
+        closes = [candle['close'] for candle in candles]
+        volumes = [candle['volume'] for candle in candles]
+        
+        patterns_found = []
+        
+        # 1. SUPPORT & RESISTANCE LEVELS
+        support_resistance = self._find_support_resistance_levels(highs, lows, closes)
+        if support_resistance:
+            patterns_found.extend(support_resistance)
+        
+        # 2. TRIANGLE PATTERNS
+        triangles = self._detect_triangle_patterns(highs, lows, closes)
+        if triangles:
+            patterns_found.extend(triangles)
+        
+        # 3. HEAD & SHOULDERS
+        head_shoulders = self._detect_head_shoulders(highs, lows, closes)
+        if head_shoulders:
+            patterns_found.extend(head_shoulders)
+        
+        # 4. DOUBLE TOP/BOTTOM
+        double_patterns = self._detect_double_patterns(highs, lows, closes)
+        if double_patterns:
+            patterns_found.extend(double_patterns)
+        
+        # 5. BREAKOUT PATTERNS
+        breakouts = self._detect_breakout_patterns(highs, lows, closes, volumes)
+        if breakouts:
+            patterns_found.extend(breakouts)
+        
+        # 6. FLAG & PENNANT PATTERNS
+        flags = self._detect_flag_patterns(highs, lows, closes, volumes)
+        if flags:
+            patterns_found.extend(flags)
+        
+        # Add timeframe info to each pattern
+        for pattern in patterns_found:
+            pattern['timeframe'] = timeframe
+            pattern['confidence'] = self._calculate_pattern_confidence(pattern, timeframe)
+        
+        # Sort by confidence
+        patterns_found.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+        
+        return patterns_found[:5]  # Return top 5 patterns
+    
+    def _find_support_resistance_levels(self, highs, lows, closes):
+        """📊 Finde Support & Resistance Levels"""
+        patterns = []
+        current_price = closes[-1]
+        
+        # Find recent highs and lows
+        recent_highs = []
+        recent_lows = []
+        
+        window = 10
+        for i in range(window, len(highs) - window):
+            # Check for local high
+            if highs[i] == max(highs[i-window:i+window+1]):
+                recent_highs.append({'price': highs[i], 'index': i})
+            
+            # Check for local low  
+            if lows[i] == min(lows[i-window:i+window+1]):
+                recent_lows.append({'price': lows[i], 'index': i})
+        
+        # Find significant support levels
+        for low in recent_lows[-5:]:  # Last 5 lows
+            distance = ((current_price - low['price']) / current_price) * 100
+            if 0.5 <= distance <= 10:  # 0.5% to 10% below current price
+                patterns.append({
+                    'type': 'SUPPORT_LEVEL',
+                    'level': low['price'],
+                    'distance_percent': distance,
+                    'strength': 'STRONG' if distance < 3 else 'MODERATE',
+                    'description': f"Support bei ${low['price']:,.2f} ({distance:.1f}% unter aktuellem Preis)"
+                })
+        
+        # Find significant resistance levels
+        for high in recent_highs[-5:]:  # Last 5 highs
+            distance = ((high['price'] - current_price) / current_price) * 100
+            if 0.5 <= distance <= 10:  # 0.5% to 10% above current price
+                patterns.append({
+                    'type': 'RESISTANCE_LEVEL',
+                    'level': high['price'],
+                    'distance_percent': distance,
+                    'strength': 'STRONG' if distance < 3 else 'MODERATE',
+                    'description': f"Resistance bei ${high['price']:,.2f} ({distance:.1f}% über aktuellem Preis)"
+                })
+        
+        return patterns
+    
+    def _detect_triangle_patterns(self, highs, lows, closes):
+        """🔺 Erkenne Dreieck-Patterns"""
+        patterns = []
+        
+        if len(highs) < 30:
+            return patterns
+        
+        # Ascending Triangle
+        recent_highs = highs[-30:]
+        recent_lows = lows[-30:]
+        
+        # Check for horizontal resistance with rising support
+        high_levels = [max(recent_highs[i:i+5]) for i in range(0, len(recent_highs)-5, 5)]
+        low_levels = [min(recent_lows[i:i+5]) for i in range(0, len(recent_lows)-5, 5)]
+        
+        if len(high_levels) >= 3 and len(low_levels) >= 3:
+            # Ascending triangle: highs roughly equal, lows rising
+            high_variance = np.std(high_levels[-3:]) / np.mean(high_levels[-3:])
+            if high_variance < 0.02:  # Highs are relatively flat
+                if low_levels[-1] > low_levels[0]:  # Lows are rising
+                    patterns.append({
+                        'type': 'ASCENDING_TRIANGLE',
+                        'direction': 'BULLISH',
+                        'resistance': max(high_levels),
+                        'target': max(high_levels) * 1.05,  # 5% above resistance
+                        'description': 'Aufsteigendes Dreieck - Bullishes Breakout erwartet'
+                    })
+            
+            # Descending triangle: lows roughly equal, highs falling
+            low_variance = np.std(low_levels[-3:]) / np.mean(low_levels[-3:])
+            if low_variance < 0.02:  # Lows are relatively flat
+                if high_levels[-1] < high_levels[0]:  # Highs are falling
+                    patterns.append({
+                        'type': 'DESCENDING_TRIANGLE',
+                        'direction': 'BEARISH',
+                        'support': min(low_levels),
+                        'target': min(low_levels) * 0.95,  # 5% below support
+                        'description': 'Absteigendes Dreieck - Bearishes Breakdown erwartet'
+                    })
+        
+        return patterns
+    
+    def _detect_head_shoulders(self, highs, lows, closes):
+        """👤 Erkenne Head & Shoulders Pattern"""
+        patterns = []
+        
+        if len(highs) < 50:
+            return patterns
+        
+        # Find significant peaks in last 50 candles
+        peaks = []
+        window = 5
+        
+        for i in range(window, len(highs) - window):
+            if highs[i] == max(highs[i-window:i+window+1]) and highs[i] > np.mean(highs) * 1.02:
+                peaks.append({'price': highs[i], 'index': i})
+        
+        # Need at least 3 peaks for head & shoulders
+        if len(peaks) >= 3:
+            # Check last 3 peaks
+            last_peaks = peaks[-3:]
+            
+            left_shoulder = last_peaks[0]['price']
+            head = last_peaks[1]['price']
+            right_shoulder = last_peaks[2]['price']
+            
+            # Head should be higher than both shoulders
+            if head > left_shoulder and head > right_shoulder:
+                # Shoulders should be roughly equal (within 3%)
+                shoulder_diff = abs(left_shoulder - right_shoulder) / max(left_shoulder, right_shoulder)
+                
+                if shoulder_diff < 0.03:
+                    # Find neckline (lows between shoulders and head)
+                    neckline_lows = lows[last_peaks[0]['index']:last_peaks[2]['index']]
+                    neckline = min(neckline_lows) if neckline_lows else min(lows[-20:])
+                    
+                    patterns.append({
+                        'type': 'HEAD_AND_SHOULDERS',
+                        'direction': 'BEARISH',
+                        'head_price': head,
+                        'left_shoulder': left_shoulder,
+                        'right_shoulder': right_shoulder,
+                        'neckline': neckline,
+                        'target': neckline - (head - neckline),  # Measured move
+                        'description': f'Head & Shoulders - Bearish Target: ${neckline - (head - neckline):,.2f}'
+                    })
+        
+        return patterns
+    
+    def _detect_double_patterns(self, highs, lows, closes):
+        """📊 Erkenne Double Top/Bottom Patterns"""
+        patterns = []
+        
+        # Double Top
+        peaks = []
+        window = 8
+        
+        for i in range(window, len(highs) - window):
+            if highs[i] == max(highs[i-window:i+window+1]):
+                peaks.append({'price': highs[i], 'index': i})
+        
+        if len(peaks) >= 2:
+            for i in range(len(peaks) - 1):
+                peak1 = peaks[i]
+                peak2 = peaks[i + 1]
+                
+                # Peaks should be roughly equal (within 2%)
+                price_diff = abs(peak1['price'] - peak2['price']) / max(peak1['price'], peak2['price'])
+                
+                if price_diff < 0.02 and (peak2['index'] - peak1['index']) > 10:
+                    # Find valley between peaks
+                    valley_lows = lows[peak1['index']:peak2['index']]
+                    valley = min(valley_lows) if valley_lows else min(lows[-20:])
+                    
+                    patterns.append({
+                        'type': 'DOUBLE_TOP',
+                        'direction': 'BEARISH',
+                        'peak1': peak1['price'],
+                        'peak2': peak2['price'],
+                        'valley': valley,
+                        'target': valley - (max(peak1['price'], peak2['price']) - valley),
+                        'description': f'Double Top - Bearish Pattern erkannt'
+                    })
+                    break
+        
+        # Double Bottom
+        troughs = []
+        for i in range(window, len(lows) - window):
+            if lows[i] == min(lows[i-window:i+window+1]):
+                troughs.append({'price': lows[i], 'index': i})
+        
+        if len(troughs) >= 2:
+            for i in range(len(troughs) - 1):
+                trough1 = troughs[i]
+                trough2 = troughs[i + 1]
+                
+                # Troughs should be roughly equal (within 2%)
+                price_diff = abs(trough1['price'] - trough2['price']) / max(trough1['price'], trough2['price'])
+                
+                if price_diff < 0.02 and (trough2['index'] - trough1['index']) > 10:
+                    # Find peak between troughs
+                    peak_highs = highs[trough1['index']:trough2['index']]
+                    peak = max(peak_highs) if peak_highs else max(highs[-20:])
+                    
+                    patterns.append({
+                        'type': 'DOUBLE_BOTTOM',
+                        'direction': 'BULLISH',
+                        'trough1': trough1['price'],
+                        'trough2': trough2['price'],
+                        'peak': peak,
+                        'target': peak + (peak - min(trough1['price'], trough2['price'])),
+                        'description': f'Double Bottom - Bullish Pattern erkannt'
+                    })
+                    break
+        
+        return patterns
+    
+    def _detect_breakout_patterns(self, highs, lows, closes, volumes):
+        """💥 Erkenne Breakout Patterns"""
+        patterns = []
+        current_price = closes[-1]
+        current_volume = volumes[-1]
+        avg_volume = np.mean(volumes[-20:])
+        
+        # High volume breakout above resistance
+        recent_highs = highs[-20:]
+        resistance = max(recent_highs[:-5])  # Resistance from previous candles
+        
+        if current_price > resistance * 1.002:  # 0.2% above resistance
+            if current_volume > avg_volume * 1.5:  # 50% above average volume
+                patterns.append({
+                    'type': 'BULLISH_BREAKOUT',
+                    'direction': 'BULLISH',
+                    'resistance_broken': resistance,
+                    'volume_ratio': current_volume / avg_volume,
+                    'target': resistance + (resistance - min(lows[-20:])) * 0.618,  # Fibonacci extension
+                    'description': f'Bullish Breakout über ${resistance:,.2f} mit {current_volume/avg_volume:.1f}x Volume'
+                })
+        
+        # High volume breakdown below support
+        recent_lows = lows[-20:]
+        support = min(recent_lows[:-5])  # Support from previous candles
+        
+        if current_price < support * 0.998:  # 0.2% below support
+            if current_volume > avg_volume * 1.5:  # 50% above average volume
+                patterns.append({
+                    'type': 'BEARISH_BREAKDOWN',
+                    'direction': 'BEARISH',
+                    'support_broken': support,
+                    'volume_ratio': current_volume / avg_volume,
+                    'target': support - (max(highs[-20:]) - support) * 0.618,  # Fibonacci extension
+                    'description': f'Bearish Breakdown unter ${support:,.2f} mit {current_volume/avg_volume:.1f}x Volume'
+                })
+        
+        return patterns
+    
+    def _detect_flag_patterns(self, highs, lows, closes, volumes):
+        """🏁 Erkenne Flag & Pennant Patterns"""
+        patterns = []
+        
+        if len(closes) < 30:
+            return patterns
+        
+        # Look for strong move followed by consolidation
+        price_changes = []
+        for i in range(1, len(closes)):
+            change = (closes[i] - closes[i-1]) / closes[i-1] * 100
+            price_changes.append(change)
+        
+        # Find strong moves (>3% in one candle)
+        strong_moves = []
+        for i, change in enumerate(price_changes):
+            if abs(change) > 3:
+                strong_moves.append({'index': i, 'change': change})
+        
+        if strong_moves:
+            last_move = strong_moves[-1]
+            move_index = last_move['index']
+            
+            # Check for consolidation after strong move
+            if move_index < len(closes) - 10:  # Need at least 10 candles after move
+                consolidation_period = closes[move_index:move_index+10]
+                consolidation_range = (max(consolidation_period) - min(consolidation_period)) / min(consolidation_period) * 100
+                
+                # Flag: tight consolidation (< 2%) after strong move
+                if consolidation_range < 2:
+                    direction = 'BULLISH' if last_move['change'] > 0 else 'BEARISH'
+                    
+                    patterns.append({
+                        'type': 'FLAG_PATTERN',
+                        'direction': direction,
+                        'flagpole_move': last_move['change'],
+                        'consolidation_range': consolidation_range,
+                        'expected_continuation': direction,
+                        'description': f'{direction.title()} Flag - Fortsetzung der {last_move["change"]:.1f}% Bewegung erwartet'
+                    })
+        
+        return patterns
+    
+    def _calculate_pattern_confidence(self, pattern, timeframe):
+        """📊 Berechne Pattern-Confidence basierend auf Timeframe"""
+        base_confidence = 70
+        
+        # Higher timeframes get higher confidence
+        timeframe_bonus = {
+            '15m': 0,
+            '1h': 10,
+            '4h': 20,
+            '1d': 30
+        }
+        
+        confidence = base_confidence + timeframe_bonus.get(timeframe, 0)
+        
+        # Adjust based on pattern type
+        pattern_strength = {
+            'HEAD_AND_SHOULDERS': 15,
+            'DOUBLE_TOP': 12,
+            'DOUBLE_BOTTOM': 12,
+            'BULLISH_BREAKOUT': 18,
+            'BEARISH_BREAKDOWN': 18,
+            'ASCENDING_TRIANGLE': 10,
+            'DESCENDING_TRIANGLE': 10,
+            'FLAG_PATTERN': 8,
+            'SUPPORT_LEVEL': 5,
+            'RESISTANCE_LEVEL': 5
+        }
+        
+        confidence += pattern_strength.get(pattern['type'], 0)
+        
 class FundamentalAnalysisEngine:
     """🎯 Professional Fundamental Analysis - 70% Weight in Trading Decisions"""
     
@@ -1323,8 +1894,9 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
             'action': 'WAIT_FOR_SETUP'
         }
 
-# Global analysis engine
+# Global analysis engines
 engine = FundamentalAnalysisEngine()
+advanced_engine = AdvancedTradingEngine()
 
 @app.route('/favicon.ico')
 def favicon():
@@ -2709,6 +3281,85 @@ def index():
                         </div>
                     </div>
                 </div>
+
+                <!-- 🌊 MACD CURVE ANALYSIS -->
+                ${analysis.macd_analysis ? `
+                <div class="result-card" style="border: 2px solid ${analysis.macd_analysis.signal === 'BULLISH_CURVE' ? '#10b981' : analysis.macd_analysis.signal === 'BEARISH_CURVE' ? '#ef4444' : '#6b7280'};">
+                    <h3 style="color: #06b6d4; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        🌊 MACD Bogen Detection
+                    </h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px;">
+                            <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Signal Status</div>
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.macd_analysis.signal === 'BULLISH_CURVE' ? '#10b981' : analysis.macd_analysis.signal === 'BEARISH_CURVE' ? '#ef4444' : '#6b7280'};">
+                                ${analysis.macd_analysis.signal.replace('_', ' ')}
+                            </div>
+                        </div>
+                        <div style="text-align: center; padding: 1rem; background: rgba(6, 182, 212, 0.1); border-radius: 12px;">
+                            <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">RSI Confirmation</div>
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.macd_analysis.rsi_confirmed ? '#10b981' : '#f59e0b'};">
+                                ${analysis.macd_analysis.rsi_confirmed ? 'CONFIRMED' : 'PENDING'}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; color: #e2e8f0;">
+                        <strong>Analysis:</strong> ${analysis.macd_analysis.description}
+                    </div>
+                </div>
+                ` : ''}
+
+                <!-- 📊 CHART PATTERNS MULTI-TIMEFRAME -->
+                ${analysis.chart_patterns ? `
+                <div class="result-card">
+                    <h3 style="color: #f59e0b; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        📊 Chart Pattern Recognition
+                    </h3>
+                    ${Object.entries(analysis.chart_patterns).map(([timeframe, patterns]) => `
+                        <div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(245, 158, 11, 0.1); border-radius: 12px;">
+                            <h4 style="color: #f59e0b; margin-bottom: 1rem; font-size: 1.1rem;">${timeframe.toUpperCase()} Timeframe</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+                                ${patterns.map(pattern => `
+                                    <div style="padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 8px; border-left: 4px solid ${pattern.confidence > 80 ? '#10b981' : pattern.confidence > 60 ? '#f59e0b' : '#6b7280'};">
+                                        <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 0.5rem;">${pattern.pattern}</div>
+                                        <div style="font-size: 0.85rem; color: #a1a1aa; margin-bottom: 0.25rem;">Confidence: <span style="color: ${pattern.confidence > 80 ? '#10b981' : pattern.confidence > 60 ? '#f59e0b' : '#6b7280'};">${pattern.confidence}%</span></div>
+                                        <div style="font-size: 0.8rem; color: #71717a;">${pattern.signal}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                <!-- 💼 POSITION MANAGEMENT -->
+                ${analysis.position_analysis ? `
+                <div class="result-card" style="border: 2px solid ${analysis.position_analysis.recommendation.includes('REDUCE') ? '#ef4444' : analysis.position_analysis.recommendation.includes('INCREASE') ? '#10b981' : '#6b7280'};">
+                    <h3 style="color: #ec4899; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        💼 Position Management
+                    </h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                        <div style="text-align: center; padding: 1rem; background: rgba(236, 72, 153, 0.1); border-radius: 12px;">
+                            <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Remaining Potential</div>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: ${analysis.position_analysis.remaining_potential > 0 ? '#10b981' : '#ef4444'};">
+                                ${analysis.position_analysis.remaining_potential > 0 ? '+' : ''}${safeToFixed(analysis.position_analysis.remaining_potential, 1)}%
+                            </div>
+                        </div>
+                        <div style="text-align: center; padding: 1rem; background: rgba(236, 72, 153, 0.1); border-radius: 12px;">
+                            <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.5rem;">Risk Level</div>
+                            <div style="font-size: 1.2rem; font-weight: 700; color: ${analysis.position_analysis.risk_level === 'LOW' ? '#10b981' : analysis.position_analysis.risk_level === 'MEDIUM' ? '#f59e0b' : '#ef4444'};">
+                                ${analysis.position_analysis.risk_level}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                        <div style="font-weight: 700; color: #ec4899; margin-bottom: 0.5rem;">Recommendation:</div>
+                        <div style="color: #e2e8f0; line-height: 1.4;">${analysis.position_analysis.recommendation}</div>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; color: #a1a1aa;">
+                        <strong>Analysis:</strong> ${analysis.position_analysis.reasoning}
+                    </div>
+                </div>
+                ` : ''}
 
                 <!-- 📈 TECHNICAL INDICATORS -->
                 <div class="result-card">
@@ -5579,6 +6230,16 @@ def analyze_symbol():
             'timestamp': candles[-1]['timestamp']
         }
         
+        # 🎯 ADVANCED TRADING ANALYSIS
+        
+        # 1. MACD Bogen-Erkennung mit RSI-Bestätigung
+        macd_analysis = advanced_engine.detect_macd_curve_reversal(candles, tech_indicators)
+        print(f"🎯 MACD Analysis: {macd_analysis.get('trend_change', 'neutral')}")
+        
+        # 2. Chart Pattern Recognition (Multi-Timeframe)
+        chart_patterns = advanced_engine.detect_chart_patterns(symbol, ['15m', '1h', '4h'])
+        print(f"📊 Patterns found: {chart_patterns.get('patterns_found', 0)}")
+        
         # 🎯 POSITION MANAGEMENT ANALYSIS
         if current_position:
             try:
@@ -5593,6 +6254,10 @@ def analyze_symbol():
                     'recommendations': ['Analysis failed - using fallback mode'],
                     'action': 'WAIT'
                 }
+        
+        # Add advanced analysis to results
+        analysis_result['macd_curve_analysis'] = macd_analysis
+        analysis_result['chart_patterns'] = chart_patterns
         
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
