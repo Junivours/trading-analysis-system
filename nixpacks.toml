@@ -5,7 +5,7 @@ nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv"]
 cmds = [
   "python -m venv /opt/venv",
   ". /opt/venv/bin/activate && pip install --upgrade pip",
-  ". /opt/venv/bin/activate && pip install Flask==2.3.3 requests numpy"
+  ". /opt/venv/bin/activate && pip install Flask==2.3.3 gunicorn==21.2.0 requests numpy"
 ]
 
 [phases.build]
