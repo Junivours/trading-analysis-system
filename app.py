@@ -2446,7 +2446,7 @@ def index():
             // Update recommendations
             if (positionData.recommendations && Array.isArray(positionData.recommendations)) {
                 recommendationsList.innerHTML = positionData.recommendations
-                    .map(rec => `<div style="margin: 0.5rem 0;">• ${rec}</div>`)
+                    .map(rec => `<div style="margin: 0.5rem 0;">• \${rec}</div>`)
                     .join('');
             }
         }
@@ -2470,7 +2470,7 @@ def index():
                     <div class="analysis-grid">
                         <div class="analysis-section">
                             <h4>🎯 Trading Decision</h4>
-                            <div class="decision ${(fundamentalData.decision || 'HOLD').toLowerCase()}">${fundamentalData.decision || 'HOLD'}</div>
+                            <div class="decision \${(fundamentalData.decision || 'HOLD').toLowerCase()}">\${fundamentalData.decision || 'HOLD'}</div>
                             <div class="confidence">Confidence: ${fundamentalData.confidence || 0}%</div>
                         </div>
                         
@@ -2500,7 +2500,7 @@ def index():
             if (overlay && content) {
                 overlay.style.display = 'flex';
                 // Add popup content based on type
-                content.innerHTML = `<h3>Feature: ${type}</h3><p>Coming soon!</p>`;
+                content.innerHTML = `<h3>Feature: \${type}</h3><p>Coming soon!</p>`;
             }
         }
         
@@ -2682,19 +2682,19 @@ def index():
             
             if (change1h) {
                 const val = changes['1h'];
-                change1h.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change1h.textContent = `\${val >= 0 ? '+' : ''}\${val.toFixed(1)}%`;
                 change1h.style.color = val >= 0 ? '#10b981' : '#ef4444';
             }
             
             if (change24h) {
                 const val = changes['24h'];
-                change24h.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change24h.textContent = `\${val >= 0 ? '+' : ''}\${val.toFixed(1)}%`;
                 change24h.style.color = val >= 0 ? '#10b981' : '#ef4444';
             }
             
             if (change7d) {
                 const val = changes['7d'];
-                change7d.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+                change7d.textContent = `\${val >= 0 ? '+' : ''}\${val.toFixed(1)}%`;
                 change7d.style.color = val >= 0 ? '#10b981' : '#ef4444';
             }
             
@@ -2704,7 +2704,7 @@ def index():
                 const changeType = element.getAttribute('data-change-type');
                 const changeValue = changes[changeType] || 0;
                 
-                const changeText = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(1)}%`;
+                const changeText = `\${changeValue >= 0 ? '+' : ''}\${changeValue.toFixed(1)}%`;
                 element.textContent = changeText;
                 element.style.color = changeValue >= 0 ? '#10b981' : '#ef4444';
             });
@@ -2712,7 +2712,7 @@ def index():
             // Update timestamp
             const lastUpdate = document.getElementById('lastUpdate');
             if (lastUpdate) {
-                lastUpdate.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+                lastUpdate.textContent = `Updated: \${new Date().toLocaleTimeString()}`;
             }
         }
         
@@ -2752,7 +2752,7 @@ def index():
                 clearTimeout(timeoutId);
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP \${response.status}`);
                 }
                 
                 const data = await response.json();
@@ -2762,7 +2762,7 @@ def index():
                     // PERFORMANCE: Batch DOM updates in requestAnimationFrame
                     requestAnimationFrame(() => {
                         updateAnalysisDisplay(data);
-                        console.log(`✅ Analysis updated in ${responseTime.toFixed(0)}ms`);
+                        console.log(`✅ Analysis updated in \${responseTime.toFixed(0)}ms`);
                     });
                 } else {
                     showError('❌ ' + (data.error || 'Analysis failed'));
@@ -2873,13 +2873,13 @@ def index():
             if (elements.recommendation && data.recommendation) {
                 updates.push(() => {
                     elements.recommendation.textContent = data.recommendation;
-                    elements.recommendation.className = `recommendation ${data.recommendation.toLowerCase()}`;
+                    elements.recommendation.className = `recommendation \${data.recommendation.toLowerCase()}`;
                 });
             }
             
             if (elements.confidence && data.confidence) {
                 updates.push(() => {
-                    elements.confidence.textContent = `${data.confidence.toFixed(1)}%`;
+                    elements.confidence.textContent = `\${data.confidence.toFixed(1)}%`;
                 });
             }
             
@@ -2922,17 +2922,17 @@ def index():
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.8rem; margin-bottom: 1rem;">
                     <div style="background: rgba(16, 185, 129, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">RSI</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: ${rsiClass === 'rsi-oversold' ? '#10b981' : rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b'};">${indicators.rsi}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: \${rsiClass === 'rsi-oversold' ? '#10b981' : rsiClass === 'rsi-overbought' ? '#ef4444' : '#f59e0b'};">\${indicators.rsi}</div>
                     </div>
                     
                     <div style="background: rgba(59, 130, 246, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">MACD</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: ${macdColor};">${indicators.macd}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: \${macdColor};">\${indicators.macd}</div>
                     </div>
                     
                     <div style="background: rgba(245, 158, 11, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">Vol</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: ${volColor};">${indicators.volatility}%</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: \${volColor};">\${indicators.volatility}%</div>
                     </div>
                     
                     <div style="background: rgba(139, 92, 246, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
@@ -2967,9 +2967,9 @@ def index():
                 <!-- 🔍 SUPER DEBUG INFO V2.0 -->
                 <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(245, 158, 11, 0.15); border-radius: 6px; font-size: 0.75rem; border: 1px solid #f59e0b;">
                     <strong style="color: #f59e0b;">🔍 DEBUG V2.0:</strong> 
-                    Liq=${!!data.liquidation_map} | Setup=${!!data.trading_setup} | 
-                    LiqData=${JSON.stringify(data.liquidation_map || {})} | 
-                    SetupData=${JSON.stringify(data.trading_setup || {})}
+                    Liq=\${!!data.liquidation_map} | Setup=\${!!data.trading_setup} | 
+                    LiqData=\${JSON.stringify(data.liquidation_map || {})} | 
+                    SetupData=\${JSON.stringify(data.trading_setup || {})}
                 </div>
             `;
         }
