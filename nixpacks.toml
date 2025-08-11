@@ -5,7 +5,7 @@ nixPkgs = ["python311", "python311Packages.pip"]
 cmds = ["pip install Flask==2.3.3"]
 
 [start]
-cmd = "python app_minimal.py"
+cmd = "python app.py"
 
 [variables]
 PYTHONPATH = "/app"
