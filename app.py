@@ -2597,9 +2597,234 @@ def index():
         </div>
 
         <script>
-        // ⚡ REAL-TIME OPTIMIZATIONS for ULTRA-FAST Performance
+        // 🚀 JAVASCRIPT - PROFESSIONAL TRADING SYSTEM
+        // ========================================================================================
+        
+        // ⚡ GLOBAL VARIABLES
         let updateTimer = null;
         let isUpdating = false;
+        let currentAnalysis = null;
+        
+        // 🎯 DECLARE ALL FUNCTIONS FIRST - PREVENT REFERENCE ERRORS
+        
+        // Main Analysis Function
+        async function runTurboAnalysis() {
+            console.log('🚀 runTurboAnalysis called');
+            
+            const symbol = document.getElementById('symbolInput').value.trim().toUpperCase();
+            const timeframe = document.getElementById('timeframeSelect').value;
+            const position = document.getElementById('positionSelect').value;
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const analyzeText = document.getElementById('analyzeText');
+            const resultsDiv = document.getElementById('results');
+            
+            if (!symbol) {
+                alert('⚠️ Please enter a trading symbol!');
+                return;
+            }
+            
+            // Show loading state
+            analyzeBtn.disabled = true;
+            analyzeText.innerHTML = '<span class="loading"></span> Analyzing...';
+            resultsDiv.innerHTML = '<div class="text-center">🔄 Loading professional analysis...</div>';
+            resultsDiv.classList.remove('hidden');
+            
+            // Show position management if position selected
+            if (position) {
+                const positionDiv = document.getElementById('positionManagement');
+                positionDiv.style.display = 'block';
+                updatePositionDisplay(position, 'Loading...');
+            }
+            
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        timeframe: timeframe,
+                        position: position || null
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentAnalysis = data;
+                    displayAnalysisResults(data);
+                    
+                    // Update position management display
+                    if (position && data.position_management) {
+                        updatePositionManagement(data.position_management);
+                    }
+                } else {
+                    throw new Error(data.error || 'Analysis failed');
+                }
+                
+            } catch (error) {
+                console.error('Analysis error:', error);
+                resultsDiv.innerHTML = `
+                    <div class="result-card" style="border-color: #ef4444;">
+                        <h3 style="color: #ef4444;">❌ Analysis Error</h3>
+                        <p>Error: ${error.message}</p>
+                        <p style="margin-top: 1rem; opacity: 0.7;">Please try again or check the symbol.</p>
+                    </div>
+                `;
+            } finally {
+                // Reset button
+                analyzeBtn.disabled = false;
+                analyzeText.textContent = '🚀 Analyze';
+            }
+        }
+        
+        // Position Management Functions
+        function updatePositionDisplay(position, status) {
+            const positionIcon = document.getElementById('positionIcon');
+            const positionTitle = document.getElementById('positionTitle');
+            
+            if (position === 'long') {
+                positionIcon.textContent = '📈';
+                positionTitle.textContent = 'Long Position Management';
+            } else if (position === 'short') {
+                positionIcon.textContent = '📉';
+                positionTitle.textContent = 'Short Position Management';
+            }
+            
+            const remainingPotential = document.getElementById('remainingPotential');
+            remainingPotential.textContent = status;
+        }
+        
+        function updatePositionManagement(positionData) {
+            const remainingPotential = document.getElementById('remainingPotential');
+            const targetLevel = document.getElementById('targetLevel');
+            const recommendationsList = document.getElementById('recommendationsList');
+            
+            // Update potential display
+            if (positionData.remaining_potential) {
+                remainingPotential.textContent = positionData.remaining_potential;
+            }
+            
+            // Update target level
+            if (positionData.target_level) {
+                targetLevel.textContent = positionData.target_level;
+            }
+            
+            // Update recommendations
+            if (positionData.recommendations && Array.isArray(positionData.recommendations)) {
+                recommendationsList.innerHTML = positionData.recommendations
+                    .map(rec => `<div style="margin: 0.5rem 0;">• ${rec}</div>`)
+                    .join('');
+            }
+        }
+        
+        function displayAnalysisResults(analysis) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (!analysis || !analysis.success) {
+                resultsDiv.innerHTML = '<div class="error">Analysis failed</div>';
+                return;
+            }
+            
+            const fundamentalData = analysis.fundamental_analysis || {};
+            const technicalData = fundamentalData.technical_indicators || {};
+            const positionData = fundamentalData.position_management || {};
+            
+            resultsDiv.innerHTML = `
+                <div class="result-card">
+                    <h3>📊 Trading Analysis for ${analysis.symbol || 'N/A'}</h3>
+                    
+                    <div class="analysis-grid">
+                        <div class="analysis-section">
+                            <h4>🎯 Trading Decision</h4>
+                            <div class="decision ${(fundamentalData.decision || 'HOLD').toLowerCase()}">${fundamentalData.decision || 'HOLD'}</div>
+                            <div class="confidence">Confidence: ${fundamentalData.confidence || 0}%</div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>📈 Technical Indicators</h4>
+                            <div>Current Price: $${technicalData.current_price || 0}</div>
+                            <div>RSI: ${technicalData.rsi || 0}</div>
+                            <div>24h Change: ${technicalData.price_change_24h || 0}%</div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>🎯 Position Management</h4>
+                            <div>${positionData.remaining_potential || 'No position data'}</div>
+                            <div>${positionData.target_level || ''}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Popup Functions
+        function openPopup(type) {
+            console.log('Opening popup:', type);
+            const overlay = document.getElementById('popupOverlay');
+            const content = document.getElementById('popupContent');
+            
+            if (overlay && content) {
+                overlay.style.display = 'flex';
+                // Add popup content based on type
+                content.innerHTML = `<h3>Feature: ${type}</h3><p>Coming soon!</p>`;
+            }
+        }
+        
+        function closePopup() {
+            const overlay = document.getElementById('popupOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+        
+        // System Functions
+        async function toggleSystemStatus() {
+            console.log('Toggling system status');
+            // Implementation here
+        }
+        
+        async function optimizePerformance() {
+            console.log('Optimizing performance');
+            // Implementation here
+        }
+        
+        // Additional placeholder functions
+        async function runTechnicalScan() {
+            alert('🔍 Advanced Technical Scan - Coming in next update!' + 
+                  '\n\n📊 Features:' +
+                  '\n• Multi-timeframe analysis' +
+                  '\n• Pattern recognition' +
+                  '\n• Volume profile analysis' +
+                  '\n• Advanced indicators suite');
+        }
+        
+        async function runBacktest() { console.log('Backtesting...'); }
+        async function runMultiAssetAnalysis() { console.log('Multi-asset analysis...'); }
+        async function setupRealTimeAlerts() { console.log('Setting up alerts...'); }
+        async function startJaxTraining() { console.log('Starting JAX training...'); }
+        async function runAdvancedBacktest() { console.log('Advanced backtest...'); }
+        async function runMonteCarloSim() { console.log('Monte Carlo simulation...'); }
+        async function getEnhancedPredictions() { console.log('Enhanced predictions...'); }
+        
+        // 🎯 MAKE ALL FUNCTIONS GLOBALLY ACCESSIBLE
+        window.runTurboAnalysis = runTurboAnalysis;
+        window.updatePositionDisplay = updatePositionDisplay;
+        window.updatePositionManagement = updatePositionManagement;
+        window.displayAnalysisResults = displayAnalysisResults;
+        window.openPopup = openPopup;
+        window.closePopup = closePopup;
+        window.toggleSystemStatus = toggleSystemStatus;
+        window.optimizePerformance = optimizePerformance;
+        window.runTechnicalScan = runTechnicalScan;
+        window.runBacktest = runBacktest;
+        window.runMultiAssetAnalysis = runMultiAssetAnalysis;
+        window.setupRealTimeAlerts = setupRealTimeAlerts;
+        window.startJaxTraining = startJaxTraining;
+        window.runAdvancedBacktest = runAdvancedBacktest;
+        window.runMonteCarloSim = runMonteCarloSim;
+        window.getEnhancedPredictions = getEnhancedPredictions;
         
         // PERFORMANCE: Cache DOM elements
         const cache = {
@@ -3016,13 +3241,8 @@ def index():
                 </div>
             `;
         }
-        // ========================================================================================
-        // 🚀 JAVASCRIPT - PROFESSIONAL TRADING SYSTEM
-        // ========================================================================================
         
-        let currentAnalysis = null;
-        
-        // 🎯 Main Analysis Function with Position Management
+        // ⚡ ADDITIONAL HELPER FUNCTIONS
         async function runTurboAnalysis() {
             const symbol = document.getElementById('symbolInput').value.trim().toUpperCase();
             const timeframe = document.getElementById('timeframeSelect').value;
@@ -5313,30 +5533,23 @@ def index():
                   '\n• Advanced indicators suite');
         }
         
-        // 🎯 Enter key support
-        document.getElementById('symbolInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                runTurboAnalysis();
+        // 🎯 DOM Ready Event Handler
+        document.addEventListener('DOMContentLoaded', function() {
+            // Enter key support
+            const symbolInput = document.getElementById('symbolInput');
+            if (symbolInput) {
+                symbolInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        runTurboAnalysis();
+                    }
+                });
             }
+            
+            // Initialize cache
+            cache.init();
+            
+            console.log('🚀 Ultimate Trading V3 - Professional System Loaded');
         });
-        
-        // 🎯 ENSURE FUNCTIONS ARE GLOBALLY ACCESSIBLE
-        window.runTurboAnalysis = runTurboAnalysis;
-        window.toggleSystemStatus = toggleSystemStatus;
-        window.optimizePerformance = optimizePerformance;
-        window.openPopup = openPopup;
-        window.closePopup = closePopup;
-        window.runTechnicalScan = runTechnicalScan;
-        window.runBacktest = runBacktest;
-        window.runMultiAssetAnalysis = runMultiAssetAnalysis;
-        window.setupRealTimeAlerts = setupRealTimeAlerts;
-        window.startJaxTraining = startJaxTraining;
-        window.runAdvancedBacktest = runAdvancedBacktest;
-        window.runMonteCarloSim = runMonteCarloSim;
-        window.getEnhancedPredictions = getEnhancedPredictions;
-        
-        // 🚀 Initialize
-        console.log('🚀 Ultimate Trading V3 - Professional System Loaded');
         </script>
     </body>
 </html>
