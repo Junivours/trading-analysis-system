@@ -2248,8 +2248,7 @@ def index():
                     font-size: 0.85rem;
                     cursor: pointer;
                     transition: all 0.3s ease;
-                " onmouseover="this.style.background='linear-gradient(135deg, #4b5563, #6b7280)'" 
-                   onmouseout="this.style.background='linear-gradient(135deg, #374151, #4b5563)'">
+                ">
                     🛡️ Status
                 </button>
                 <button onclick="optimizePerformance()" style="
@@ -2262,8 +2261,7 @@ def index():
                     font-size: 0.85rem;
                     cursor: pointer;
                     transition: all 0.3s ease;
-                " onmouseover="this.style.background='linear-gradient(135deg, #10b981, #34d399)'" 
-                   onmouseout="this.style.background='linear-gradient(135deg, #059669, #10b981)'">
+                ">
                     🚀 Optimize
                 </button>
             </div>
@@ -2500,7 +2498,7 @@ def index():
             if (overlay && content) {
                 overlay.style.display = 'flex';
                 // Add popup content based on type
-                content.innerHTML = `<h3>Feature: \${type}</h3><p>Coming soon!</p>`;
+                content.innerHTML = '<h3>Feature: ' + type + '</h3><p>Coming soon!</p>';
             }
         }
         
