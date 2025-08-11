@@ -1112,8 +1112,8 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
         except Exception as e:
             return {'error': str(e)}
     
-    def fundamental_analysis(self, symbol, market_data):
-        """🎯 Professional Fundamental Analysis - Core Logic"""
+    def fundamental_analysis(self, symbol, market_data, current_position=None):
+        """🎯 Professional Fundamental Analysis - Core Logic with Position Management"""
         try:
             # Technical indicators
             tech_indicators = self.calculate_technical_indicators(market_data)
@@ -1162,6 +1162,9 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
                 fundamental_score -= 10
                 signals.append("⚠️ High Volatility Risk")
             
+            # 🎯 ADVANCED POSITION MANAGEMENT SYSTEM
+            position_analysis = self.analyze_position_potential(tech_indicators, current_position)
+            
             # Final decision
             if fundamental_score >= 50:
                 decision = 'BUY'
@@ -1181,12 +1184,144 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
                 'fundamental_score': round(fundamental_score, 1),
                 'technical_indicators': tech_indicators,
                 'signals': signals,
+                'position_management': position_analysis,
                 'analysis_weight': '70%',
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
         except Exception as e:
             return {'success': False, 'error': str(e)}
+    
+    def analyze_position_potential(self, indicators, current_position=None):
+        """🎯 SMART POSITION MANAGEMENT - Potenzial & Empfehlungen"""
+        try:
+            current_price = indicators.get('current_price', 0)
+            resistance = indicators.get('resistance_level', current_price * 1.05)
+            support = indicators.get('support_level', current_price * 0.95)
+            rsi = indicators.get('rsi', 50)
+            trend = indicators.get('trend', 'sideways')
+            
+            # 📊 POTENZIAL BERECHNUNG
+            upside_potential = ((resistance - current_price) / current_price) * 100
+            downside_risk = ((current_price - support) / current_price) * 100
+            
+            # 🎯 TRADING SETUP basierend auf aktueller Position
+            if current_position and current_position.lower() == 'short':
+                return self._analyze_short_position(indicators, upside_potential, downside_risk)
+            elif current_position and current_position.lower() == 'long':
+                return self._analyze_long_position(indicators, upside_potential, downside_risk)
+            else:
+                return self._analyze_no_position(indicators, upside_potential, downside_risk)
+            
+        except Exception as e:
+            return {
+                'error': f"Position analysis failed: {str(e)}",
+                'recommendation': 'WAIT - Analysis Error'
+            }
+    
+    def _analyze_short_position(self, indicators, upside_potential, downside_risk):
+        """📉 ANALYSE für bestehende SHORT Position"""
+        current_price = indicators.get('current_price', 0)
+        rsi = indicators.get('rsi', 50)
+        support = indicators.get('support_level', current_price * 0.95)
+        
+        recommendations = []
+        
+        # Wie viel kann es noch runter?
+        if downside_risk > 5:
+            recommendations.append(f"🎯 Noch {downside_risk:.1f}% Downside bis Support - Short halten")
+        elif downside_risk > 2:
+            recommendations.append(f"⚠️ Nur noch {downside_risk:.1f}% bis Support - Teilgewinn mitnehmen")
+        else:
+            recommendations.append(f"🔴 Nur {downside_risk:.1f}% bis Support - Short schließen!")
+        
+        # RSI-basierte Long-Einstiegspunkte
+        if rsi < 25:
+            recommendations.append("🟢 RSI extrem überverkauft - Bereit für Long-Einstieg")
+        elif rsi < 35:
+            recommendations.append("📊 RSI überverkauft - Long-Setup entwickelt sich")
+        
+        # Staffelungs-Empfehlungen
+        if current_price > support * 1.02:  # 2% über Support
+            recommendations.append("📈 Bereit für Long-Staffelung in 1-2% Schritten")
+        
+        return {
+            'position_type': 'SHORT',
+            'remaining_potential': f"{downside_risk:.1f}% Downside möglich",
+            'target_level': f"Support bei ${support:,.2f}",
+            'recommendations': recommendations,
+            'action': 'MANAGE_SHORT' if downside_risk > 2 else 'PREPARE_LONG'
+        }
+    
+    def _analyze_long_position(self, indicators, upside_potential, downside_risk):
+        """📈 ANALYSE für bestehende LONG Position"""
+        current_price = indicators.get('current_price', 0)
+        rsi = indicators.get('rsi', 50)
+        resistance = indicators.get('resistance_level', current_price * 1.05)
+        
+        recommendations = []
+        
+        # Wie viel kann es noch hoch?
+        if upside_potential > 5:
+            recommendations.append(f"🚀 Noch {upside_potential:.1f}% Upside bis Resistance - Long halten")
+        elif upside_potential > 2:
+            recommendations.append(f"⚠️ Nur noch {upside_potential:.1f}% bis Resistance - Teilgewinn sichern")
+        else:
+            recommendations.append(f"🔴 Nur {upside_potential:.1f}% bis Resistance - Long schließen!")
+        
+        # RSI-basierte Short-Einstiegspunkte
+        if rsi > 75:
+            recommendations.append("🔴 RSI extrem überkauft - Bereit für Short-Einstieg")
+        elif rsi > 65:
+            recommendations.append("📊 RSI überkauft - Short-Setup entwickelt sich")
+        
+        # Staffelungs-Empfehlungen
+        if current_price < resistance * 0.98:  # 2% unter Resistance
+            recommendations.append("📉 Bereit für Short-Staffelung in 1-2% Schritten")
+        
+        return {
+            'position_type': 'LONG',
+            'remaining_potential': f"{upside_potential:.1f}% Upside möglich",
+            'target_level': f"Resistance bei ${resistance:,.2f}",
+            'recommendations': recommendations,
+            'action': 'MANAGE_LONG' if upside_potential > 2 else 'PREPARE_SHORT'
+        }
+    
+    def _analyze_no_position(self, indicators, upside_potential, downside_risk):
+        """⚖️ ANALYSE ohne aktuelle Position"""
+        rsi = indicators.get('rsi', 50)
+        trend = indicators.get('trend', 'sideways')
+        current_price = indicators.get('current_price', 0)
+        
+        recommendations = []
+        
+        # Potenzial-basierte Empfehlungen
+        if upside_potential > downside_risk * 1.5:  # Risk/Reward > 1.5
+            recommendations.append(f"🟢 Long-Setup: {upside_potential:.1f}% Upside vs {downside_risk:.1f}% Risk")
+        elif downside_risk > upside_potential * 1.5:
+            recommendations.append(f"🔴 Short-Setup: {downside_risk:.1f}% Downside vs {upside_potential:.1f}% Risk")
+        else:
+            recommendations.append(f"⚖️ Ausgewogen: {upside_potential:.1f}% Up vs {downside_risk:.1f}% Down")
+        
+        # RSI-Setup
+        if rsi < 30:
+            recommendations.append("🎯 Long-Entry: RSI überverkauft")
+        elif rsi > 70:
+            recommendations.append("🎯 Short-Entry: RSI überkauft")
+        
+        # Trend-Setup
+        if trend == 'strong_bullish':
+            recommendations.append("📈 Trend-Long möglich - warte auf Pullback")
+        elif trend == 'strong_bearish':
+            recommendations.append("📉 Trend-Short möglich - warte auf Bounce")
+        
+        return {
+            'position_type': 'NONE',
+            'best_setup': f"Long: {upside_potential:.1f}% | Short: {downside_risk:.1f}%",
+            'risk_reward': f"1:{(upside_potential/max(downside_risk, 0.1)):.1f}" if upside_potential > downside_risk else f"1:{(downside_risk/max(upside_potential, 0.1)):.1f}",
+            'recommendations': recommendations,
+            'action': 'WAIT_FOR_SETUP'
+        }
 
 # Global analysis engine
 engine = FundamentalAnalysisEngine()
@@ -1680,17 +1815,64 @@ def index():
             
             <!-- 🎯 TRADING CONTROLS -->
             <div class="controls">
-                <h3>🎯 Trading Analysis</h3>
-                <div class="input-group">
+                <h3>🎯 Trading Analysis with Position Management</h3>
+                <div class="input-group" style="grid-template-columns: 2fr 1fr 1fr 1fr;">
                     <input type="text" id="symbolInput" placeholder="Enter symbol (e.g., BTCUSDT)" value="BTCUSDT">
                     <select id="timeframeSelect">
                         <option value="1h">1 Hour</option>
                         <option value="4h" selected>4 Hours</option>
                         <option value="1d">1 Day</option>
                     </select>
+                    <select id="positionSelect" style="background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.3);">
+                        <option value="">No Position</option>
+                        <option value="long">🟢 Long Position</option>
+                        <option value="short">🔴 Short Position</option>
+                    </select>
                     <button id="analyzeBtn" class="analyze-btn" onclick="runTurboAnalysis()">
                         <span id="analyzeText">🚀 Analyze</span>
                     </button>
+                </div>
+                
+                <!-- 🎯 POSITION MANAGEMENT DISPLAY -->
+                <div id="positionManagement" style="
+                    background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(16, 185, 129, 0.1)); 
+                    border: 2px solid rgba(139, 92, 246, 0.2);
+                    border-radius: 12px; 
+                    padding: 1.5rem; 
+                    margin: 1rem 0;
+                    display: none;
+                ">
+                    <h4 style="color: #8b5cf6; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <span id="positionIcon">🎯</span>
+                        <span id="positionTitle">Position Management</span>
+                    </h4>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Remaining Potential</div>
+                            <div id="remainingPotential" style="font-size: 1.4rem; font-weight: 700; color: #10b981;">
+                                Calculating...
+                            </div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px;">
+                            <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 0.5rem;">Target Level</div>
+                            <div id="targetLevel" style="font-size: 1.4rem; font-weight: 700; color: #06b6d4;">
+                                $0.00
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="positionRecommendations" style="
+                        background: rgba(255,255,255,0.03); 
+                        padding: 1rem; 
+                        border-radius: 8px;
+                        border-left: 4px solid #8b5cf6;
+                    ">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem; color: #8b5cf6;">📋 Trading Recommendations:</div>
+                        <div id="recommendationsList" style="color: #e2e8f0; line-height: 1.6;">
+                            Waiting for analysis...
+                        </div>
+                    </div>
                 </div>
                 
             <!-- 🛡️ SYSTEM STATUS DASHBOARD -->
@@ -2268,10 +2450,11 @@ def index():
         
         let currentAnalysis = null;
         
-        // 🎯 Main Analysis Function
+        // 🎯 Main Analysis Function with Position Management
         async function runTurboAnalysis() {
             const symbol = document.getElementById('symbolInput').value.trim().toUpperCase();
             const timeframe = document.getElementById('timeframeSelect').value;
+            const position = document.getElementById('positionSelect').value;
             const analyzeBtn = document.getElementById('analyzeBtn');
             const analyzeText = document.getElementById('analyzeText');
             const resultsDiv = document.getElementById('results');
@@ -2287,6 +2470,13 @@ def index():
             resultsDiv.innerHTML = '<div class="text-center">🔄 Loading professional analysis...</div>';
             resultsDiv.classList.remove('hidden');
             
+            // Show position management if position selected
+            if (position) {
+                const positionDiv = document.getElementById('positionManagement');
+                positionDiv.style.display = 'block';
+                updatePositionDisplay(position, 'Loading...');
+            }
+            
             try {
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
@@ -2295,7 +2485,8 @@ def index():
                     },
                     body: JSON.stringify({
                         symbol: symbol,
-                        timeframe: timeframe
+                        timeframe: timeframe,
+                        position: position || null
                     })
                 });
                 
@@ -2304,6 +2495,11 @@ def index():
                 if (data.success) {
                     currentAnalysis = data;
                     displayAnalysisResults(data);
+                    
+                    // Update position management display
+                    if (position && data.position_management) {
+                        updatePositionManagement(data.position_management);
+                    }
                 } else {
                     throw new Error(data.error || 'Analysis failed');
                 }
@@ -2322,6 +2518,81 @@ def index():
                 analyzeBtn.disabled = false;
                 analyzeText.textContent = '🚀 Analyze';
             }
+        }
+        
+        // 🎯 POSITION MANAGEMENT FUNCTIONS
+        function updatePositionDisplay(position, status) {
+            const positionIcon = document.getElementById('positionIcon');
+            const positionTitle = document.getElementById('positionTitle');
+            
+            if (position === 'long') {
+                positionIcon.textContent = '📈';
+                positionTitle.textContent = 'Long Position Management';
+            } else if (position === 'short') {
+                positionIcon.textContent = '📉';
+                positionTitle.textContent = 'Short Position Management';
+            }
+            
+            const remainingPotential = document.getElementById('remainingPotential');
+            remainingPotential.textContent = status;
+        }
+        
+        function updatePositionManagement(positionData) {
+            const remainingPotential = document.getElementById('remainingPotential');
+            const targetLevel = document.getElementById('targetLevel');
+            const recommendationsList = document.getElementById('recommendationsList');
+            
+            // Update potential display
+            if (positionData.remaining_potential) {
+                remainingPotential.textContent = positionData.remaining_potential;
+                
+                // Color based on potential
+                const potentialNum = parseFloat(positionData.remaining_potential);
+                if (potentialNum > 3) {
+                    remainingPotential.style.color = '#10b981'; // Green for good potential
+                } else if (potentialNum > 1) {
+                    remainingPotential.style.color = '#f59e0b'; // Yellow for moderate
+                } else {
+                    remainingPotential.style.color = '#ef4444'; // Red for low potential
+                }
+            }
+            
+            // Update target level
+            if (positionData.target_level) {
+                targetLevel.textContent = positionData.target_level;
+            }
+            
+            // Update recommendations
+            if (positionData.recommendations && Array.isArray(positionData.recommendations)) {
+                const recommendationsHTML = positionData.recommendations
+                    .map(rec => `<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.03); border-radius: 6px; border-left: 3px solid #8b5cf6;">📌 ${rec}</div>`)
+                    .join('');
+                recommendationsList.innerHTML = recommendationsHTML;
+            }
+            
+            // Update position management visibility
+            const positionDiv = document.getElementById('positionManagement');
+            positionDiv.style.display = 'block';
+        }
+        
+        // Position selector change handler
+        document.addEventListener('DOMContentLoaded', function() {
+            const positionSelect = document.getElementById('positionSelect');
+            const positionDiv = document.getElementById('positionManagement');
+            
+            if (positionSelect) {
+                positionSelect.addEventListener('change', function() {
+                    const selectedPosition = this.value;
+                    
+                    if (selectedPosition) {
+                        positionDiv.style.display = 'block';
+                        updatePositionDisplay(selectedPosition, 'Select a symbol and analyze...');
+                    } else {
+                        positionDiv.style.display = 'none';
+                    }
+                });
+            }
+        });
         }
         
         // 📊 Display Analysis Results with MEGA DETAILS
@@ -4463,6 +4734,7 @@ def analyze_symbol():
         data = request.get_json()
         symbol = data.get('symbol', '').upper()
         timeframe = data.get('timeframe', '4h')
+        current_position = data.get('position', None)  # NEW: Position parameter
         
         if not symbol:
             return jsonify({'success': False, 'error': 'Symbol is required'})
@@ -5307,6 +5579,21 @@ def analyze_symbol():
             'trading_setup': trading_setup,
             'timestamp': candles[-1]['timestamp']
         }
+        
+        # 🎯 POSITION MANAGEMENT ANALYSIS
+        if current_position:
+            try:
+                position_analysis = engine.analyze_position_potential(tech_indicators, current_position)
+                analysis_result['position_management'] = position_analysis
+                print(f"🎯 Position Analysis: {current_position} -> {position_analysis.get('action', 'N/A')}")
+            except Exception as pos_error:
+                print(f"❌ Position analysis error: {pos_error}")
+                analysis_result['position_management'] = {
+                    'error': str(pos_error),
+                    'position_type': current_position.upper() if current_position else 'NONE',
+                    'recommendations': ['Analysis failed - using fallback mode'],
+                    'action': 'WAIT'
+                }
         
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
