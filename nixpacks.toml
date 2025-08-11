@@ -1,21 +1,13 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv"]
+nixPkgs = ["python311", "python311Packages.pip"]
 
 [phases.install]
-cmds = [
-  "python -m venv /opt/venv",
-  ". /opt/venv/bin/activate && pip install --upgrade pip",
-  ". /opt/venv/bin/activate && pip install Flask==2.3.3 gunicorn==21.2.0"
-]
-
-[phases.build]
-cmds = ["echo '🚀 Stable Trading System ready'"]
+cmds = ["pip install Flask==2.3.3"]
 
 [start]
-cmd = ". /opt/venv/bin/activate && gunicorn app_stable:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300"
+cmd = "python app_minimal.py"
 
 [variables]
 PYTHONPATH = "/app"
 FLASK_ENV = "production"
 PYTHONUNBUFFERED = "1"
-TF_CPP_MIN_LOG_LEVEL = "2"
