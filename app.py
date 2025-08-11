@@ -2400,7 +2400,7 @@ def index():
                 resultsDiv.innerHTML = `
                     <div class="result-card" style="border-color: #ef4444;">
                         <h3 style="color: #ef4444;">❌ Analysis Error</h3>
-                        <p>Error: ${error.message}</p>
+                        <p>Error: \${error.message}</p>
                         <p style="margin-top: 1rem; opacity: 0.7;">Please try again or check the symbol.</p>
                     </div>
                 `;
@@ -2465,26 +2465,26 @@ def index():
             
             resultsDiv.innerHTML = `
                 <div class="result-card">
-                    <h3>📊 Trading Analysis for ${analysis.symbol || 'N/A'}</h3>
+                    <h3>📊 Trading Analysis for \${analysis.symbol || 'N/A'}</h3>
                     
                     <div class="analysis-grid">
                         <div class="analysis-section">
                             <h4>🎯 Trading Decision</h4>
                             <div class="decision \${(fundamentalData.decision || 'HOLD').toLowerCase()}">\${fundamentalData.decision || 'HOLD'}</div>
-                            <div class="confidence">Confidence: ${fundamentalData.confidence || 0}%</div>
+                            <div class="confidence">Confidence: \${fundamentalData.confidence || 0}%</div>
                         </div>
                         
                         <div class="analysis-section">
                             <h4>📈 Technical Indicators</h4>
                             <div>Current Price: $\${technicalData.current_price || 0}</div>
-                            <div>RSI: ${technicalData.rsi || 0}</div>
-                            <div>24h Change: ${technicalData.price_change_24h || 0}%</div>
+                            <div>RSI: \${technicalData.rsi || 0}</div>
+                            <div>24h Change: \${technicalData.price_change_24h || 0}%</div>
                         </div>
                         
                         <div class="analysis-section">
                             <h4>🎯 Position Management</h4>
-                            <div>${positionData.remaining_potential || 'No position data'}</div>
-                            <div>${positionData.target_level || ''}</div>
+                            <div>\${positionData.remaining_potential || 'No position data'}</div>
+                            <div>\${positionData.target_level || ''}</div>
                         </div>
                     </div>
                 </div>
@@ -2937,13 +2937,13 @@ def index():
                     
                     <div style="background: rgba(139, 92, 246, 0.1); padding: 0.8rem; border-radius: 8px; text-align: center;">
                         <div style="font-size: 0.8rem; opacity: 0.8;">ATR</div>
-                        <div style="font-size: 1.2rem; font-weight: 700; color: #8b5cf6;">${indicators.atr}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #8b5cf6;">\${indicators.atr}</div>
                     </div>
                 </div>
                 
                 <div style="padding: 0.8rem; background: rgba(16, 185, 129, 0.1); border-radius: 8px; text-align: center;">
-                    <strong style="color: #10b981;">⚡ ${data.recommendation}</strong> 
-                    ${data.confidence?.toFixed(0) || '50'}% confidence
+                    <strong style="color: #10b981;">⚡ \${data.recommendation}</strong> 
+                    \${data.confidence?.toFixed(0) || '50'}% confidence
                 </div>
                 
                 <!-- 🚀 NEW TRADING FEATURES V2.0 - FORCE UPDATE -->
@@ -2959,7 +2959,7 @@ def index():
                         <span style="color: #10b981; font-weight: 700;">📊 Setup:</span>
                         <span style="color: #333; margin-left: 0.3rem; font-weight: 600;">
                             Entry: $\${data.trading_setup?.entry_price?.toFixed(0) || 'N/A'} • 
-                            ${data.trading_setup?.direction || 'WAIT'}
+                            \${data.trading_setup?.direction || 'WAIT'}
                         </span>
                     </div>
                 </div>
