@@ -2593,7 +2593,6 @@ def index():
                 });
             }
         });
-        }
         
         // 📊 Display Analysis Results with MEGA DETAILS
         function displayAnalysisResults(analysis) {
