@@ -2428,7 +2428,7 @@ def index():
                         
                         <div class="analysis-section">
                             <h4>📈 Technical Indicators</h4>
-                            <div>Current Price: $${technicalData.current_price || 0}</div>
+                            <div>Current Price: $\${technicalData.current_price || 0}</div>
                             <div>RSI: ${technicalData.rsi || 0}</div>
                             <div>24h Change: ${technicalData.price_change_24h || 0}%</div>
                         </div>
