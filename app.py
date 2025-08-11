@@ -187,16 +187,16 @@ class OptimizedBinanceAPI:
                 "symbol": "BTCUSDT",
                 "priceChange": "0",
                 "priceChangePercent": "0",
-                "lastPrice": "50000",
-                "bidPrice": "49990",
-                "askPrice": "50010",
+                "lastPrice": "118600",  # UPDATED: Current realistic BTC price
+                "bidPrice": "118590",
+                "askPrice": "118610",
                 "volume": "1000",
                 "count": 100
             }
         elif "klines" in endpoint:
-            # Standard-Kerze (aktueller Zeitstempel)
+            # Standard-Kerze (aktueller Zeitstempel) - UPDATED with realistic BTC prices
             current_time = int(time.time() * 1000)
-            return [[current_time, "50000", "50100", "49900", "50000", "100", current_time + 3600000, "5000000", 50, "50", "2500000", "0"]]
+            return [[current_time, "118500", "118700", "118300", "118600", "100", current_time + 3600000, "11860000", 50, "50", "5930000", "0"]]
         else:
             return {}
     
@@ -1198,7 +1198,7 @@ class FundamentalAnalysisEngine:
             except Exception as sma_error:
                 print(f"❌ SMA calculation error: {sma_error}")
                 # Fallback to current price if SMA calculation fails
-                fallback_price = float(closes[-1]) if len(closes) > 0 else 50000.0
+                fallback_price = float(closes[-1]) if len(closes) > 0 else 118600.0  # Updated realistic BTC price
                 sma_9 = sma_20 = sma_50 = sma_200 = fallback_price
 
             # EMA Calculation
@@ -1406,6 +1406,34 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
                 fundamental_score += 5
                 signals.append("⚖️ Sideways Movement")
             
+            # 🎯 MACD BOGEN-ERKENNUNG Integration (10% weight)
+            try:
+                from datetime import datetime
+                # Get MACD Bogen analysis
+                macd_analysis = advanced_engine.detect_macd_curve_reversal(market_data, tech_indicators)
+                trend_change = macd_analysis.get('trend_change', 'neutral')
+                
+                if trend_change == 'bullish_reversal':
+                    fundamental_score += 15  # Strong bullish signal
+                    signals.append("🟢 MACD Bogen: Bullish Reversal bestätigt!")
+                elif trend_change == 'bullish_building':
+                    fundamental_score += 8   # Building momentum
+                    signals.append("📈 MACD Bogen: Bullish Momentum building")
+                elif trend_change == 'bearish_reversal':
+                    fundamental_score -= 15  # Strong bearish signal
+                    signals.append("🔴 MACD Bogen: Bearish Reversal bestätigt!")
+                elif trend_change == 'bearish_building':
+                    fundamental_score -= 8   # Building momentum
+                    signals.append("📉 MACD Bogen: Bearish Momentum building")
+                
+                # Add MACD message if available
+                macd_message = macd_analysis.get('message', '')
+                if macd_message:
+                    signals.append(f"🎯 {macd_message}")
+                    
+            except Exception as macd_error:
+                print(f"⚠️ MACD Bogen analysis error: {macd_error}")
+            
             # 3. Risk Management (15% weight)
             volatility = tech_indicators.get('volatility', 0)
             volume_ratio = tech_indicators.get('volume_ratio', tech_indicators.get('volume_ratio_5d', 1))
@@ -1490,7 +1518,17 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
         else:
             recommendations.append(f"🔴 Nur {downside_risk:.1f}% bis Support - Short schließen!")
         
-        # RSI-basierte Long-Einstiegspunkte
+        # 🎯 MACD BOGEN + RSI kombinierte Analyse
+        macd_line = indicators.get('macd_line', 0)
+        macd_signal = indicators.get('macd_signal', 0)
+        
+        # MACD Bogen Logik für Short-Position
+        if macd_line < macd_signal and macd_line < 0:
+            recommendations.append("📉 MACD bestätigt Short-Momentum")
+        elif macd_line > macd_signal and rsi < 30:
+            recommendations.append("⚠️ MACD wendet, aber RSI oversold - Short-Exit vorbereiten")
+        
+        # RSI-basierte Long-Einstiegspunkte (verstärkt durch MACD)
         if rsi < 25:
             recommendations.append("🟢 RSI extrem überverkauft - Bereit für Long-Einstieg")
         elif rsi < 35:
@@ -1524,7 +1562,17 @@ def calculate_tradingview_indicators_with_live_data(data, live_stats=None):
         else:
             recommendations.append(f"🔴 Nur {upside_potential:.1f}% bis Resistance - Long schließen!")
         
-        # RSI-basierte Short-Einstiegspunkte
+        # 🎯 MACD BOGEN + RSI kombinierte Analyse
+        macd_line = indicators.get('macd_line', 0)
+        macd_signal = indicators.get('macd_signal', 0)
+        
+        # MACD Bogen Logik für Long-Position
+        if macd_line > macd_signal and macd_line > 0:
+            recommendations.append("📈 MACD bestätigt Long-Momentum")
+        elif macd_line < macd_signal and rsi > 70:
+            recommendations.append("⚠️ MACD wendet, RSI overbought - Long-Exit vorbereiten")
+        
+        # RSI-basierte Short-Einstiegspunkte (verstärkt durch MACD)
         if rsi > 75:
             recommendations.append("🔴 RSI extrem überkauft - Bereit für Short-Einstieg")
         elif rsi > 65:
@@ -2603,7 +2651,7 @@ def index():
             // Update main price display
             const mainPrice = document.getElementById('mainPrice');
             if (mainPrice && indicators.current_price) {
-                mainPrice.textContent = `$${indicators.current_price.toLocaleString('en-US', {
+                mainPrice.textContent = `$\${indicators.current_price.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 })}`;
@@ -2613,7 +2661,7 @@ def index():
             const priceElements = document.querySelectorAll('[data-price-display]');
             priceElements.forEach(element => {
                 if (indicators.current_price) {
-                    element.textContent = `$${indicators.current_price.toLocaleString('en-US', {
+                    element.textContent = `$\${indicators.current_price.toLocaleString('en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2
                     })}`;
@@ -2903,14 +2951,14 @@ def index():
                     <div style="flex: 1; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
                         <span style="color: #ef4444; font-weight: 700;">🔥 Liquidation:</span>
                         <span style="color: #333; margin-left: 0.3rem; font-weight: 600;">
-                            L: $${data.liquidation_map?.long_liquidation?.toFixed(0) || 'N/A'} • 
-                            S: $${data.liquidation_map?.short_liquidation?.toFixed(0) || 'N/A'}
+                            L: $\${data.liquidation_map?.long_liquidation?.toFixed(0) || 'N/A'} • 
+                            S: $\${data.liquidation_map?.short_liquidation?.toFixed(0) || 'N/A'}
                         </span>
                     </div>
                     <div style="flex: 1; padding: 0.5rem; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border-left: 3px solid #10b981;">
                         <span style="color: #10b981; font-weight: 700;">📊 Setup:</span>
                         <span style="color: #333; margin-left: 0.3rem; font-weight: 600;">
-                            Entry: $${data.trading_setup?.entry_price?.toFixed(0) || 'N/A'} • 
+                            Entry: $\${data.trading_setup?.entry_price?.toFixed(0) || 'N/A'} • 
                             ${data.trading_setup?.direction || 'WAIT'}
                         </span>
                     </div>
