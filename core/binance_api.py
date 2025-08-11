@@ -150,7 +150,21 @@ class OptimizedBinanceAPI:
         )
     
     def get_klines(self, symbol: str, interval: str = "1h", limit: int = 100) -> list:
-        """📊 Optimierte Kerzendaten mit Cache"""
+        """📊 Enhanced Kerzendaten mit Multi-Timeframe Support"""
+        # Validate timeframe
+        valid_intervals = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']
+        if interval not in valid_intervals:
+            print(f"⚠️ Invalid interval {interval}, using 1h")
+            interval = "1h"
+        
+        # Adjust limit based on timeframe for better data coverage
+        if interval in ['1m', '3m', '5m']:
+            limit = min(limit, 1000)  # Higher frequency data
+        elif interval in ['15m', '30m']:
+            limit = min(limit, 720)   # Medium frequency
+        else:
+            limit = min(limit, 500)   # Lower frequency
+        
         result = self._make_request(
             "klines",
             params={"symbol": symbol, "interval": interval, "limit": limit},
@@ -158,6 +172,70 @@ class OptimizedBinanceAPI:
             cache_category="kline_data"
         )
         return result if isinstance(result, list) else []
+    
+    def get_multi_timeframe_data(self, symbol: str, timeframes: list = ['15m', '1h', '4h', '1d']) -> dict:
+        """📊 Get data for multiple timeframes"""
+        results = {}
+        for tf in timeframes:
+            try:
+                data = self.get_klines(symbol, tf, 100)
+                results[tf] = data
+            except Exception as e:
+                print(f"❌ Error getting {tf} data for {symbol}: {e}")
+                results[tf] = []
+        return results
+    
+    def get_coin_list(self) -> list:
+        """💰 Get list of available trading pairs"""
+        try:
+            result = self._make_request(
+                "exchangeInfo",
+                cache_key="exchange_info",
+                cache_category="static_data"
+            )
+            
+            if result and 'symbols' in result:
+                # Filter for USDT pairs only and active symbols
+                usdt_pairs = []
+                for symbol_info in result['symbols']:
+                    if (symbol_info['symbol'].endswith('USDT') and 
+                        symbol_info['status'] == 'TRADING'):
+                        usdt_pairs.append({
+                            'symbol': symbol_info['symbol'],
+                            'base': symbol_info['baseAsset'],
+                            'quote': symbol_info['quoteAsset'],
+                            'status': symbol_info['status']
+                        })
+                
+                # Sort by popularity (approximated by symbol name)
+                popular_first = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 
+                               'SOLUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'AVAXUSDT']
+                
+                def sort_key(pair):
+                    if pair['symbol'] in popular_first:
+                        return popular_first.index(pair['symbol'])
+                    return 1000
+                
+                usdt_pairs.sort(key=sort_key)
+                return usdt_pairs[:50]  # Return top 50 pairs
+            
+            return self._get_fallback_coin_list()
+            
+        except Exception as e:
+            print(f"❌ Error getting coin list: {e}")
+            return self._get_fallback_coin_list()
+    
+    def _get_fallback_coin_list(self) -> list:
+        """🛡️ Fallback list of popular trading pairs"""
+        popular_pairs = [
+            'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT',
+            'SOLUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'AVAXUSDT',
+            'LTCUSDT', 'ATOMUSDT', 'ALGOUSDT', 'VETUSDT', 'FILUSDT',
+            'NEARUSDT', 'FTMUSDT', 'SANDUSDT', 'MANAUSDT', 'AXSUSDT'
+        ]
+        
+        return [{'symbol': symbol, 'base': symbol.replace('USDT', ''), 'quote': 'USDT', 'status': 'TRADING'} 
+                for symbol in popular_pairs]
     
     def get_recent_trades(self, symbol: str, limit: int = 5) -> list:
         """📈 Recent Trades für ein Symbol"""

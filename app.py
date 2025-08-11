@@ -2875,7 +2875,7 @@ def simulate_trading_strategy(ohlcv_data, timeframe, symbol):
 
 @app.route('/api/multi_asset', methods=['POST'])
 def multi_asset_analysis():
-    """🌐 Multi-Asset Portfolio Analysis"""
+    """🌐 Multi-Asset Portfolio Analysis (Legacy compatibility)"""
     try:
         data = request.get_json()
         symbols = data.get('symbols', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'])
@@ -2886,7 +2886,9 @@ def multi_asset_analysis():
         for symbol in symbols[:5]:  # Limit to 5 symbols
             try:
                 ticker_data = binance_api.get_ticker_24hr(symbol)
-                fundamental_analysis = market_engine.fundamental_analysis(symbol, ticker_data)  # CORRECTED
+                # Get market data for fundamental analysis
+                klines = binance_api.get_klines(symbol, '1h', 100)
+                fundamental_analysis = market_engine.fundamental_analysis(symbol, klines)  # CORRECTED
                 
                 results[symbol] = {
                     'ticker': ticker_data,
@@ -2903,6 +2905,225 @@ def multi_asset_analysis():
         })
         
     except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 400
+
+@app.route('/api/enhanced_multi_coin', methods=['POST'])
+def enhanced_multi_coin_analysis():
+    """🌐 Enhanced Multi-Coin Analysis with Timeframe Selection"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+        
+        # Get parameters
+        symbols = data.get('symbols', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'])
+        timeframes = data.get('timeframes', ['1h', '4h'])
+        analysis_type = data.get('analysis_type', 'rsi')  # 'rsi', 'technical', 'full'
+        
+        # Limit to prevent overload
+        symbols = symbols[:10]  # Max 10 coins
+        timeframes = timeframes[:4]  # Max 4 timeframes
+        
+        results = {}
+        market_engine = MarketAnalysisEngine()
+        
+        for symbol in symbols:
+            try:
+                symbol_results = {}
+                
+                for timeframe in timeframes:
+                    try:
+                        # Get market data for this timeframe
+                        klines = binance_api.get_klines(symbol, timeframe, 100)
+                        if not klines or len(klines) < 20:
+                            continue
+                        
+                        tf_analysis = {}
+                        
+                        if analysis_type in ['rsi', 'full']:
+                            # TradingView-compatible RSI analysis
+                            rsi_analysis = market_engine.calculate_rsi_with_timeframes(symbol, [14, 21])
+                            tf_analysis['rsi'] = rsi_analysis
+                        
+                        if analysis_type in ['technical', 'full']:
+                            # Technical indicators
+                            tech_indicators = market_engine.calculate_technical_indicators(klines)
+                            tf_analysis['technical'] = tech_indicators
+                        
+                        # Basic price info
+                        closes = [float(k[4]) for k in klines]
+                        tf_analysis['price_info'] = {
+                            'current_price': closes[-1],
+                            'price_change_24h': ((closes[-1] - closes[0]) / closes[0]) * 100 if len(closes) > 24 else 0,
+                            'high_24h': max([float(k[2]) for k in klines[-24:]]) if len(klines) >= 24 else max([float(k[2]) for k in klines]),
+                            'low_24h': min([float(k[3]) for k in klines[-24:]]) if len(klines) >= 24 else min([float(k[3]) for k in klines]),
+                            'volume_24h': sum([float(k[5]) for k in klines[-24:]]) if len(klines) >= 24 else sum([float(k[5]) for k in klines])
+                        }
+                        
+                        symbol_results[timeframe] = tf_analysis
+                        
+                    except Exception as tf_error:
+                        print(f"❌ Error analyzing {symbol} on {timeframe}: {tf_error}")
+                        continue
+                
+                if symbol_results:
+                    results[symbol] = symbol_results
+                
+            except Exception as symbol_error:
+                print(f"❌ Error analyzing {symbol}: {symbol_error}")
+                results[symbol] = {'error': str(symbol_error)}
+                continue
+        
+        # Calculate summary statistics
+        summary = {
+            'total_coins_analyzed': len([s for s in results if 'error' not in results[s]]),
+            'total_timeframes': len(timeframes),
+            'analysis_type': analysis_type,
+            'top_performers': [],
+            'bottom_performers': []
+        }
+        
+        # Find top and bottom performers
+        performers = []
+        for symbol, data in results.items():
+            if 'error' not in data and timeframes[0] in data:
+                price_info = data[timeframes[0]].get('price_info', {})
+                change_24h = price_info.get('price_change_24h', 0)
+                performers.append({'symbol': symbol, 'change_24h': change_24h})
+        
+        performers.sort(key=lambda x: x['change_24h'], reverse=True)
+        summary['top_performers'] = performers[:3]
+        summary['bottom_performers'] = performers[-3:]
+        
+        return jsonify({
+            'success': True,
+            'symbols': symbols,
+            'timeframes': timeframes,
+            'analysis_type': analysis_type,
+            'results': results,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"❌ Enhanced Multi-Coin Analysis Error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 400
+
+@app.route('/api/get_coin_list', methods=['GET'])
+def get_coin_list():
+    """💰 Get Available Trading Pairs"""
+    try:
+        # Get coin list from Binance API
+        coin_list = binance_api.get_coin_list()
+        
+        # Add market data for top coins
+        enhanced_list = []
+        for coin in coin_list[:20]:  # Limit to top 20 for performance
+            try:
+                ticker = binance_api.get_ticker_24hr(coin['symbol'])
+                if ticker:
+                    coin_data = {
+                        'symbol': coin['symbol'],
+                        'base': coin['base'],
+                        'quote': coin['quote'],
+                        'price': float(ticker.get('lastPrice', 0)),
+                        'change_24h': float(ticker.get('priceChangePercent', 0)),
+                        'volume_24h': float(ticker.get('volume', 0)),
+                        'count_24h': int(ticker.get('count', 0))
+                    }
+                    enhanced_list.append(coin_data)
+            except Exception as e:
+                # Add basic info if ticker fails
+                enhanced_list.append(coin)
+                continue
+        
+        return jsonify({
+            'success': True,
+            'total_coins': len(coin_list),
+            'coins': enhanced_list,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"❌ Get Coin List Error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 400
+
+@app.route('/api/rsi_analysis', methods=['POST'])
+def rsi_analysis():
+    """📈 TradingView-Compatible RSI Analysis"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+            
+        symbol = data.get('symbol', 'BTCUSDT').upper()
+        timeframes = data.get('timeframes', ['1h', '4h'])
+        rsi_periods = data.get('rsi_periods', [14, 21])
+        
+        market_engine = MarketAnalysisEngine()
+        results = {}
+        
+        for timeframe in timeframes:
+            try:
+                # Get market data for this timeframe
+                klines = binance_api.get_klines(symbol, timeframe, 200)  # Extended data for accuracy
+                if not klines or len(klines) < 50:
+                    continue
+                
+                closes = [float(k[4]) for k in klines]
+                
+                # Calculate RSI for different periods
+                timeframe_rsi = {}
+                for period in rsi_periods:
+                    rsi_value = market_engine._calculate_rsi(closes, period)
+                    rsi_signal = market_engine._get_rsi_signal(rsi_value)
+                    rsi_level = market_engine._get_rsi_level(rsi_value)
+                    divergence = market_engine._detect_rsi_divergence(closes, period)
+                    
+                    timeframe_rsi[f'rsi_{period}'] = {
+                        'value': round(rsi_value, 2),
+                        'signal': rsi_signal,
+                        'level': rsi_level,
+                        'divergence': divergence,
+                        'period': period
+                    }
+                
+                # Add current price context
+                timeframe_rsi['price_context'] = {
+                    'current_price': closes[-1],
+                    'price_change': round(closes[-1] - closes[-2], 6) if len(closes) > 1 else 0,
+                    'price_change_percent': round(((closes[-1] - closes[-2]) / closes[-2]) * 100, 2) if len(closes) > 1 else 0
+                }
+                
+                results[timeframe] = timeframe_rsi
+                
+            except Exception as tf_error:
+                print(f"❌ RSI Analysis error for {timeframe}: {tf_error}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'symbol': symbol,
+            'timeframes': timeframes,
+            'rsi_periods': rsi_periods,
+            'analysis': results,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"❌ RSI Analysis API Error: {e}")
         return jsonify({
             'success': False,
             'error': str(e),

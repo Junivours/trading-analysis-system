@@ -3,7 +3,8 @@
 Technische & Fundamentale Marktanalyse
 """
 
-import numpy as np
+import math
+import statistics
 import requests
 import time
 from typing import Dict, List, Tuple
@@ -153,29 +154,142 @@ class MarketAnalysisEngine:
             return {'error': f'Technical indicators calculation failed: {str(e)}'}
     
     def _calculate_rsi(self, closes: List[float], period: int = 14) -> float:
-        """📈 RSI Berechnung (TradingView kompatibel)"""
+        """📈 TradingView-Compatible RSI Calculation with Wilder's Smoothing"""
         if len(closes) < period + 1:
             return 50.0
         
+        # Calculate price changes
         deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
         gains = [delta if delta > 0 else 0 for delta in deltas]
         losses = [-delta if delta < 0 else 0 for delta in deltas]
         
-        # Initial average
+        if len(gains) < period:
+            return 50.0
+        
+        # Initial RMA (Wilder's smoothing) - TradingView compatible
+        # First period: simple average
         avg_gain = sum(gains[:period]) / period
         avg_loss = sum(losses[:period]) / period
         
-        # Smoothed averages (Wilder's smoothing)
-        for i in range(period, len(gains)):
-            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        # Apply Wilder's smoothing for remaining periods
+        # TradingView formula: RMA = (alpha * current) + ((1 - alpha) * previous_RMA)
+        # where alpha = 1/period for Wilder's smoothing
+        alpha = 1 / period
         
+        for i in range(period, len(gains)):
+            avg_gain = alpha * gains[i] + (1 - alpha) * avg_gain
+            avg_loss = alpha * losses[i] + (1 - alpha) * avg_loss
+        
+        # Calculate RSI - TradingView formula
         if avg_loss == 0:
             return 100.0
         
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
+        
         return rsi
+    
+    def calculate_rsi_with_timeframes(self, symbol: str, periods: List[int] = [14, 21]) -> Dict:
+        """📈 Calculate RSI for multiple periods (TradingView compatible)"""
+        try:
+            # Get extended data for accurate RSI calculation
+            data = self.get_market_data(symbol, '1h', 200)
+            if len(data) < 50:
+                return {'error': 'Insufficient data for RSI calculation'}
+            
+            closes = [float(candle[4]) for candle in data]
+            results = {}
+            
+            for period in periods:
+                rsi_value = self._calculate_rsi(closes, period)
+                rsi_signal = self._get_rsi_signal(rsi_value)
+                
+                # RSI divergence detection
+                divergence = self._detect_rsi_divergence(closes, period)
+                
+                results[f'rsi_{period}'] = {
+                    'value': round(rsi_value, 2),
+                    'signal': rsi_signal,
+                    'level': self._get_rsi_level(rsi_value),
+                    'divergence': divergence,
+                    'period': period
+                }
+            
+            return {
+                'success': True,
+                'symbol': symbol,
+                'rsi_analysis': results,
+                'current_price': closes[-1],
+                'timestamp': int(time.time())
+            }
+            
+        except Exception as e:
+            return {'error': f'RSI calculation failed: {str(e)}'}
+    
+    def _detect_rsi_divergence(self, closes: List[float], period: int = 14) -> Dict:
+        """🔍 Detect RSI divergence patterns"""
+        try:
+            if len(closes) < period + 20:
+                return {'divergence': 'None', 'confidence': 0}
+            
+            # Calculate RSI for last 20 periods
+            rsi_values = []
+            for i in range(len(closes) - 20, len(closes)):
+                if i >= period:
+                    rsi_val = self._calculate_rsi(closes[:i+1], period)
+                    rsi_values.append(rsi_val)
+            
+            if len(rsi_values) < 10:
+                return {'divergence': 'None', 'confidence': 0}
+            
+            # Get corresponding prices
+            price_slice = closes[-len(rsi_values):]
+            
+            # Find recent highs and lows
+            recent_price_high = max(price_slice[-10:])
+            recent_price_low = min(price_slice[-10:])
+            recent_rsi_high = max(rsi_values[-10:])
+            recent_rsi_low = min(rsi_values[-10:])
+            
+            # Check for bullish divergence (price lower low, RSI higher low)
+            if (recent_price_low == min(price_slice) and 
+                recent_rsi_low > min(rsi_values[:-5])):
+                return {
+                    'divergence': 'Bullish',
+                    'confidence': 75,
+                    'description': 'Price making lower low, RSI making higher low'
+                }
+            
+            # Check for bearish divergence (price higher high, RSI lower high)
+            if (recent_price_high == max(price_slice) and 
+                recent_rsi_high < max(rsi_values[:-5])):
+                return {
+                    'divergence': 'Bearish', 
+                    'confidence': 75,
+                    'description': 'Price making higher high, RSI making lower high'
+                }
+            
+            return {'divergence': 'None', 'confidence': 0}
+            
+        except Exception as e:
+            return {'divergence': 'Error', 'confidence': 0, 'error': str(e)}
+    
+    def _get_rsi_level(self, rsi: float) -> str:
+        """📊 Get RSI level classification"""
+        if rsi >= 80:
+            return 'Extremely Overbought'
+        elif rsi >= 70:
+            return 'Overbought'
+        elif rsi >= 60:
+            return 'Bullish'
+        elif rsi >= 40:
+            return 'Neutral'
+        elif rsi >= 30:
+            return 'Bearish'
+        elif rsi >= 20:
+            return 'Oversold'
+        else:
+            return 'Extremely Oversold'
     
     def _calculate_macd(self, closes: List[float], fast: int = 12, slow: int = 26, signal_period: int = 9) -> Tuple[float, float, float]:
         """📊 MACD Berechnung"""
@@ -212,11 +326,11 @@ class MarketAnalysisEngine:
         """📊 Bollinger Bands Berechnung"""
         if len(closes) < period:
             middle = sum(closes) / len(closes)
-            std = np.std(closes)
+            std = statistics.stdev(closes) if len(closes) > 1 else 0
         else:
             recent_closes = closes[-period:]
             middle = sum(recent_closes) / period
-            std = np.std(recent_closes)
+            std = statistics.stdev(recent_closes)
         
         upper = middle + (std * std_dev)
         lower = middle - (std * std_dev)
@@ -485,12 +599,27 @@ class MarketAnalysisEngine:
             # Simplified correlation
             correlation = 0
             if len(price_changes) == len(volume_changes) and len(price_changes) > 0:
-                correlation = np.corrcoef(price_changes[-20:], volume_changes[-20:])[0, 1] if len(price_changes) >= 20 else 0
+                # Simple correlation calculation without numpy
+                if len(price_changes) >= 20:
+                    p_slice = price_changes[-20:]
+                    v_slice = volume_changes[-20:]
+                    
+                    p_mean = sum(p_slice) / len(p_slice)
+                    v_mean = sum(v_slice) / len(v_slice)
+                    
+                    numerator = sum((p_slice[i] - p_mean) * (v_slice[i] - v_mean) for i in range(len(p_slice)))
+                    p_var = sum((p - p_mean) ** 2 for p in p_slice)
+                    v_var = sum((v - v_mean) ** 2 for v in v_slice)
+                    
+                    if p_var > 0 and v_var > 0:
+                        correlation = numerator / (math.sqrt(p_var) * math.sqrt(v_var))
+                    else:
+                        correlation = 0
             
             return {
                 'recent_avg_volume': round(recent_volume, 0),
                 'volume_trend': round(volume_trend, 2),
-                'price_volume_correlation': round(correlation, 3) if not np.isnan(correlation) else 0,
+                'price_volume_correlation': round(correlation, 3) if not (math.isnan(correlation) if isinstance(correlation, float) else False) else 0,
                 'volume_signal': 'STRONG' if volume_trend > 20 else 'WEAK' if volume_trend < -20 else 'NORMAL'
             }
             
@@ -503,7 +632,8 @@ class MarketAnalysisEngine:
             # Historical volatility (20 periods)
             if len(closes) >= 20:
                 returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
-                volatility = np.std(returns[-20:]) * np.sqrt(20) * 100  # Annualized
+                recent_returns = returns[-20:]
+                volatility = statistics.stdev(recent_returns) * math.sqrt(20) * 100 if len(recent_returns) > 1 else 0  # Annualized
             else:
                 volatility = 0
             
