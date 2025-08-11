@@ -5305,7 +5305,12 @@ def index():
         }
         
         async function runTechnicalScan() {
-            alert('🔍 Advanced Technical Scan - Coming in next update!\\n\\n📊 Features:\\n• Multi-timeframe analysis\\n• Pattern recognition\\n• Volume profile analysis\\n• Advanced indicators suite');
+            alert('🔍 Advanced Technical Scan - Coming in next update!' + 
+                  '\n\n📊 Features:' +
+                  '\n• Multi-timeframe analysis' +
+                  '\n• Pattern recognition' +
+                  '\n• Volume profile analysis' +
+                  '\n• Advanced indicators suite');
         }
         
         // 🎯 Enter key support
@@ -5314,6 +5319,21 @@ def index():
                 runTurboAnalysis();
             }
         });
+        
+        // 🎯 ENSURE FUNCTIONS ARE GLOBALLY ACCESSIBLE
+        window.runTurboAnalysis = runTurboAnalysis;
+        window.toggleSystemStatus = toggleSystemStatus;
+        window.optimizePerformance = optimizePerformance;
+        window.openPopup = openPopup;
+        window.closePopup = closePopup;
+        window.runTechnicalScan = runTechnicalScan;
+        window.runBacktest = runBacktest;
+        window.runMultiAssetAnalysis = runMultiAssetAnalysis;
+        window.setupRealTimeAlerts = setupRealTimeAlerts;
+        window.startJaxTraining = startJaxTraining;
+        window.runAdvancedBacktest = runAdvancedBacktest;
+        window.runMonteCarloSim = runMonteCarloSim;
+        window.getEnhancedPredictions = getEnhancedPredictions;
         
         // 🚀 Initialize
         console.log('🚀 Ultimate Trading V3 - Professional System Loaded');
