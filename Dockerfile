@@ -1,20 +1,31 @@
-# 🚀 DOCKERFILE FOR RAILWAY AS ALTERNATIVE
+# 🚀 DOCKERFILE FOR RAILWAY - BOMBASTIC APP.PY v2.0
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Copy requirements
-COPY requirements-railway.txt .
+# Copy requirements first for better caching
+COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements-railway.txt
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
-COPY app_railway.py .
+# Copy the bombastic application
+COPY app.py .
 
-# Expose port (Railway sets PORT environment variable)
+# Copy supporting modules
+COPY analysis/ ./analysis/
+COPY core/ ./core/
+COPY templates/ ./templates/
+COPY utils/ ./utils/
+
+# Set environment variables
 ENV PORT=5000
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Expose the port
 EXPOSE $PORT
 
-# Run application with dynamic port
-CMD gunicorn app_railway:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300
+# Run the bombastic trading app
+CMD ["python", "app.py"]
