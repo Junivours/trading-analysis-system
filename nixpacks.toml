@@ -1,0 +1,12 @@
+[start]
+cmd = "gunicorn app:app --bind 0.0.0.0:$PORT"
+
+[build]
+nixpkgs = ["python3", "gcc"]
+nixLibs = ["stdenv.cc.cc.lib"]
+
+[build.env]
+PYTHONPATH = "."
+
+[env]
+PORT = "8000"
