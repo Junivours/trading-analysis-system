@@ -2649,20 +2649,20 @@ def index():
             // Update main price display
             const mainPrice = document.getElementById('mainPrice');
             if (mainPrice && indicators.current_price) {
-                mainPrice.textContent = `$\${indicators.current_price.toLocaleString('en-US', {
+                mainPrice.textContent = '$' + indicators.current_price.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
-                })}`;
+                });
             }
             
             // Update all price displays
             const priceElements = document.querySelectorAll('[data-price-display]');
             priceElements.forEach(element => {
                 if (indicators.current_price) {
-                    element.textContent = `$\${indicators.current_price.toLocaleString('en-US', {
+                    element.textContent = '$' + indicators.current_price.toLocaleString('en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2
-                    })}`;
+                    });
                 }
             });
             
