@@ -3771,8 +3771,34 @@ def analyze_symbol():
         analysis_result = {
             'success': True,
             'symbol': symbol,
-            'decision': signal_data['direction'],
+            'recommendation': signal_data['direction'],
             'confidence': signal_data['confidence'],
+            # ✅ FRONTEND COMPATIBLE: Add fundamental_analysis wrapper
+            'fundamental_analysis': {
+                'decision': signal_data['direction'],
+                'confidence': signal_data['confidence'],
+                'technical_indicators': {
+                    'current_price': round(float(current_price), 2),
+                    'rsi': round(float(tech_indicators.get('rsi', 50)), 1),
+                    'macd': round(float(tech_indicators.get('macd', 0)), 4),
+                    'price_change_24h': round(float(tech_indicators.get('price_change_24h', 0.0)), 2),
+                    'price_change_1h': round(float(tech_indicators.get('price_change_1h', 0.0)), 2),
+                    'price_change_7d': round(float(tech_indicators.get('price_change_7d', 0.0)), 2),
+                    'volatility': round(float(tech_indicators.get('volatility', 1.0)), 1),
+                    'atr': round(float(tech_indicators.get('atr', current_price * 0.02)), 2),
+                    'support_level': round(float(support_level), 2),
+                    'resistance_level': round(float(resistance_level), 2)
+                },
+                'position_management': {
+                    'remaining_potential': 'Position analysis will be updated...',
+                    'target_level': f"Support: ${support_level:,.0f} | Resistance: ${resistance_level:,.0f}",
+                    'recommendations': [
+                        f"Current Price: ${current_price:,.2f}",
+                        f"RSI Level: {tech_indicators.get('rsi', 50):.1f}",
+                        f"Trend: {signal_data['direction']}"
+                    ]
+                }
+            },
             # ✅ ADD: Direct RSI and MACD values in main response
             'rsi': round(float(tech_indicators.get('rsi', 50)), 1),
             'macd': round(float(tech_indicators.get('macd', 0)), 4),
@@ -3866,17 +3892,28 @@ def analyze_symbol():
         if current_position:
             try:
                 position_analysis = engine.analyze_position_potential(tech_indicators, current_position)
-                analysis_result['position_analysis'] = position_analysis
+                # Update fundamental_analysis with position data
+                analysis_result['fundamental_analysis']['position_management'] = {
+                    'remaining_potential': position_analysis.get('remaining_potential', 'Analysis in progress...'),
+                    'target_level': position_analysis.get('target_level', f"${current_price:,.0f}"),
+                    'recommendations': position_analysis.get('recommendations', [
+                        f"Position: {current_position.upper()}",
+                        f"Current Price: ${current_price:,.2f}",
+                        f"Action: {position_analysis.get('action', 'Hold')}"
+                    ])
+                }
+                analysis_result['position_management'] = position_analysis
                 print(f"🎯 Position Analysis: {current_position} -> {position_analysis.get('action', 'N/A')}")
             except Exception as pos_error:
                 print(f"❌ Position analysis error: {pos_error}")
-                analysis_result['position_analysis'] = {
-                    'error': str(pos_error),
-                    'position_type': current_position.upper() if current_position else 'NONE',
-                    'recommendation': 'Analysis failed - using fallback mode',
-                    'risk_level': 'HIGH',
-                    'remaining_potential': 0.0,
-                    'reasoning': f'Error: {str(pos_error)}'
+                analysis_result['fundamental_analysis']['position_management'] = {
+                    'remaining_potential': f'Error: {str(pos_error)}',
+                    'target_level': f"Support: ${support_level:,.0f}",
+                    'recommendations': [
+                        'Analysis failed - manual review required',
+                        f"Current Price: ${current_price:,.2f}",
+                        f"RSI: {tech_indicators.get('rsi', 50):.1f}"
+                    ]
                 }
         
         # Add advanced analysis to results
