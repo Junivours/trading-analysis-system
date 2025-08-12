@@ -1541,6 +1541,20 @@ class BinanceClient:
     TICKER_TTL = 10      # seconds
     PRICE_TTL = 3        # seconds
     KLINES_TTL = 45      # seconds
+
+    @staticmethod
+    def clear_symbol_cache(symbol: str):
+        """Invalidate cached entries for a symbol."""
+        try:
+            symbol = symbol.upper()
+            BinanceClient._cache['ticker'].pop(symbol, None)
+            BinanceClient._cache['price'].pop(symbol, None)
+            # Remove klines variants for symbol
+            to_del = [k for k in BinanceClient._cache['klines'] if k[0] == symbol]
+            for k in to_del:
+                BinanceClient._cache['klines'].pop(k, None)
+        except Exception as e:
+            print(f"Cache clear error: {e}")
     
     @staticmethod
     def search_symbols(query):
@@ -1589,9 +1603,12 @@ class BinanceClient:
             now = time.time()
             cached = BinanceClient._cache['ticker'].get(symbol)
             if cached and now - cached[0] < BinanceClient.TICKER_TTL:
-                return cached[1]
+                data = cached[1]
+                data['_cache'] = 'HIT'
+                return data
             response = requests.get(f"{BinanceClient.BASE_URL}/ticker/24hr", params={'symbol': symbol}, timeout=10)
             data = response.json()
+            data['_cache'] = 'MISS'
             BinanceClient._cache['ticker'][symbol] = (now, data)
             return data
         except Exception as e:
@@ -2516,6 +2533,9 @@ def search_symbols(query):
 def analyze_symbol(symbol):
     """Complete analysis of a trading symbol"""
     try:
+        # Optional cache bypass: /api/analyze/BTCUSDT?refresh=1
+        if request.args.get('refresh') == '1':
+            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
         analysis = master_analyzer.analyze_symbol(symbol.upper())
         
         if 'error' in analysis:
@@ -2597,6 +2617,8 @@ def backtest(symbol):
     interval = request.args.get('interval', '1h')
     limit = int(request.args.get('limit', '500'))
     try:
+        if request.args.get('refresh') == '1':
+            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
         data = master_analyzer.run_backtest(symbol, interval=interval, limit=limit)
         if 'error' in data:
             # Attach meta for client-side diagnosis
