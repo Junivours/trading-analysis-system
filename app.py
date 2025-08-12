@@ -124,6 +124,362 @@ def health():
 # 🧠 INTELLIGENT POSITION MANAGEMENT ENGINE
 # ========================================================================================
 
+class ChartPatternTrader:
+    """🎯 Konkrete Trading-Setups basierend auf Chart-Mustern"""
+    
+    @staticmethod
+    def generate_pattern_trades(patterns, current_price, atr_value, support=None, resistance=None):
+        """Generiert konkrete Entry/TP/SL für erkannte Chart-Muster"""
+        pattern_trades = []
+        
+        for pattern in patterns:
+            pattern_type = pattern.get('type', '')
+            signal = pattern.get('signal', 'neutral')
+            confidence = pattern.get('confidence', 50)
+            
+            # 🔺 TRIANGLE PATTERNS
+            if 'Triangle' in pattern_type:
+                trades = ChartPatternTrader._triangle_trades(pattern, current_price, atr_value)
+                if trades: pattern_trades.extend(trades)
+            
+            # 👑 HEAD & SHOULDERS
+            elif 'Head and Shoulders' in pattern_type:
+                trades = ChartPatternTrader._head_shoulders_trades(pattern, current_price, atr_value)
+                if trades: pattern_trades.extend(trades)
+            
+            # 🔄 DOUBLE TOP/BOTTOM
+            elif 'Double' in pattern_type:
+                trades = ChartPatternTrader._double_pattern_trades(pattern, current_price, atr_value)
+                if trades: pattern_trades.extend(trades)
+            
+            # ☕ CUP & HANDLE
+            elif 'Cup and Handle' in pattern_type:
+                trades = ChartPatternTrader._cup_handle_trades(pattern, current_price, atr_value)
+                if trades: pattern_trades.extend(trades)
+            
+            # 🏃 BREAKOUT PATTERNS
+            elif 'Breakout' in pattern_type or 'Breakdown' in pattern_type:
+                trades = ChartPatternTrader._breakout_trades(pattern, current_price, atr_value)
+                if trades: pattern_trades.extend(trades)
+        
+        return pattern_trades
+    
+    @staticmethod
+    def _triangle_trades(pattern, current_price, atr_value):
+        """Triangle Pattern Trading Setups"""
+        trades = []
+        pattern_type = pattern.get('type', '')
+        confidence = pattern.get('confidence', 50)
+        
+        if 'Ascending' in pattern_type:
+            # 📈 Ascending Triangle - Bullish Breakout
+            entry = current_price * 1.005  # Leicht über aktuellem Preis
+            stop_loss = current_price - (atr_value * 1.5)  # 1.5 ATR Stop
+            tp1 = entry + (atr_value * 2.5)  # 2.5 ATR TP1
+            tp2 = entry + (atr_value * 4.0)  # 4 ATR TP2
+            tp3 = entry + (atr_value * 6.0)  # 6 ATR TP3
+            
+            trades.append({
+                'pattern_name': 'Ascending Triangle Breakout',
+                'direction': 'LONG',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1', 'price': round(tp1, 4), 'percentage': 30},
+                    {'level': 'TP2', 'price': round(tp2, 4), 'percentage': 40},
+                    {'level': 'TP3', 'price': round(tp3, 4), 'percentage': 30}
+                ],
+                'risk_reward_ratio': round((tp2 - entry) / (entry - stop_loss), 2),
+                'confidence': confidence,
+                'setup_type': 'Bullish Triangle Breakout',
+                'trade_plan': f'Entry bei Breakout über {entry:.4f}, Stop bei {stop_loss:.4f}',
+                'market_structure': 'Higher Lows + Horizontal Resistance'
+            })
+            
+        elif 'Descending' in pattern_type:
+            # 📉 Descending Triangle - Bearish Breakdown
+            entry = current_price * 0.995  # Leicht unter aktuellem Preis
+            stop_loss = current_price + (atr_value * 1.5)  # 1.5 ATR Stop
+            tp1 = entry - (atr_value * 2.5)  # 2.5 ATR TP1
+            tp2 = entry - (atr_value * 4.0)  # 4 ATR TP2
+            tp3 = entry - (atr_value * 6.0)  # 6 ATR TP3
+            
+            trades.append({
+                'pattern_name': 'Descending Triangle Breakdown',
+                'direction': 'SHORT',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1', 'price': round(tp1, 4), 'percentage': 30},
+                    {'level': 'TP2', 'price': round(tp2, 4), 'percentage': 40},
+                    {'level': 'TP3', 'price': round(tp3, 4), 'percentage': 30}
+                ],
+                'risk_reward_ratio': round((entry - tp2) / (stop_loss - entry), 2),
+                'confidence': confidence,
+                'setup_type': 'Bearish Triangle Breakdown',
+                'trade_plan': f'Entry bei Breakdown unter {entry:.4f}, Stop bei {stop_loss:.4f}',
+                'market_structure': 'Lower Highs + Horizontal Support'
+            })
+            
+        elif 'Symmetrical' in pattern_type:
+            # ⚖️ Symmetrical Triangle - Beide Richtungen vorbereiten
+            # LONG Setup
+            long_entry = current_price * 1.008
+            long_stop = current_price - (atr_value * 1.8)
+            long_tp1 = long_entry + (atr_value * 3.0)
+            long_tp2 = long_entry + (atr_value * 5.0)
+            
+            trades.append({
+                'pattern_name': 'Symmetrical Triangle - Bullish Breakout',
+                'direction': 'LONG',
+                'entry_price': round(long_entry, 4),
+                'stop_loss': round(long_stop, 4),
+                'take_profits': [
+                    {'level': 'TP1', 'price': round(long_tp1, 4), 'percentage': 50},
+                    {'level': 'TP2', 'price': round(long_tp2, 4), 'percentage': 50}
+                ],
+                'risk_reward_ratio': round((long_tp1 - long_entry) / (long_entry - long_stop), 2),
+                'confidence': confidence - 10,  # Etwas weniger Confidence bei neutral pattern
+                'setup_type': 'Symmetrical Triangle Breakout',
+                'trade_plan': f'Entry bei Breakout über {long_entry:.4f}, Stop bei {long_stop:.4f}',
+                'market_structure': 'Converging Triangle - Breakout pending'
+            })
+            
+            # SHORT Setup
+            short_entry = current_price * 0.992
+            short_stop = current_price + (atr_value * 1.8)
+            short_tp1 = short_entry - (atr_value * 3.0)
+            short_tp2 = short_entry - (atr_value * 5.0)
+            
+            trades.append({
+                'pattern_name': 'Symmetrical Triangle - Bearish Breakdown',
+                'direction': 'SHORT',
+                'entry_price': round(short_entry, 4),
+                'stop_loss': round(short_stop, 4),
+                'take_profits': [
+                    {'level': 'TP1', 'price': round(short_tp1, 4), 'percentage': 50},
+                    {'level': 'TP2', 'price': round(short_tp2, 4), 'percentage': 50}
+                ],
+                'risk_reward_ratio': round((short_entry - short_tp1) / (short_stop - short_entry), 2),
+                'confidence': confidence - 10,
+                'setup_type': 'Symmetrical Triangle Breakdown',
+                'trade_plan': f'Entry bei Breakdown unter {short_entry:.4f}, Stop bei {short_stop:.4f}',
+                'market_structure': 'Converging Triangle - Breakdown pending'
+            })
+        
+        return trades
+    
+    @staticmethod
+    def _head_shoulders_trades(pattern, current_price, atr_value):
+        """Head & Shoulders Trading Setups"""
+        trades = []
+        confidence = pattern.get('confidence', 65)
+        
+        # Head & Shoulders ist bearish
+        if pattern.get('signal') == 'bearish':
+            # Neckline Breakdown Trade
+            neckline = pattern.get('neckline', current_price * 0.98)
+            entry = neckline * 0.998  # Entry unter Neckline
+            stop_loss = neckline + (atr_value * 2.0)  # Stop über Neckline
+            
+            # Target = Head height projected down from neckline
+            head_height = pattern.get('head_height', atr_value * 4)
+            tp1 = entry - (head_height * 0.5)  # 50% der Head-Height
+            tp2 = entry - (head_height * 0.8)  # 80% der Head-Height
+            tp3 = entry - head_height  # Vollständige Projektion
+            
+            trades.append({
+                'pattern_name': 'Head & Shoulders Breakdown',
+                'direction': 'SHORT',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1 (50%)', 'price': round(tp1, 4), 'percentage': 40},
+                    {'level': 'TP2 (80%)', 'price': round(tp2, 4), 'percentage': 35},
+                    {'level': 'TP3 (Full)', 'price': round(tp3, 4), 'percentage': 25}
+                ],
+                'risk_reward_ratio': round((entry - tp2) / (stop_loss - entry), 2),
+                'confidence': confidence,
+                'setup_type': 'Classic Reversal Pattern',
+                'trade_plan': f'Entry bei Neckline Break {entry:.4f}, Target: Head-Height Projektion',
+                'market_structure': 'Three Peak Reversal - Bearish',
+                'key_level': f'Neckline: {neckline:.4f}'
+            })
+        
+        return trades
+    
+    @staticmethod
+    def _double_pattern_trades(pattern, current_price, atr_value):
+        """Double Top/Bottom Trading Setups"""
+        trades = []
+        pattern_type = pattern.get('type', '')
+        confidence = pattern.get('confidence', 60)
+        
+        if 'Double Top' in pattern_type:
+            # 📉 Double Top - Bearish
+            resistance_level = pattern.get('resistance_level', current_price * 1.02)
+            entry = resistance_level * 0.995  # Entry unter Resistance
+            stop_loss = resistance_level * 1.015  # Stop über Double Top
+            
+            # Target = Distance zwischen Peaks und Valley
+            valley = pattern.get('valley', current_price * 0.95)
+            double_top_height = resistance_level - valley
+            tp1 = entry - (double_top_height * 0.6)
+            tp2 = entry - double_top_height  # Full projektion
+            
+            trades.append({
+                'pattern_name': 'Double Top Breakdown',
+                'direction': 'SHORT',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1 (60%)', 'price': round(tp1, 4), 'percentage': 60},
+                    {'level': 'TP2 (Full)', 'price': round(tp2, 4), 'percentage': 40}
+                ],
+                'risk_reward_ratio': round((entry - tp1) / (stop_loss - entry), 2),
+                'confidence': confidence,
+                'setup_type': 'Reversal Pattern',
+                'trade_plan': f'Entry bei Break unter {entry:.4f}, Target: Pattern-Height Projektion',
+                'market_structure': 'Failed Retest of Highs - Bearish',
+                'key_level': f'Double Top: {resistance_level:.4f}'
+            })
+            
+        elif 'Double Bottom' in pattern_type:
+            # 📈 Double Bottom - Bullish
+            support_level = pattern.get('support_level', current_price * 0.98)
+            entry = support_level * 1.005  # Entry über Support
+            stop_loss = support_level * 0.985  # Stop unter Double Bottom
+            
+            # Target = Distance zwischen Valley und Peak
+            peak = pattern.get('peak', current_price * 1.05)
+            double_bottom_height = peak - support_level
+            tp1 = entry + (double_bottom_height * 0.6)
+            tp2 = entry + double_bottom_height  # Full projektion
+            
+            trades.append({
+                'pattern_name': 'Double Bottom Breakout',
+                'direction': 'LONG',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1 (60%)', 'price': round(tp1, 4), 'percentage': 60},
+                    {'level': 'TP2 (Full)', 'price': round(tp2, 4), 'percentage': 40}
+                ],
+                'risk_reward_ratio': round((tp1 - entry) / (entry - stop_loss), 2),
+                'confidence': confidence,
+                'setup_type': 'Reversal Pattern',
+                'trade_plan': f'Entry bei Break über {entry:.4f}, Target: Pattern-Height Projektion',
+                'market_structure': 'Successful Retest of Lows - Bullish',
+                'key_level': f'Double Bottom: {support_level:.4f}'
+            })
+        
+        return trades
+    
+    @staticmethod
+    def _cup_handle_trades(pattern, current_price, atr_value):
+        """Cup & Handle Trading Setups"""
+        trades = []
+        confidence = pattern.get('confidence', 82)
+        
+        # Cup & Handle ist immer bullish
+        breakout_level = pattern.get('breakout_level', current_price * 1.02)
+        entry = breakout_level * 1.003  # Entry über Handle Breakout
+        stop_loss = current_price - (atr_value * 2.0)  # Stop unter Handle
+        
+        # Target = Cup depth projected up
+        target_level = pattern.get('target', current_price * 1.15)
+        tp1 = entry + ((target_level - entry) * 0.5)  # 50% zum Target
+        tp2 = entry + ((target_level - entry) * 0.8)  # 80% zum Target
+        tp3 = target_level  # Full Target
+        
+        trades.append({
+            'pattern_name': 'Cup & Handle Breakout',
+            'direction': 'LONG',
+            'entry_price': round(entry, 4),
+            'stop_loss': round(stop_loss, 4),
+            'take_profits': [
+                {'level': 'TP1 (50%)', 'price': round(tp1, 4), 'percentage': 40},
+                {'level': 'TP2 (80%)', 'price': round(tp2, 4), 'percentage': 35},
+                {'level': 'TP3 (Full)', 'price': round(tp3, 4), 'percentage': 25}
+            ],
+            'risk_reward_ratio': round((tp2 - entry) / (entry - stop_loss), 2),
+            'confidence': confidence,
+            'setup_type': 'Continuation Pattern',
+            'trade_plan': f'Entry bei Handle Breakout {entry:.4f}, Target: Cup-Depth Projektion',
+            'market_structure': 'Accumulation -> Breakout Phase',
+            'key_level': f'Handle High: {breakout_level:.4f}'
+        })
+        
+        return trades
+    
+    @staticmethod
+    def _breakout_trades(pattern, current_price, atr_value):
+        """Breakout/Breakdown Trading Setups"""
+        trades = []
+        pattern_type = pattern.get('type', '')
+        confidence = pattern.get('confidence', 85)
+        direction = pattern.get('direction', 'NEUTRAL')
+        
+        if 'Resistance Breakout' in pattern_type:
+            # 🚀 Bullish Breakout
+            breakout_level = current_price
+            entry = breakout_level * 1.002  # Entry über Breakout
+            stop_loss = breakout_level * 0.985  # Stop unter Breakout Level
+            
+            # Targets based on ATR multiples
+            tp1 = entry + (atr_value * 2.0)
+            tp2 = entry + (atr_value * 4.0)
+            tp3 = entry + (atr_value * 6.0)
+            
+            trades.append({
+                'pattern_name': 'Resistance Breakout',
+                'direction': 'LONG',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1 (2R)', 'price': round(tp1, 4), 'percentage': 40},
+                    {'level': 'TP2 (4R)', 'price': round(tp2, 4), 'percentage': 35},
+                    {'level': 'TP3 (6R)', 'price': round(tp3, 4), 'percentage': 25}
+                ],
+                'risk_reward_ratio': round((tp2 - entry) / (entry - stop_loss), 2),
+                'confidence': confidence,
+                'setup_type': 'Momentum Breakout',
+                'trade_plan': f'Entry auf Breakout Bestätigung {entry:.4f}, Stop unter Support',
+                'market_structure': 'Breakout mit Volume Confirmation',
+                'key_level': f'Breakout Level: {breakout_level:.4f}'
+            })
+            
+        elif 'Support Breakdown' in pattern_type:
+            # 📉 Bearish Breakdown
+            breakdown_level = current_price
+            entry = breakdown_level * 0.998  # Entry unter Breakdown
+            stop_loss = breakdown_level * 1.015  # Stop über Breakdown Level
+            
+            # Targets based on ATR multiples
+            tp1 = entry - (atr_value * 2.0)
+            tp2 = entry - (atr_value * 4.0)
+            tp3 = entry - (atr_value * 6.0)
+            
+            trades.append({
+                'pattern_name': 'Support Breakdown',
+                'direction': 'SHORT',
+                'entry_price': round(entry, 4),
+                'stop_loss': round(stop_loss, 4),
+                'take_profits': [
+                    {'level': 'TP1 (2R)', 'price': round(tp1, 4), 'percentage': 40},
+                    {'level': 'TP2 (4R)', 'price': round(tp2, 4), 'percentage': 35},
+                    {'level': 'TP3 (6R)', 'price': round(tp3, 4), 'percentage': 25}
+                ],
+                'risk_reward_ratio': round((entry - tp2) / (stop_loss - entry), 2),
+                'confidence': confidence,
+                'setup_type': 'Momentum Breakdown',
+                'trade_plan': f'Entry auf Breakdown Bestätigung {entry:.4f}, Stop über Resistance',
+                'market_structure': 'Breakdown mit Volume Confirmation',
+                'key_level': f'Breakdown Level: {breakdown_level:.4f}'
+            })
+        
+        return trades
+
 class PositionManager:
     @staticmethod
     def analyze_position_potential(current_price, support, resistance, trend_analysis, patterns):
@@ -3102,8 +3458,24 @@ class MasterAnalyzer:
             for s in setups:
                 if s.get('targets'):
                     s['primary_rr'] = s['targets'][0]['rr']
-            setups.sort(key=lambda x: x['confidence'], reverse=True)
-            trimmed = setups[:8]
+            
+            # 🎯 INTEGRATE CHART PATTERN TRADES
+            pattern_trades = []
+            if pattern_analysis and pattern_analysis.get('patterns'):
+                pattern_trades = ChartPatternTrader.generate_pattern_trades(
+                    pattern_analysis['patterns'], 
+                    current_price, 
+                    atr_val,
+                    support, 
+                    resistance
+                )
+                print(f"📊 Generated {len(pattern_trades)} pattern-based trades")
+            
+            # Combine traditional setups with pattern trades
+            all_setups = setups + pattern_trades
+            all_setups.sort(key=lambda x: x.get('confidence', 50), reverse=True)
+            trimmed = all_setups[:12]  # Erweitert von 8 auf 12 für Pattern Trades
+            
             # Attach relaxation meta to first element for transparency
             if trimmed:
                 trimmed[0]['relaxation_meta'] = relaxation
@@ -3867,6 +4239,29 @@ DASHBOARD_HTML = """
     .setup-badge { font-size:0.6rem; background:#0d6efd; color:#fff; padding:3px 6px; border-radius:6px; letter-spacing:0.5px; }
     .setup-badge.short { background:#dc3545; }
     .setup-badge.long { background:#198754; }
+    
+    /* Pattern Trading Cards */
+    .pattern-card {
+        background: linear-gradient(135deg, rgba(255, 215, 0, 0.08), rgba(255, 165, 0, 0.04));
+        border: 1px solid rgba(255, 215, 0, 0.2);
+        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.1);
+    }
+    .pattern-card:hover {
+        border-color: rgba(255, 215, 0, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(255, 215, 0, 0.15);
+    }
+    .pattern-badge {
+        background: linear-gradient(45deg, #FFD700, #FFA500) !important;
+        color: #000 !important;
+        font-weight: 700;
+        text-shadow: none;
+    }
+    .target-pill.pattern-target {
+        background: linear-gradient(45deg, rgba(255, 215, 0, 0.2), rgba(255, 165, 0, 0.1));
+        border: 1px solid rgba(255, 215, 0, 0.3);
+        color: #FFD700;
+    }
     .setup-line { display:flex; justify-content:space-between; font-size:0.72rem; padding:1px 0; color:rgba(255,255,255,0.82); }
     .setup-sep { margin:6px 0 8px; height:1px; background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,0.18),rgba(255,255,255,0)); }
     .confidence-chip { position:absolute; top:10px; right:10px; background:#198754; color:#fff; padding:4px 10px; font-size:0.65rem; font-weight:600; border-radius:14px; }
@@ -4241,7 +4636,7 @@ DASHBOARD_HTML = """
             `).join('');
         }
 
-        // Trade Setups Renderer (array based)
+        // Trade Setups Renderer (array based) - Enhanced for Pattern Trades
         function displayTradeSetups(data) {
             const container = document.getElementById('tradeSetupsContent');
             const status = document.getElementById('tradeSetupsStatus');
@@ -4251,25 +4646,89 @@ DASHBOARD_HTML = """
                 status.textContent = 'Keine Setups generiert (Bedingungen nicht erfüllt).';
                 return;
             }
-            const blocks = setups.map(s => {
-                const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
-                const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price} (${t.rr}R)</span>`).join('');
-                const conds = (s.conditions||[]).map(c=>`<li class="${c.s==='ok'?'c-ok':(c.s==='bad'?'c-bad':'c-warn')}">${c.t}</li>`).join('');
-                return `
-                <div class="setup-card">
-                    <div class="confidence-chip ${confClass}">${s.confidence}%</div>
-                    <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span></div>
-                    <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
-                    <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
-                    <div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>
-                    <div class="setup-sep"></div>
-                    <div class="targets">${targets}</div>
-                    <ul class="conditions">${conds}</ul>
-                    <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale}</div>
-                </div>`;
-            });
-            container.innerHTML = blocks.join('');
-            status.textContent = 'Automatisch generierte Setups (experimentell)';
+
+            // Separate Pattern trades from regular trades
+            const patternTrades = setups.filter(s => s.pattern_name || s.setup_type);
+            const regularTrades = setups.filter(s => !s.pattern_name && !s.setup_type);
+
+            let html = '';
+
+            // Pattern Trades Section
+            if (patternTrades.length > 0) {
+                html += `<div class="trade-section">
+                    <h4 style="color: #FFD700; margin-bottom: 12px; font-size: 0.85rem; display: flex; align-items: center;">
+                        🎯 <span style="margin-left: 6px;">Chart Pattern Setups (${patternTrades.length})</span>
+                    </h4>`;
+                
+                const patternBlocks = patternTrades.map(s => {
+                    const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
+                    const targets = (s.targets || s.take_profits || []).map(t=>{
+                        const price = t.price || t.level;
+                        const label = t.label || t.level;
+                        const percentage = t.percentage ? ` (${t.percentage}%)` : '';
+                        const rr = t.rr ? ` ${t.rr}R` : '';
+                        return `<span class="target-pill pattern-target">${label}: ${price}${percentage}${rr}</span>`;
+                    }).join('');
+                    
+                    return `
+                    <div class="setup-card pattern-card" style="border-left: 4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
+                        <div class="confidence-chip ${confClass}">${s.confidence}%</div>
+                        <div class="setup-title">
+                            ${s.direction} 
+                            <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background: linear-gradient(45deg, #FFD700, #FFA500); color: #000;">
+                                ${s.pattern_name || s.strategy}
+                            </span>
+                        </div>
+                        <div class="setup-line"><span>Entry</span><span>${s.entry_price || s.entry}</span></div>
+                        <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
+                        <div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>
+                        ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color: #28a745;">${s.risk_reward_ratio}</span></div>` : ''}
+                        ${s.key_level ? `<div class="setup-line"><span>Key Level</span><span style="color: #FFD700;">${s.key_level}</span></div>` : ''}
+                        <div class="setup-sep"></div>
+                        <div class="targets">${targets}</div>
+                        ${s.trade_plan ? `<div style="margin-top:8px; font-size:.55rem; color:#FFD700; line-height:0.75rem;"><strong>Plan:</strong> ${s.trade_plan}</div>` : ''}
+                        ${s.market_structure ? `<div style="margin-top:4px; font-size:.55rem; color:rgba(255,255,255,0.7); line-height:0.75rem;"><strong>Structure:</strong> ${s.market_structure}</div>` : ''}
+                        <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale || s.trade_plan}</div>
+                    </div>`;
+                });
+                html += patternBlocks.join('') + '</div>';
+            }
+
+            // Regular Technical Trades Section
+            if (regularTrades.length > 0) {
+                html += `<div class="trade-section">
+                    <h4 style="color: #17a2b8; margin-bottom: 12px; font-size: 0.85rem; display: flex; align-items: center;">
+                        📊 <span style="margin-left: 6px;">Technical Analysis Setups (${regularTrades.length})</span>
+                    </h4>`;
+                
+                const regularBlocks = regularTrades.map(s => {
+                    const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
+                    const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price} (${t.rr}R)</span>`).join('');
+                    const conds = (s.conditions||[]).map(c=>`<li class="${c.s==='ok'?'c-ok':(c.s==='bad'?'c-bad':'c-warn')}">${c.t}</li>`).join('');
+                    
+                    return `
+                    <div class="setup-card">
+                        <div class="confidence-chip ${confClass}">${s.confidence}%</div>
+                        <div class="setup-title">
+                            ${s.direction} 
+                            <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span>
+                            ${s.validation_score ? `<span class="validation-badge ${s.validation_score.toLowerCase()}">${s.validation_score}</span>` : ''}
+                        </div>
+                        <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
+                        <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
+                        <div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>
+                        ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style="color: #28a745;">${s.primary_rr}R</span></div>` : ''}
+                        <div class="setup-sep"></div>
+                        <div class="targets">${targets}</div>
+                        <ul class="conditions">${conds}</ul>
+                        <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale}</div>
+                    </div>`;
+                });
+                html += regularBlocks.join('') + '</div>';
+            }
+
+            container.innerHTML = html;
+            status.textContent = `${setups.length} Trading-Setups generiert (${patternTrades.length} Pattern + ${regularTrades.length} Technical)`;
         }
 
         // Display position management recommendations
