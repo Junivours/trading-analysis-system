@@ -2689,32 +2689,37 @@ class MasterAnalyzer:
             min_atr = max(atr_val, current_price * 0.0025)
             # Helper to widen targets dynamically: structural + ATR extension
             def _structural_targets(direction, entry):
-                ext_mult = 4.0  # swing extension
+                ext_mult = 8.0  # Erweitert von 4.0 auf 8.0 für echte Swing-Targets
                 swing_target = entry + min_atr * ext_mult if direction=='LONG' else entry - min_atr * ext_mult
                 return swing_target
 
             def _confidence(base, adds):
                 score = base + sum(adds)
-                if contradiction_count: score -= 25
-                if risk_level in ['HIGH', 'VERY_HIGH']: score -= 15
-                if atr_perc and atr_perc > 1.4: score -= 8
-                return max(5, min(97, round(score)))
+                # 🔍 STRENGE VALIDIERUNG wie echte Trader
+                if contradiction_count: score -= 35  # Erhöht von 25 auf 35
+                if risk_level in ['HIGH', 'VERY_HIGH']: score -= 25  # Erhöht von 15 auf 25
+                if atr_perc and atr_perc > 1.4: score -= 15  # Erhöht von 8 auf 15
+                # Zusätzliche Validierung
+                if atr_perc and atr_perc > 2.0: score -= 25  # Extreme Volatilität
+                if not enterprise_ready: score -= 20  # Keine Enterprise-Validierung
+                return max(10, min(95, round(score)))  # Min erhöht von 5 auf 10
 
             def _targets(entry, stop, direction, extra=None):
                 risk = (entry - stop) if direction=='LONG' else (stop - entry)  # absolute price risk
-                # Enforce wider baseline risk using ATR so TP nicht direkt neben Entry
-                if risk < min_atr * 0.8:
-                    # Widen stop further away (simulate more realistic protective stop)
+                # 🔥 REALISTISCHE TRADER STOPS - breiter für echte Marktbedingungen
+                if risk < min_atr * 1.2:  # Erweitert von 0.8 auf 1.2 für realistischere Stops
+                    # Wesentlich breitere Stops wie echte Trader
                     if direction=='LONG':
-                        stop = entry - min_atr * 0.8
+                        stop = entry - min_atr * 1.2
                     else:
-                        stop = entry + min_atr * 0.8
+                        stop = entry + min_atr * 1.2
                     risk = (entry - stop) if direction=='LONG' else (stop - entry)
-                risk = max(risk, min_atr*0.75)
+                risk = max(risk, min_atr*1.0)  # Minimum risk erhöht
 
                 base = []
-                # Provide broader R multiples including 1.5R & 2.5R and 4R for swing
-                for m in [1,1.5,2,2.5,3]:
+                # 🎯 REALISTISCHE TP TARGETS - wie echte Trader nutzen
+                # Erste Gewinnmitnahme bei 1.5R, dann größere Swings
+                for m in [1.5, 2.5, 4, 6, 8]:  # Entfernt 1R - zu enge, hinzugefügt 6R, 8R
                     tp = entry + risk*m if direction=='LONG' else entry - risk*m
                     base.append({'label': f'{m}R', 'price': round(tp,2), 'rr': float(m)})
                 # Add structural / swing extension
@@ -2726,14 +2731,15 @@ class MasterAnalyzer:
                             rr = (lvl - entry)/risk if direction=='LONG' else (entry - lvl)/risk
                             base.append({'label': lbl, 'price': round(lvl,2), 'rr': round(rr,2)})
                 base.sort(key=lambda x: x['rr'])
-                # Keep top distinct targets (remove those closer than 0.4R apart to avoid clutter)
+                # 🎯 PROFESSIONAL TARGET FILTERING - breiter gefiltert
+                # Keep top distinct targets (remove those closer than 0.8R apart für realistischere Abstände)
                 filtered = []
                 last_rr = -999
                 for t in base:
-                    if t['rr'] - last_rr >= 0.4:
+                    if t['rr'] - last_rr >= 0.8:  # Erhöht von 0.4 auf 0.8
                         filtered.append(t)
                         last_rr = t['rr']
-                    if len(filtered) >= 7:
+                    if len(filtered) >= 5:  # Reduziert von 7 auf 5 Targets
                         break
                 return filtered
 
@@ -2754,28 +2760,54 @@ class MasterAnalyzer:
             bull_ranked = sorted([p for p in all_patterns if p.get('signal')=='bullish'], key=lambda x: x.get('_rank_score',0), reverse=True)
             bear_ranked = sorted([p for p in all_patterns if p.get('signal')=='bearish'], key=lambda x: x.get('_rank_score',0), reverse=True)
 
+            # 🔍 ENHANCED TRADER VALIDIERUNG
+            # Mehrstufige Validierung wie professionelle Trader
+            setup_quality_filters = {
+                'minimum_confidence': 35,  # Erhöht von Standard
+                'maximum_risk_percent': 3.0,  # Max 3% Risk pro Trade
+                'require_multiple_confirmations': True,
+                'avoid_high_volatility_entries': atr_perc > 2.5,
+                'trend_alignment_required': True
+            }
+            
             # Relaxed trend rule: allow LONG setups if not strongly bearish
+            # 🚨 ABER mit zusätzlicher Validierung
+            trend_validation_passed = False
             if 'bullish' in trend or trend in ['neutral','weak','moderate']:
                 if 'bullish' not in trend:
                     relaxation['relaxed_trend_logic'] = True
-                entry_pb = support * 1.003
-                stop_pb = support - atr_val*0.6
-                setups.append({
-                    'id':'L-PB', 'direction':'LONG', 'strategy':'Bullish Pullback',
-                    'entry': round(entry_pb,2), 'stop_loss': round(stop_pb,2),
-                    'risk_percent': round((entry_pb-stop_pb)/entry_pb*100,2),
-                    'targets': _targets(entry_pb, stop_pb,'LONG', [
-                        ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
-                    ]),
-                    'confidence': _confidence(50,[12 if enterprise_ready else 0, 8 if rsi<65 else 0]),
-                    'conditions': [
-                        {'t':'Trend bullish','s':'ok'},
-                        {'t':f'RSI {rsi:.1f}','s':'ok' if rsi<70 else 'warn'},
-                        {'t':f'ATR {atr_perc:.2f}%','s':'ok' if atr_perc<1.2 else 'warn'},
-                        {'t':'Wenig Widerspruch','s':'ok' if contradiction_count==0 else 'bad'}
-                    ],
-                    'rationale':'Einstieg nahe Support mit Trend-Rückenwind'
-                })
+                    # Zusätzliche Bestätigung erforderlich bei schwachem Trend
+                    if rsi > 45 and contradiction_count == 0:
+                        trend_validation_passed = True
+                else:
+                    trend_validation_passed = True
+                if trend_validation_passed:  # Nur wenn Validierung bestanden
+                    entry_pb = support * 1.003
+                    stop_pb = support - atr_val*0.9  # Erweitert von 0.6 auf 0.9
+                    risk_pct = round((entry_pb-stop_pb)/entry_pb*100,2)
+                    
+                    # 🔍 ZUSÄTZLICHE RISK VALIDIERUNG
+                    if risk_pct <= setup_quality_filters['maximum_risk_percent']:
+                        setups.append({
+                            'id':'L-PB', 'direction':'LONG', 'strategy':'Professional Bullish Pullback',
+                            'entry': round(entry_pb,2), 'stop_loss': round(stop_pb,2),
+                            'risk_percent': risk_pct,
+                            'targets': _targets(entry_pb, stop_pb,'LONG', [
+                                ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
+                            ]),
+                            'confidence': _confidence(55,[15 if enterprise_ready else 5, 8 if rsi<65 else 0, 10 if trend_validation_passed else 0]),
+                            'conditions': [
+                                {'t':'Trend validation','s':'ok' if trend_validation_passed else 'warn'},
+                                {'t':f'RSI {rsi:.1f}','s':'ok' if rsi<70 else 'warn'},
+                                {'t':f'Risk {risk_pct:.1f}%','s':'ok' if risk_pct<=2.0 else 'warn'},
+                                {'t':'Enterprise Ready','s':'ok' if enterprise_ready else 'warn'},
+                                {'t':'Low Contradictions','s':'ok' if contradiction_count<=1 else 'bad'}
+                            ],
+                            'validation_score': 'PROFESSIONAL' if all([
+                                trend_validation_passed, enterprise_ready, contradiction_count==0, risk_pct<=2.0
+                            ]) else 'STANDARD',
+                            'rationale':'Multi-validated Einstieg nahe Support mit Professional Risk Management'
+                        })
 
                 entry_bo = resistance * 1.0015
                 stop_bo = resistance - atr_val
@@ -2870,20 +2902,41 @@ class MasterAnalyzer:
                 })
 
             # SHORT strategies (relax: allow if not strongly bullish)
+            # 🚨 ABER mit professioneller Validierung
+            short_trend_validation_passed = False
             if 'bearish' in trend or trend in ['neutral','weak','moderate']:
                 if 'bearish' not in trend:
                     relaxation['relaxed_trend_logic'] = True
-                entry_pbs = resistance*0.997
-                stop_pbs = resistance + atr_val*0.6
-                setups.append({
-                    'id':'S-PB', 'direction':'SHORT', 'strategy':'Bearish Pullback',
-                    'entry': round(entry_pbs,2), 'stop_loss': round(stop_pbs,2),
-                    'risk_percent': round((stop_pbs-entry_pbs)/entry_pbs*100,2),
-                    'targets': _targets(entry_pbs, stop_pbs,'SHORT', [('Support', support), ('Fib 0.382', fib.get('fib_382'))]),
-                    'confidence': _confidence(50,[12 if enterprise_ready else 0, 6 if rsi>35 else 0]),
-                    'conditions': [ {'t':'Trend bearish','s':'ok'}, {'t':f'RSI {rsi:.1f}','s':'ok' if rsi>35 else 'warn'} ],
-                    'rationale':'Rücklauf an Widerstand im Abwärtstrend'
-                })
+                    # Zusätzliche Bestätigung erforderlich bei schwachem Trend
+                    if rsi < 55 and contradiction_count == 0:
+                        short_trend_validation_passed = True
+                else:
+                    short_trend_validation_passed = True
+                    
+                if short_trend_validation_passed:  # Nur wenn Validierung bestanden
+                    entry_pbs = resistance*0.997
+                    stop_pbs = resistance + atr_val*0.9  # Erweitert von 0.6 auf 0.9
+                    risk_pct_short = round((stop_pbs-entry_pbs)/entry_pbs*100,2)
+                    
+                    # 🔍 ZUSÄTZLICHE RISK VALIDIERUNG für SHORT
+                    if risk_pct_short <= setup_quality_filters['maximum_risk_percent']:
+                        setups.append({
+                            'id':'S-PB', 'direction':'SHORT', 'strategy':'Professional Bearish Pullback',
+                            'entry': round(entry_pbs,2), 'stop_loss': round(stop_pbs,2),
+                            'risk_percent': risk_pct_short,
+                            'targets': _targets(entry_pbs, stop_pbs,'SHORT', [('Support', support), ('Fib 0.382', fib.get('fib_382'))]),
+                            'confidence': _confidence(55,[15 if enterprise_ready else 5, 8 if rsi>35 else 0, 10 if short_trend_validation_passed else 0]),
+                            'conditions': [ 
+                                {'t':'Short Trend validation','s':'ok' if short_trend_validation_passed else 'warn'}, 
+                                {'t':f'RSI {rsi:.1f}','s':'ok' if rsi>35 else 'warn'},
+                                {'t':f'Risk {risk_pct_short:.1f}%','s':'ok' if risk_pct_short<=2.0 else 'warn'},
+                                {'t':'Enterprise Ready','s':'ok' if enterprise_ready else 'warn'}
+                            ],
+                            'validation_score': 'PROFESSIONAL' if all([
+                                short_trend_validation_passed, enterprise_ready, contradiction_count==0, risk_pct_short<=2.0
+                            ]) else 'STANDARD',
+                            'rationale':'Multi-validated Pullback an Widerstand mit Professional Risk Management'
+                        })
 
                 entry_bd = support*0.9985
                 stop_bd = support + atr_val
