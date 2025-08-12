@@ -766,6 +766,7 @@ class TechnicalAnalysis:
             for item in data:
                 candles.append({
                     'timestamp': int(item[0]),
+                    'time': int(item[0]),  # alias for backtest logic
                     'open': float(item[1]),
                     'high': float(item[2]),
                     'low': float(item[3]),
