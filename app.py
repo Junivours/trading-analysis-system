@@ -2505,9 +2505,12 @@ def index():
                     })
                 });
                 
+                console.log('🌐 API Response status:', response.status);
                 const data = await response.json();
+                console.log('📊 API Response data:', data);
                 
                 if (data.success) {
+                    console.log('✅ Analysis successful, calling displayAnalysisResults');
                     currentAnalysis = data;
                     displayAnalysisResults(data);
                     
@@ -2516,6 +2519,7 @@ def index():
                         updatePositionManagement(data.position_management);
                     }
                 } else {
+                    console.error('❌ Analysis failed:', data.error);
                     throw new Error(data.error || 'Analysis failed');
                 }
                 
@@ -2576,12 +2580,25 @@ def index():
         }
         
         function displayAnalysisResults(analysis) {
-            const resultsDiv = document.getElementById('results');
+            console.log('🔍 DEBUG: displayAnalysisResults called');
+            console.log('📊 Received analysis data:', analysis);
             
-            if (!analysis || !analysis.success) {
-                resultsDiv.innerHTML = '<div class="error">Analysis failed</div>';
+            const resultsDiv = document.getElementById('results');
+            console.log('📋 Results div found:', resultsDiv ? 'YES' : 'NO');
+            
+            if (!analysis) {
+                console.error('❌ No analysis data received');
+                resultsDiv.innerHTML = '<div class="error">❌ No analysis data received</div>';
                 return;
             }
+            
+            if (!analysis.success) {
+                console.error('❌ Analysis failed:', analysis.error || 'Unknown error');
+                resultsDiv.innerHTML = `<div class="error">❌ Analysis failed: ${analysis.error || 'Unknown error'}</div>`;
+                return;
+            }
+            
+            console.log('✅ Analysis data validation passed');
             
             const fundamentalData = analysis.fundamental_analysis || {};
             const technicalData = fundamentalData.technical_indicators || {};
@@ -2589,8 +2606,15 @@ def index():
             const liquidationData = fundamentalData.liquidation_map || {};
             const chartPatterns = fundamentalData.chart_patterns || {};
             
+            console.log('📊 Fundamental data:', fundamentalData);
+            console.log('🔧 Technical data:', technicalData);
+            console.log('💰 Position data:', positionData);
+            console.log('⚡ Liquidation data:', liquidationData);
+            console.log('📈 Chart patterns:', chartPatterns);
+            
             // Get all_levels from liquidation_map for detailed display
             const allLiquidationLevels = liquidationData.all_levels || [];
+            console.log('🎯 All liquidation levels:', allLiquidationLevels);
             
             resultsDiv.innerHTML = `
                 <div class="result-card">
@@ -4188,6 +4212,22 @@ def analyze_symbol():
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
         print(f"🔍 DEBUG - chart_patterns: {analysis_result['fundamental_analysis'].get('chart_patterns', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
+        
+        # ✅ ADD EXTENSIVE DEBUG OUTPUT FOR FRONTEND
+        print(f"📊 FINAL ANALYSIS RESULT:")
+        print(f"  ✅ success: {analysis_result.get('success')}")
+        print(f"  📈 symbol: {analysis_result.get('symbol')}")
+        print(f"  🧠 neural_signal: {analysis_result.get('neural_signal', {})}")
+        print(f"  📊 fundamental_analysis keys: {list(analysis_result.get('fundamental_analysis', {}).keys())}")
+        if 'fundamental_analysis' in analysis_result:
+            fa = analysis_result['fundamental_analysis']
+            print(f"  🔧 technical_indicators keys: {list(fa.get('technical_indicators', {}).keys())}")
+            print(f"  💰 position_management keys: {list(fa.get('position_management', {}).keys())}")
+            print(f"  ⚡ liquidation_map keys: {list(fa.get('liquidation_map', {}).keys())}")
+            print(f"  📈 chart_patterns keys: {list(fa.get('chart_patterns', {}).keys())}")
+            liq_map = fa.get('liquidation_map', {})
+            if 'all_levels' in liq_map:
+                print(f"  🎯 all_levels count: {len(liq_map['all_levels'])}")
         
         return jsonify(analysis_result)
         
