@@ -1697,16 +1697,25 @@ class MasterAnalyzer:
                 limit = 500
             limit = max(100, min(limit, 1000))  # ensure enough data but cap for performance
 
+            # Determine minimum required candles (adaptive: at least 120, aim for 240 for longer intervals)
+            min_required = 120
+            if interval in ('4h','1d'):
+                min_required = 150
+            if limit < min_required:
+                # Auto-raise limit silently to improve user experience
+                limit = min_required
+
             # Use existing TA candle fetcher (pass interval & limit) else fallback to direct klines
             klines = self.technical_analysis.get_candle_data(symbol, limit=limit, interval=interval)
-            if not klines or len(klines) < 100:
-                print("⚠️ Fallback to direct klines fetch for backtest")
-                # Direct lightweight fetch (spot klines)
+            if not klines or len(klines) < min_required:
+                print("⚠️ Fallback to direct klines fetch for backtest (insufficient or empty from TA layer)")
                 url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={limit}"
                 r = requests.get(url, timeout=10)
                 klines = r.json()
-            if not isinstance(klines, list) or len(klines) < 60:
-                return {'error': f'Not enough historical data (have {len(klines)} candles, need >= 120). Try a longer interval or increase limit.'}
+
+            if not isinstance(klines, list) or len(klines) < min_required:
+                have = len(klines) if isinstance(klines, list) else 0
+                return {'error': f'Not enough historical data: have {have}, need >= {min_required}', 'have': have, 'need': min_required, 'interval': interval, 'suggestion': 'Increase limit or choose higher timeframe'}
 
             # Normalize structure to list of dicts with open, high, low, close, time
             if isinstance(klines[0], list):
@@ -1803,6 +1812,31 @@ class MasterAnalyzer:
             profit_factor = (sum(profits)/sum(losses_list)) if losses_list else float('inf') if profits else 0
             expectancy = (win_rate/100)*(np.mean(profits) if profits else 0) - (1-win_rate/100)*(np.mean(losses_list) if losses_list else 0)
 
+            # --- Additional advanced metrics ---
+            buy_hold_return = (closes[-1]/closes[0]-1)*100 if len(closes) > 1 else 0
+            relative_outperformance = total_ret - buy_hold_return
+            # Exposure: proportion of bars where a position was open
+            exposure_bars = sum(1 for t in equity_curve if True)  # placeholder full length
+            # We didn't store per-bar position state; approximate exposure via average holding duration * trades
+            # Track holding durations by reconstructing from trades (bars_held captured below if we enhance loop)
+            max_consec_wins = 0
+            max_consec_losses = 0
+            cur_wins = 0
+            cur_losses = 0
+            for t in trades:
+                if t['outcome'] == 'win':
+                    cur_wins += 1
+                    cur_losses = 0
+                else:
+                    cur_losses += 1
+                    cur_wins = 0
+                max_consec_wins = max(max_consec_wins, cur_wins)
+                max_consec_losses = max(max_consec_losses, cur_losses)
+            avg_win = np.mean(profits) if profits else 0
+            avg_loss = np.mean(losses_list) if losses_list else 0
+            win_loss_ratio = (avg_win/avg_loss) if avg_loss else float('inf') if avg_win>0 else 0
+            risk_adjusted_return = round(total_ret/(max_dd*100+1e-9),2) if max_dd>0 else 'INF'
+
             return {
                 'symbol': symbol.upper(),
                 'interval': interval,
@@ -1818,7 +1852,15 @@ class MasterAnalyzer:
                     'max_drawdown_pct': round(max_dd*100,2),
                     'profit_factor': round(profit_factor,2) if profit_factor != float('inf') else 'INF',
                     'expectancy_pct': round(expectancy,2),
-                    'sharpe_approx': round(sharpe,2)
+                    'sharpe_approx': round(sharpe,2),
+                    'buy_hold_return_pct': round(buy_hold_return,2),
+                    'alpha_vs_buy_hold_pct': round(relative_outperformance,2),
+                    'avg_win_pct': round(avg_win,2),
+                    'avg_loss_pct': round(avg_loss,2),
+                    'win_loss_ratio': round(win_loss_ratio,2) if win_loss_ratio != float('inf') else 'INF',
+                    'max_consecutive_wins': max_consec_wins,
+                    'max_consecutive_losses': max_consec_losses,
+                    'risk_adjusted_return_ratio': risk_adjusted_return
                 },
                 'trades': trades[-120:],
                 'equity_curve': equity_curve[-250:],
@@ -1870,6 +1912,12 @@ class MasterAnalyzer:
             
             # Pattern Recognition (20% weight)
             pattern_analysis = self.pattern_detector.detect_advanced_patterns(candles)
+            # Ensure timeframe tagging for primary pattern detection timeframe
+            try:
+                for p in pattern_analysis.get('patterns', []):
+                    p.setdefault('timeframe', '1h')
+            except Exception:
+                pass
 
             # Multi-Timeframe Analysis (NEW)
             mt_timeframes = ['15m', '1h', '4h', '1d']
@@ -1961,6 +2009,20 @@ class MasterAnalyzer:
                 pattern_analysis,
                 final_score
             )
+            # Enrich trade setup rationales with multi-timeframe consensus & pattern counts
+            try:
+                bull_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bullish')
+                bear_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bearish')
+                mt_primary = multi_timeframe.get('consensus', {}).get('primary')
+                for s in trade_setups:
+                    addon = f" | MTF: {mt_primary} | Patterns B:{bull_patterns}/S:{bear_patterns}"
+                    if 'rationale' in s:
+                        if addon.strip() not in s['rationale']:
+                            s['rationale'] += addon
+                    else:
+                        s['rationale'] = addon.strip()
+            except Exception:
+                pass
             
             # SAFE RETURN - Convert all numpy types to native Python
             print("🔍 Preparing return data...")
