@@ -9,6 +9,8 @@ import json
 import warnings
 warnings.filterwarnings("ignore")
 
+# ✅ FIXED: Position Analysis Engine - Version 2.1
+
 # 🚀 NEUE OPTIMIERUNGEN - Cache und Status Management
 try:
     from cache_manager import cache_manager, api_optimizer, get_cache_status
@@ -4146,6 +4148,9 @@ def analyze_symbol():
         chart_patterns = advanced_engine.detect_chart_patterns(symbol, ['15m', '1h', '4h'])
         print(f"📊 Patterns found: {chart_patterns.get('patterns_found', 0)}")
         
+        # Add chart patterns to fundamental analysis
+        analysis_result['fundamental_analysis']['chart_patterns'] = chart_patterns
+        
         # 🎯 POSITION MANAGEMENT ANALYSIS
         if current_position:
             try:
@@ -4181,6 +4186,7 @@ def analyze_symbol():
         analysis_result['chart_patterns'] = chart_patterns.get('patterns', {}) if chart_patterns else {}
         
         print(f"🔍 DEBUG - liquidation_map: {analysis_result.get('liquidation_map', 'MISSING')}")
+        print(f"🔍 DEBUG - chart_patterns: {analysis_result['fundamental_analysis'].get('chart_patterns', 'MISSING')}")
         print(f"🔍 DEBUG - trading_setup: {analysis_result.get('trading_setup', 'MISSING')}")
         
         return jsonify(analysis_result)
