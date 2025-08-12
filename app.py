@@ -5,6 +5,8 @@
 # Basierend auf deinem schönen Backup + erweiterte Features
 
 from flask import Flask, jsonify, render_template_string, request
+import os
+import subprocess
 import requests
 import numpy as np
 import json
@@ -35,6 +37,37 @@ except ImportError:
     def logsumexp(x): return np.log(np.sum(np.exp(x)))
 
 app = Flask(__name__)
+
+# ========================================================================================
+# 🔢 VERSION / BUILD METADATA
+# ========================================================================================
+APP_START_TIME = datetime.utcnow().isoformat()+"Z"
+try:
+    _raw_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+except Exception:
+    _raw_commit = os.getenv("GIT_REV", "unknown")
+APP_COMMIT = os.getenv("GIT_REV", _raw_commit)
+APP_VERSION = f"v5-{APP_COMMIT}"
+print(f"🔖 Starting Trading System {APP_VERSION} @ {APP_START_TIME}")
+
+@app.after_request
+def add_no_cache_headers(resp):
+    # Help Railway not to serve stale cached responses (client/proxy) & expose version
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['X-App-Version'] = APP_VERSION
+    return resp
+
+@app.route('/api/version')
+def api_version():
+    return jsonify({
+        'success': True,
+        'version': APP_VERSION,
+        'commit': APP_COMMIT,
+        'started': APP_START_TIME,
+        'jax_available': JAX_AVAILABLE,
+        'features': ['rsi_tv_style','structured_logging','backtest_v1','dca_endpoint','cache_refresh','pattern_timeframes']
+    })
 
 # ========================================================================================
 # 🧠 INTELLIGENT POSITION MANAGEMENT ENGINE
