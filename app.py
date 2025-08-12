@@ -2213,7 +2213,8 @@ class MasterAnalyzer:
                 tech_analysis,
                 extended_analysis,
                 pattern_analysis,
-                final_score
+                final_score,
+                multi_timeframe
             )
             # Enrich trade setup rationales with multi-timeframe consensus & pattern counts
             try:
@@ -2636,7 +2637,7 @@ class MasterAnalyzer:
             'enterprise_ready': len(contradictions) == 0 and risk_level in ['LOW', 'MEDIUM']
         }
 
-    def _generate_trade_setups(self, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score):
+    def _generate_trade_setups(self, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe=None):
         """Generate structured long & short trade setups based on technicals, volatility and validation.
         Returns list of up to 8 setups sorted by confidence."""
         setups = []
@@ -2718,6 +2719,23 @@ class MasterAnalyzer:
                         break
                 return filtered
 
+            # Aggregate multi-timeframe patterns for ranking
+            timeframe_weight = {'15m':0.6,'1h':1.0,'4h':1.4,'1d':1.8}
+            all_patterns = []
+            try:
+                base_p = pattern_analysis.get('patterns', [])
+                mt_p = pattern_analysis.get('multi_timeframe_patterns', [])
+                for p in base_p + mt_p:
+                    tf = p.get('timeframe','1h')
+                    conf = p.get('confidence',50)
+                    w = timeframe_weight.get(tf,1.0)
+                    p['_rank_score'] = conf * w
+                    all_patterns.append(p)
+            except Exception:
+                pass
+            bull_ranked = sorted([p for p in all_patterns if p.get('signal')=='bullish'], key=lambda x: x.get('_rank_score',0), reverse=True)
+            bear_ranked = sorted([p for p in all_patterns if p.get('signal')=='bearish'], key=lambda x: x.get('_rank_score',0), reverse=True)
+
             # Relaxed trend rule: allow LONG setups if not strongly bearish
             if 'bullish' in trend or trend in ['neutral','weak','moderate']:
                 if 'bullish' not in trend:
@@ -2758,6 +2776,64 @@ class MasterAnalyzer:
                     ],
                     'rationale':'Ausbruch nutzt Momentum Beschleunigung'
                 })
+
+                # Pattern Confirmation LONG
+                if bull_ranked:
+                    top_b = bull_ranked[0]
+                    tfb = top_b.get('timeframe','1h')
+                    entry_pc = current_price * 1.001 if current_price < resistance else resistance*1.001
+                    stop_pc = entry_pc - atr_val*0.8
+                    setups.append({
+                        'id':'L-PC', 'direction':'LONG', 'strategy':'Pattern Confirmation',
+                        'entry': round(entry_pc,2), 'stop_loss': round(stop_pc,2),
+                        'risk_percent': round((entry_pc-stop_pc)/entry_pc*100,2),
+                        'targets': _targets(entry_pc, stop_pc,'LONG', [('Resistance', resistance)]),
+                        'confidence': _confidence(52,[min(18,int(top_b.get('confidence',50)/3)), 5 if 'bullish' in trend else 0]),
+                        'conditions': [
+                            {'t':f'Pattern {top_b.get("name","?")}@{tfb}','s':'ok'},
+                            {'t':f'MACD Curve {tech_analysis.get('macd',{}).get('curve_direction')}','s':'ok'},
+                            {'t':f'RSI {rsi:.1f}','s':'ok' if rsi<70 else 'warn'}
+                        ],
+                        'pattern_timeframe': tfb,
+                        'pattern_refs':[f"{top_b.get('name','?')}@{tfb}"],
+                        'source_signals':['pattern','macd_curve','rsi'],
+                        'rationale':'Bullisches Muster bestätigt Fortsetzung'
+                    })
+
+                # Momentum Continuation LONG
+                macd_curve = tech_analysis.get('macd',{}).get('curve_direction','neutral')
+                if 'bullish' in macd_curve and rsi > 55:
+                    entry_momo = current_price * 1.0005
+                    stop_momo = entry_momo - atr_val
+                    setups.append({
+                        'id':'L-MOMO', 'direction':'LONG', 'strategy':'Momentum Continuation',
+                        'entry': round(entry_momo,2), 'stop_loss': round(stop_momo,2),
+                        'risk_percent': round((entry_momo-stop_momo)/entry_momo*100,2),
+                        'targets': _targets(entry_momo, stop_momo,'LONG', [('Resistance', resistance)]),
+                        'confidence': _confidence(50,[10 if rsi>60 else 5, 6]),
+                        'conditions':[{'t':'MACD Curve bullish','s':'ok'},{'t':f'RSI {rsi:.1f}','s':'ok'},{'t':'Trend nicht bearish','s':'ok' if 'bearish' not in trend else 'warn'}],
+                        'source_signals':['macd_curve','rsi','trend'],
+                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI'
+                    })
+
+                # Support Rejection LONG
+                if support and (current_price - support)/current_price*100 < 1.2 and bull_ranked:
+                    top_b2 = bull_ranked[0]
+                    tfb2 = top_b2.get('timeframe','1h')
+                    entry_rej = support * 1.004
+                    stop_rej = support - atr_val*0.7
+                    setups.append({
+                        'id':'L-REJ', 'direction':'LONG', 'strategy':'Support Rejection',
+                        'entry': round(entry_rej,2), 'stop_loss': round(stop_rej,2),
+                        'risk_percent': round((entry_rej-stop_rej)/entry_rej*100,2),
+                        'targets': _targets(entry_rej, stop_rej,'LONG', [('Resistance', resistance)]),
+                        'confidence': _confidence(48,[8, min(14,int(top_b2.get('confidence',50)/4))]),
+                        'conditions':[{'t':'Nahe Support','s':'ok'},{'t':'Bull Pattern','s':'ok'},{'t':'Volatilität ok','s':'ok' if atr_perc<1.5 else 'warn'}],
+                        'pattern_timeframe': tfb2,
+                        'pattern_refs':[f"{top_b2.get('name','?')}@{tfb2}"],
+                        'source_signals':['support','pattern'],
+                        'rationale':'Rejection nahe Support + bullisches Muster'
+                    })
 
             # Relax RSI: previously 32 -> now 35
             if rsi < 32:
@@ -2802,6 +2878,63 @@ class MasterAnalyzer:
                     'conditions': [ {'t':'Bruch unter Support','s':'ok'}, {'t':'Keine bull. Divergenz','s':'ok'} ],
                     'rationale':'Beschleunigter Momentum-Handel beim Support-Bruch'
                 })
+
+                # Pattern Confirmation SHORT
+                if bear_ranked:
+                    top_s = bear_ranked[0]
+                    tfs = top_s.get('timeframe','1h')
+                    entry_ps = current_price * 0.999 if current_price > support else support*0.999
+                    stop_ps = entry_ps + atr_val*0.8
+                    setups.append({
+                        'id':'S-PC', 'direction':'SHORT', 'strategy':'Pattern Confirmation',
+                        'entry': round(entry_ps,2), 'stop_loss': round(stop_ps,2),
+                        'risk_percent': round((stop_ps-entry_ps)/entry_ps*100,2),
+                        'targets': _targets(entry_ps, stop_ps,'SHORT', [('Support', support)]),
+                        'confidence': _confidence(52,[min(18,int(top_s.get('confidence',50)/3)), 5 if 'bearish' in trend else 0]),
+                        'conditions': [
+                            {'t':f'Pattern {top_s.get("name","?")}@{tfs}','s':'ok'},
+                            {'t':f'MACD Curve {tech_analysis.get('macd',{}).get('curve_direction')}','s':'ok'},
+                            {'t':f'RSI {rsi:.1f}','s':'ok' if rsi>30 else 'warn'}
+                        ],
+                        'pattern_timeframe': tfs,
+                        'pattern_refs':[f"{top_s.get('name','?')}@{tfs}"],
+                        'source_signals':['pattern','macd_curve','rsi'],
+                        'rationale':'Bearishes Muster bestätigt Fortsetzung'
+                    })
+
+                # Momentum Continuation SHORT
+                macd_curve_s = tech_analysis.get('macd',{}).get('curve_direction','neutral')
+                if 'bearish' in macd_curve_s and rsi < 45:
+                    entry_momo_s = current_price * 0.9995
+                    stop_momo_s = entry_momo_s + atr_val
+                    setups.append({
+                        'id':'S-MOMO', 'direction':'SHORT', 'strategy':'Momentum Continuation',
+                        'entry': round(entry_momo_s,2), 'stop_loss': round(stop_momo_s,2),
+                        'risk_percent': round((stop_momo_s-entry_momo_s)/entry_momo_s*100,2),
+                        'targets': _targets(entry_momo_s, stop_momo_s,'SHORT', [('Support', support)]),
+                        'confidence': _confidence(50,[10 if rsi<40 else 5, 6]),
+                        'conditions':[{'t':'MACD Curve bearish','s':'ok'},{'t':f'RSI {rsi:.1f}','s':'ok'},{'t':'Trend nicht bullish','s':'ok' if 'bullish' not in trend else 'warn'}],
+                        'source_signals':['macd_curve','rsi','trend'],
+                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI'
+                    })
+
+                # Resistance Rejection SHORT
+                if resistance and (resistance - current_price)/current_price*100 < 1.2 and bear_ranked:
+                    top_s2 = bear_ranked[0]
+                    tfs2 = top_s2.get('timeframe','1h')
+                    entry_rej_s = resistance * 0.996
+                    stop_rej_s = resistance + atr_val*0.7
+                    setups.append({
+                        'id':'S-REJ', 'direction':'SHORT', 'strategy':'Resistance Rejection',
+                        'entry': round(entry_rej_s,2), 'stop_loss': round(stop_rej_s,2),
+                        'risk_percent': round((stop_rej_s-entry_rej_s)/entry_rej_s*100,2),
+                        'targets': _targets(entry_rej_s, stop_rej_s,'SHORT', [('Support', support)]),
+                        'confidence': _confidence(48,[8, min(14,int(top_s2.get('confidence',50)/4))]),
+                        'pattern_timeframe': tfs2,
+                        'pattern_refs':[f"{top_s2.get('name','?')}@{tfs2}"],
+                        'source_signals':['resistance','pattern'],
+                        'rationale':'Rejection nahe Resistance + bearisches Muster'
+                    })
 
             # Relax RSI upper band: previously 68 -> now 65
             if rsi > 68:
