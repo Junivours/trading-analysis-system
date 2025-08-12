@@ -2270,6 +2270,14 @@ class MasterAnalyzer:
             contradictions = validation.get('contradictions', [])
             contradiction_count = len(contradictions)
 
+            # Ensure a minimum ATR baseline so targets are not "zu knapp"
+            min_atr = max(atr_val, current_price * 0.0025)
+            # Helper to widen targets dynamically: structural + ATR extension
+            def _structural_targets(direction, entry):
+                ext_mult = 4.0  # swing extension
+                swing_target = entry + min_atr * ext_mult if direction=='LONG' else entry - min_atr * ext_mult
+                return swing_target
+
             def _confidence(base, adds):
                 score = base + sum(adds)
                 if contradiction_count: score -= 25
@@ -2278,19 +2286,41 @@ class MasterAnalyzer:
                 return max(5, min(97, round(score)))
 
             def _targets(entry, stop, direction, extra=None):
-                risk = (entry - stop) if direction=='LONG' else (stop - entry)
-                risk = max(risk, current_price*0.0005)
+                risk = (entry - stop) if direction=='LONG' else (stop - entry)  # absolute price risk
+                # Enforce wider baseline risk using ATR so TP nicht direkt neben Entry
+                if risk < min_atr * 0.8:
+                    # Widen stop further away (simulate more realistic protective stop)
+                    if direction=='LONG':
+                        stop = entry - min_atr * 0.8
+                    else:
+                        stop = entry + min_atr * 0.8
+                    risk = (entry - stop) if direction=='LONG' else (stop - entry)
+                risk = max(risk, min_atr*0.75)
+
                 base = []
-                for m in [1,2,3]:
+                # Provide broader R multiples including 1.5R & 2.5R and 4R for swing
+                for m in [1,1.5,2,2.5,3]:
                     tp = entry + risk*m if direction=='LONG' else entry - risk*m
                     base.append({'label': f'{m}R', 'price': round(tp,2), 'rr': float(m)})
+                # Add structural / swing extension
+                swing_ext = _structural_targets(direction, entry)
+                base.append({'label':'Swing', 'price': round(swing_ext,2), 'rr': round(abs((swing_ext-entry)/risk),2)})
                 if extra:
                     for lbl, lvl in extra:
                         if lvl:
                             rr = (lvl - entry)/risk if direction=='LONG' else (entry - lvl)/risk
                             base.append({'label': lbl, 'price': round(lvl,2), 'rr': round(rr,2)})
                 base.sort(key=lambda x: x['rr'])
-                return base[:6]
+                # Keep top distinct targets (remove those closer than 0.4R apart to avoid clutter)
+                filtered = []
+                last_rr = -999
+                for t in base:
+                    if t['rr'] - last_rr >= 0.4:
+                        filtered.append(t)
+                        last_rr = t['rr']
+                    if len(filtered) >= 7:
+                        break
+                return filtered
 
             # LONG strategies
             if 'bullish' in trend:
@@ -2509,6 +2539,57 @@ def backtest(symbol):
         if 'error' in data:
             return jsonify({'success': False, 'error': data['error']}), 400
         return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/position/dca', methods=['POST'])
+def dca_position():
+    """Calculate a DCA ladder given total capital, number of entries and risk params.
+    Body: {symbol, total_capital, entries, base_price(optional), spacing_pct(optional), max_risk_pct(optional)}"""
+    try:
+        payload = request.get_json(force=True) or {}
+        symbol = (payload.get('symbol') or 'BTCUSDT').upper()
+        entries = max(1, min(int(payload.get('entries', 5)), 12))
+        total_capital = float(payload.get('total_capital', 1000))
+        spacing_pct = float(payload.get('spacing_pct', 1.25))  # percent between ladder steps
+        max_risk_pct = float(payload.get('max_risk_pct', 2.0))  # overall account risk
+        current_price = master_analyzer.binance_client.get_current_price(symbol) or payload.get('base_price') or 0
+        if not current_price:
+            return jsonify({'success': False, 'error': 'Preis nicht verfügbar'}), 400
+        # Build descending ladder for LONG (basic); could extend with direction later
+        per_step_capital = total_capital / ((entries*(entries+1))/2)  # weighted heavier lower fills
+        ladder = []
+        cumulative_size = 0
+        avg_price_num = 0
+        for i in range(entries):
+            # deeper steps lower percentage
+            level_price = current_price * (1 - (spacing_pct/100.0)*i)
+            size = per_step_capital * (i+1)
+            cumulative_size += size
+            avg_price_num += size * level_price
+            ladder.append({
+                'step': i+1,
+                'price': round(level_price,2),
+                'allocation': round(size,2),
+                'weight_pct': round(size/total_capital*100,2)
+            })
+        avg_entry = avg_price_num / cumulative_size if cumulative_size else current_price
+        # Risk calc: stop below last ladder price by one spacing
+        stop_price = ladder[-1]['price'] * (1 - spacing_pct/100.0)
+        risk_per_unit = avg_entry - stop_price
+        position_value = cumulative_size  # assume 1:1 notional (spot)
+        risk_pct = (risk_per_unit / avg_entry) * 100 if avg_entry else 0
+        ok = risk_pct <= max_risk_pct
+        return jsonify({
+            'success': True,
+            'symbol': symbol,
+            'current_price': current_price,
+            'avg_entry': round(avg_entry,2),
+            'stop_price': round(stop_price,2),
+            'ladder': ladder,
+            'risk_pct_move_to_stop': round(risk_pct,2),
+            'within_risk_limit': ok
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
