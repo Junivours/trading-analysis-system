@@ -9,6 +9,9 @@ import requests
 import numpy as np
 import json
 import time
+import uuid
+import logging
+from collections import deque
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings("ignore")
@@ -2521,6 +2524,45 @@ class MasterAnalyzer:
 master_analyzer = MasterAnalyzer()
 
 # ========================================================================================
+# 🧾 STRUCTURED LOGGING (in-memory ring buffer + stdout)
+# ========================================================================================
+logger = logging.getLogger("trading_app")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(_h)
+
+RECENT_LOGS = deque(maxlen=300)
+
+def log_event(level: str, message: str, **context):
+    """Log event to stdout and store a compact version in RECENT_LOGS.
+    Returns a short log_id for correlation."""
+    log_id = str(uuid.uuid4())[:8]
+    context['log_id'] = log_id
+    try:
+        RECENT_LOGS.append({
+            'ts': time.time(),
+            'level': level.upper(),
+            'message': message,
+            'context': context
+        })
+        log_line = f"[{log_id}] {message} | {context}"
+        if level.lower() == 'error':
+            logger.error(log_line)
+        elif level.lower() == 'warning':
+            logger.warning(log_line)
+        else:
+            logger.info(log_line)
+    except Exception as e:
+        print(f"Logging failure: {e}")
+    return log_id
+
+# ========================================================================================
+# 🌐 API ROUTES
+# ========================================================================================
+
+# ========================================================================================
 # 🌐 API ROUTES
 # ========================================================================================
 
@@ -2552,22 +2594,32 @@ def analyze_symbol(symbol):
         # Optional cache bypass: /api/analyze/BTCUSDT?refresh=1
         if request.args.get('refresh') == '1':
             master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
+            log_event('info', 'Cache cleared for analyze', symbol=symbol.upper())
+        log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1')
         analysis = master_analyzer.analyze_symbol(symbol.upper())
         
         if 'error' in analysis:
+            err_id = log_event('error', 'Analyze error', symbol=symbol.upper(), error=analysis['error'], parent=log_id)
             return jsonify({
                 'success': False,
-                'error': analysis['error']
+                'error': analysis['error'],
+                'log_id': err_id,
+                'symbol': symbol.upper()
             }), 400
+        log_event('info', 'Analyze success', symbol=symbol.upper(), parent=log_id)
         
         return jsonify({
             'success': True,
-            'data': analysis
+            'data': analysis,
+            'log_id': log_id
         })
     except Exception as e:
+        err_id = log_event('error', 'Analyze exception', symbol=symbol.upper(), error=str(e))
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'log_id': err_id,
+            'symbol': symbol.upper()
         }), 500
 
 @app.route('/api/liquidation/<symbol>/<float:entry_price>/<position_type>')
@@ -2635,15 +2687,38 @@ def backtest(symbol):
     try:
         if request.args.get('refresh') == '1':
             master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
+            log_event('info', 'Cache cleared for backtest', symbol=symbol.upper())
+        log_id = log_event('info', 'Backtest start', symbol=symbol.upper(), interval=interval, limit=limit, refresh=request.args.get('refresh')=='1')
         data = master_analyzer.run_backtest(symbol, interval=interval, limit=limit)
         if 'error' in data:
             # Attach meta for client-side diagnosis
+            err_id = log_event('warning', 'Backtest insufficient / error', symbol=symbol.upper(), interval=interval, limit=limit, error=data.get('error'), have=data.get('have'), need=data.get('need'))
             return jsonify({'success': False, 'error': data['error'], 'meta': {
                 'symbol': symbol.upper(), 'interval': interval, 'limit': limit
-            }}), 400
-        return jsonify({'success': True, 'data': data, 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}})
+            }, 'log_id': err_id}), 400
+        log_event('info', 'Backtest success', symbol=symbol.upper(), interval=interval, limit=limit, parent=log_id, trades=data.get('metrics',{}).get('total_trades'))
+        return jsonify({'success': True, 'data': data, 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}, 'log_id': log_id})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        err_id = log_event('error', 'Backtest exception', symbol=symbol.upper(), interval=interval, limit=limit, error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
+
+@app.route('/api/logs/recent')
+def recent_logs():
+    """Return recent in-memory logs (sanitized). Optional filter by level & limit.
+    /api/logs/recent?limit=50&level=ERROR"""
+    try:
+        level_filter = request.args.get('level')
+        limit = int(request.args.get('limit', '100'))
+        limit = max(1, min(limit, 200))
+        out = []
+        for item in list(RECENT_LOGS)[-limit:][::-1]:  # newest first
+            if level_filter and item['level'] != level_filter.upper():
+                continue
+            out.append(item)
+        return jsonify({'success': True, 'logs': out, 'count': len(out)})
+    except Exception as e:
+        err_id = log_event('error', 'Logs endpoint failure', error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
 
 @app.route('/api/position/dca', methods=['POST'])
 def dca_position():
