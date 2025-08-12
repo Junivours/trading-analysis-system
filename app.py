@@ -2537,8 +2537,11 @@ def backtest(symbol):
     try:
         data = master_analyzer.run_backtest(symbol, interval=interval, limit=limit)
         if 'error' in data:
-            return jsonify({'success': False, 'error': data['error']}), 400
-        return jsonify({'success': True, 'data': data})
+            # Attach meta for client-side diagnosis
+            return jsonify({'success': False, 'error': data['error'], 'meta': {
+                'symbol': symbol.upper(), 'interval': interval, 'limit': limit
+            }}), 400
+        return jsonify({'success': True, 'data': data, 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
