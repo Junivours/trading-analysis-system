@@ -6,10 +6,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System deps (add build-essential if later compiling libs)
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+# System deps including build dependencies for JAX
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    build-essential \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
+RUN pip install --no-cache-dir -U pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Optional: copy version.txt early (keeps layer stable if unchanged)
