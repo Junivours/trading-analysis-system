@@ -42,11 +42,34 @@ app = Flask(__name__)
 # 🔢 VERSION / BUILD METADATA
 # ========================================================================================
 APP_START_TIME = datetime.utcnow().isoformat()+"Z"
-try:
-    _raw_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
-except Exception:
-    _raw_commit = os.getenv("GIT_REV", "unknown")
-APP_COMMIT = os.getenv("GIT_REV", _raw_commit)
+
+def _detect_commit():
+    # Priority 1: Explicit env vars commonly available on Railway or user-defined
+    env_candidates = [
+        'GIT_REV', 'RAILWAY_GIT_COMMIT_SHA', 'SOURCE_VERSION', 'SOURCE_COMMIT', 'COMMIT_HASH', 'RAILWAY_BUILD']
+    for key in env_candidates:
+        val = os.getenv(key)
+        if val and val.lower() not in ('unknown','null','none'):
+            return val[:8]
+    # Priority 2: version.txt (user can echo commit > version.txt at build time)
+    try:
+        if os.path.exists('version.txt'):
+            with open('version.txt','r',encoding='utf-8') as f:
+                line = f.readline().strip()
+                if line:
+                    return line[:8]
+    except Exception:
+        pass
+    # Priority 3: git (may not be present in container)
+    try:
+        out = subprocess.check_output(["git","rev-parse","--short","HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    return 'unknown'
+
+APP_COMMIT = _detect_commit()
 APP_VERSION = f"v5-{APP_COMMIT}"
 print(f"🔖 Starting Trading System {APP_VERSION} @ {APP_START_TIME}")
 
@@ -68,6 +91,15 @@ def api_version():
         'jax_available': JAX_AVAILABLE,
         'features': ['rsi_tv_style','structured_logging','backtest_v1','dca_endpoint','cache_refresh','pattern_timeframes']
     })
+
+@app.route('/api/version/refresh', methods=['POST'])
+def api_version_refresh():
+    global APP_COMMIT, APP_VERSION
+    new_commit = _detect_commit()
+    changed = new_commit != APP_COMMIT
+    APP_COMMIT = new_commit
+    APP_VERSION = f"v5-{APP_COMMIT}"
+    return jsonify({'success': True, 'version': APP_VERSION, 'commit': APP_COMMIT, 'changed': changed})
 
 # ========================================================================================
 # 🧠 INTELLIGENT POSITION MANAGEMENT ENGINE
