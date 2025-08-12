@@ -17,11 +17,12 @@ COPY version.txt ./
 
 COPY . .
 
+RUN chmod +x /app/start.sh
+
 # Expose default port (Railway uses $PORT anyway)
 EXPOSE 8000
 
 # Healthcheck hitting the /health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -f http://localhost:8000/health || exit 1
 
-# Start via gunicorn
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+ENTRYPOINT ["/app/start.sh"]
