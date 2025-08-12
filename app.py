@@ -2404,7 +2404,7 @@ class MasterAnalyzer:
             else:
                 dyn_weights['technical'] = dyn_weights['technical']/rem
                 dyn_weights['patterns'] = dyn_weights['patterns']/rem
-        # Weighted final score
+        # Weighted final score (raw aggregate)
         final_score = (
             tech_score * dyn_weights['technical'] +
             pattern_score * dyn_weights['patterns'] +
@@ -2431,13 +2431,31 @@ class MasterAnalyzer:
             signal = 'HOLD'
             signal_color = '#6c757d'
         
+        # Pseudo-Probability Calibration: map 0-100 score into 0-1 via logistic (center 50, slope 0.09)
+        import math
+        calibrated_prob = 1/(1+math.exp(-(final_score-50)*0.09))
+        # Side-specific probability (prob of bullishness). If signal is SELL side invert.
+        bullish_prob = calibrated_prob
+        if signal in ['SELL','STRONG_SELL']:
+            bullish_prob = 1 - bullish_prob
+        # Attach reason if AI disabled
+        ai_reason = None
+        if dyn_weights.get('ai',0) == 0 and self.weights.get('ai',0) > 0:
+            # Determine reason heuristically
+            if ai_analysis.get('mode') == 'offline' or not ai_analysis.get('signal'): ai_reason = 'AI offline/initialization failed'
+            elif ai_analysis.get('confidence',0) < 40: ai_reason = f'AI low confidence {ai_analysis.get("confidence",0)} < 40'
+            else: ai_reason = 'AI weight dynamically suppressed'
         return {
             'score': round(final_score, 1),
+            'probability_bullish': round(bullish_prob*100,2),
+            'calibrated_probability': round(calibrated_prob*100,2),
+            'probability_note': 'Heuristische Kalibrierung (logistische Kurve) – keine echte statistische Eintrittswahrscheinlichkeit',
             'signal': signal,
             'signal_color': signal_color,
             'technical_weight': f"{dyn_weights['technical']*100:.1f}%",
             'pattern_weight': f"{dyn_weights['patterns']*100:.1f}%",
             'ai_weight': f"{dyn_weights.get('ai',0)*100:.1f}%",
+            'ai_disable_reason': ai_reason,
             'component_scores': {
                 'technical': round(tech_score, 1),
                 'patterns': round(pattern_score, 1),
@@ -3008,6 +3026,25 @@ class MasterAnalyzer:
                     'conditions': [{'t':'Fallback','s':'info'}],
                     'rationale':'Fallback Short Setup (relaxed)'
                 })
+
+            # Add probability estimates (heuristic) per setup using calibrated final score
+            try:
+                base_prob = 0.5
+                if isinstance(final_score, dict):
+                    cp = final_score.get('calibrated_probability')
+                    if isinstance(cp, (int,float)):
+                        base_prob = max(0.01, min(0.99, cp/100.0))
+                for s in setups:
+                    conf = s.get('confidence',50)/100.0
+                    if s.get('direction') == 'LONG':
+                        p = base_prob + (conf-0.5)*0.35
+                    else:
+                        p = (1-base_prob) + (conf-0.5)*0.35
+                    p = max(0.02, min(0.98, p))
+                    s['probability_estimate_pct'] = round(p*100,2)
+                    s['probability_note'] = 'Heuristisch (Score + Confidence). Nicht kalibriert.'
+            except Exception:
+                pass
 
             for s in setups:
                 if s.get('targets'):
