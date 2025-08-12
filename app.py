@@ -2056,6 +2056,118 @@ def index():
                 background: rgba(239, 68, 68, 0.3);
                 transform: scale(1.05);
             }
+            
+            /* Liquidation Zones Styles */
+            .liquidation-zones {
+                margin-top: 2rem;
+                padding: 1.5rem;
+                background: rgba(168, 85, 247, 0.1);
+                border-radius: 12px;
+                border: 2px solid rgba(168, 85, 247, 0.3);
+            }
+            
+            .liquidation-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+            
+            .liquidation-card {
+                padding: 1rem;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                border-left: 4px solid;
+                text-align: center;
+            }
+            
+            .liquidation-card.low-risk { border-left-color: #10b981; }
+            .liquidation-card.medium-risk { border-left-color: #f59e0b; }
+            .liquidation-card.high-risk { border-left-color: #ef4444; }
+            .liquidation-card.extreme-risk { border-left-color: #dc2626; }
+            
+            .leverage-label {
+                font-weight: 700;
+                font-size: 1.2rem;
+                margin-bottom: 0.5rem;
+                color: #a855f7;
+            }
+            
+            .liquidation-price {
+                font-size: 1.1rem;
+                font-weight: 600;
+                margin-bottom: 0.3rem;
+            }
+            
+            .distance {
+                font-size: 0.9rem;
+                opacity: 0.8;
+                margin-bottom: 0.5rem;
+            }
+            
+            .risk-badge {
+                font-size: 0.8rem;
+                padding: 0.2rem 0.5rem;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                display: inline-block;
+            }
+            
+            /* Chart Patterns Styles */
+            .chart-patterns-section {
+                margin-top: 2rem;
+                padding: 1.5rem;
+                background: rgba(6, 182, 212, 0.1);
+                border-radius: 12px;
+                border: 2px solid rgba(6, 182, 212, 0.3);
+            }
+            
+            .patterns-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+            
+            .timeframe-patterns {
+                background: rgba(255, 255, 255, 0.05);
+                padding: 1rem;
+                border-radius: 8px;
+            }
+            
+            .timeframe-patterns h5 {
+                color: #06b6d4;
+                margin-bottom: 0.8rem;
+                text-align: center;
+                font-size: 1.1rem;
+            }
+            
+            .pattern-card {
+                background: rgba(255, 255, 255, 0.08);
+                padding: 0.8rem;
+                margin-bottom: 0.8rem;
+                border-radius: 6px;
+                border-left: 3px solid #06b6d4;
+            }
+            
+            .pattern-name {
+                font-weight: 600;
+                margin-bottom: 0.3rem;
+                color: #ffffff;
+            }
+            
+            .confidence, .reliability {
+                font-size: 0.85rem;
+                opacity: 0.8;
+                margin-bottom: 0.2rem;
+            }
+            
+            .no-patterns {
+                text-align: center;
+                opacity: 0.6;
+                font-style: italic;
+                padding: 1rem;
+            }
         </style>
     </head>
     <body>
@@ -2460,10 +2572,12 @@ def index():
             const fundamentalData = analysis.fundamental_analysis || {};
             const technicalData = fundamentalData.technical_indicators || {};
             const positionData = fundamentalData.position_management || {};
+            const liquidationData = fundamentalData.liquidation_map || {};
+            const chartPatterns = fundamentalData.chart_patterns || {};
             
             resultsDiv.innerHTML = `
                 <div class="result-card">
-                    <h3>📊 Trading Analysis for ${analysis.symbol || 'N/A'}</h3>
+                    <h3>📊 Advanced Trading Analysis for ${analysis.symbol || 'N/A'}</h3>
                     
                     <div class="analysis-grid">
                         <div class="analysis-section">
@@ -2477,12 +2591,49 @@ def index():
                             <div>Current Price: $${technicalData.current_price || 0}</div>
                             <div>RSI: ${technicalData.rsi || 0}</div>
                             <div>24h Change: ${technicalData.price_change_24h || 0}%</div>
+                            <div>MACD: ${technicalData.macd || 'N/A'}</div>
+                            <div>Support: $${technicalData.support || 'N/A'}</div>
+                            <div>Resistance: $${technicalData.resistance || 'N/A'}</div>
                         </div>
                         
                         <div class="analysis-section">
                             <h4>🎯 Position Management</h4>
                             <div>${positionData.remaining_potential || 'No position data'}</div>
                             <div>${positionData.target_level || ''}</div>
+                            <div>Stop Loss: $${positionData.stop_loss || 'N/A'}</div>
+                            <div>Take Profit: $${positionData.take_profit || 'N/A'}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="liquidation-zones">
+                        <h4>⚡ Liquidation Levels Map</h4>
+                        <div class="liquidation-grid">
+                            ${Object.entries(liquidationData).map(([leverage, data]) => `
+                                <div class="liquidation-card ${data.risk_level?.toLowerCase().replace(' ', '-') || 'medium'}">
+                                    <div class="leverage-label">${leverage}</div>
+                                    <div class="liquidation-price">$${data.liquidation_price || 'N/A'}</div>
+                                    <div class="distance">${data.distance_percent || 'N/A'}% away</div>
+                                    <div class="risk-badge">${data.risk_level || 'Medium Risk'}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="chart-patterns-section">
+                        <h4>📊 Chart Pattern Analysis</h4>
+                        <div class="patterns-grid">
+                            ${Object.entries(chartPatterns).map(([timeframe, patterns]) => `
+                                <div class="timeframe-patterns">
+                                    <h5>${timeframe} Patterns</h5>
+                                    ${Array.isArray(patterns) ? patterns.map(pattern => `
+                                        <div class="pattern-card">
+                                            <div class="pattern-name">${pattern.pattern || 'Unknown'}</div>
+                                            <div class="confidence">Confidence: ${pattern.confidence || 0}%</div>
+                                            <div class="reliability">Reliability: ${pattern.reliability || 'N/A'}</div>
+                                        </div>
+                                    `).join('') : '<div class="no-patterns">No patterns detected</div>'}
+                                </div>
+                            `).join('')}
                         </div>
                     </div>
                 </div>
