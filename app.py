@@ -101,6 +101,11 @@ def api_version_refresh():
     APP_VERSION = f"v5-{APP_COMMIT}"
     return jsonify({'success': True, 'version': APP_VERSION, 'commit': APP_COMMIT, 'changed': changed})
 
+@app.route('/health')
+def health():
+    # Lightweight health signal (no external API calls)
+    return jsonify({'ok': True, 'version': APP_VERSION, 'time': datetime.utcnow().isoformat()+"Z"})
+
 # ========================================================================================
 # 🧠 INTELLIGENT POSITION MANAGEMENT ENGINE
 # ========================================================================================
