@@ -2093,6 +2093,18 @@ def index():
                 color: #a855f7;
             }
             
+            .liquidation-prices {
+                margin-bottom: 0.5rem;
+            }
+            
+            .long-liq, .short-liq {
+                font-size: 0.9rem;
+                margin: 0.2rem 0;
+            }
+            
+            .long-liq { color: #ef4444; }
+            .short-liq { color: #10b981; }
+            
             .liquidation-price {
                 font-size: 1.1rem;
                 font-weight: 600;
@@ -2575,6 +2587,9 @@ def index():
             const liquidationData = fundamentalData.liquidation_map || {};
             const chartPatterns = fundamentalData.chart_patterns || {};
             
+            // Get all_levels from liquidation_map for detailed display
+            const allLiquidationLevels = liquidationData.all_levels || [];
+            
             resultsDiv.innerHTML = `
                 <div class="result-card">
                     <h3>📊 Advanced Trading Analysis for ${analysis.symbol || 'N/A'}</h3>
@@ -2592,8 +2607,8 @@ def index():
                             <div>RSI: ${technicalData.rsi || 0}</div>
                             <div>24h Change: ${technicalData.price_change_24h || 0}%</div>
                             <div>MACD: ${technicalData.macd || 'N/A'}</div>
-                            <div>Support: $${technicalData.support || 'N/A'}</div>
-                            <div>Resistance: $${technicalData.resistance || 'N/A'}</div>
+                            <div>Support: $${liquidationData.support_level || 'N/A'}</div>
+                            <div>Resistance: $${liquidationData.resistance_level || 'N/A'}</div>
                         </div>
                         
                         <div class="analysis-section">
@@ -2608,12 +2623,15 @@ def index():
                     <div class="liquidation-zones">
                         <h4>⚡ Liquidation Levels Map</h4>
                         <div class="liquidation-grid">
-                            ${Object.entries(liquidationData).map(([leverage, data]) => `
-                                <div class="liquidation-card ${data.risk_level?.toLowerCase().replace(' ', '-') || 'medium'}">
-                                    <div class="leverage-label">${leverage}</div>
-                                    <div class="liquidation-price">$${data.liquidation_price || 'N/A'}</div>
-                                    <div class="distance">${data.distance_percent || 'N/A'}% away</div>
-                                    <div class="risk-badge">${data.risk_level || 'Medium Risk'}</div>
+                            ${allLiquidationLevels.map(levelData => `
+                                <div class="liquidation-card ${getRiskClass(levelData.level)}">
+                                    <div class="leverage-label">${levelData.level}</div>
+                                    <div class="liquidation-prices">
+                                        <div class="long-liq">📉 Long: $${Math.round(levelData.long_liquidation)}</div>
+                                        <div class="short-liq">📈 Short: $${Math.round(levelData.short_liquidation)}</div>
+                                    </div>
+                                    <div class="distance">${levelData.distance_long?.toFixed(1) || 'N/A'}% away</div>
+                                    <div class="risk-badge">${getRiskLevel(levelData.level)}</div>
                                 </div>
                             `).join('')}
                         </div>
@@ -2638,6 +2656,23 @@ def index():
                     </div>
                 </div>
             `;
+        }
+        
+        // Helper functions for liquidation display
+        function getRiskClass(level) {
+            const leverage = parseInt(level.replace('x', ''));
+            if (leverage <= 5) return 'low-risk';
+            if (leverage <= 20) return 'medium-risk';
+            if (leverage <= 50) return 'high-risk';
+            return 'extreme-risk';
+        }
+        
+        function getRiskLevel(level) {
+            const leverage = parseInt(level.replace('x', ''));
+            if (leverage <= 5) return 'Low Risk';
+            if (leverage <= 20) return 'Medium Risk';
+            if (leverage <= 50) return 'High Risk';
+            return 'Extreme Risk';
         }
         
         // Popup Functions
@@ -4119,6 +4154,8 @@ def analyze_symbol():
                 analysis_result['fundamental_analysis']['position_management'] = {
                     'remaining_potential': position_analysis.get('remaining_potential', 'Analysis in progress...'),
                     'target_level': position_analysis.get('target_level', f"${current_price:,.0f}"),
+                    'stop_loss': position_analysis.get('stop_loss', 'N/A'),
+                    'take_profit': position_analysis.get('take_profit', 'N/A'),
                     'recommendations': position_analysis.get('recommendations', [
                         f"Position: {current_position.upper()}",
                         f"Current Price: ${current_price:,.2f}",
