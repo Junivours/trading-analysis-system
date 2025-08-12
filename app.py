@@ -1030,12 +1030,28 @@ class TechnicalAnalysis:
         else:
             curve_direction = 'neutral'
         
+        # Curve strength (second derivative approximation on last 6 histogram points)
+        curve_strength = 0.0
+        try:
+            if len(histogram) >= 6:
+                recent = np.array(histogram[-6:], dtype=float)
+                d1 = np.diff(recent)
+                if len(d1) >= 2:
+                    d2 = np.diff(d1)
+                    curvature = float(np.mean(d2))
+                    scale = float(np.mean(np.abs(recent)) + 1e-6)
+                    norm_curv = curvature / (scale * 3)
+                    curve_strength = max(-1.0, min(1.0, norm_curv))
+        except Exception:
+            pass
         return {
             'macd': macd_line[-1],
             'signal': signal_line[-1],
             'histogram': histogram[-1],
             'curve_direction': curve_direction,
-            'trend_strength': abs(histogram[-1]) / max(abs(min(histogram)), abs(max(histogram))) if len(histogram) > 0 else 0
+            'trend_strength': abs(histogram[-1]) / max(abs(min(histogram)), abs(max(histogram))) if len(histogram) > 0 else 0,
+            'curve_strength': curve_strength,
+            'curve_strength_pct': round(curve_strength*100,2)
         }
     
     @staticmethod
@@ -2063,6 +2079,7 @@ class MasterAnalyzer:
                     else:
                         tf_signal = 'neutral'
                     mt_signals.append(tf_signal)
+                    # timeframe contribution percentages will be added after loop
                     multi_timeframe['timeframes'].append({
                         'tf': tf,
                         'rsi': round(rsi_v,2),
@@ -2093,8 +2110,41 @@ class MasterAnalyzer:
                     'total': len(mt_signals),
                     'primary': primary
                 }
+                # Add percentage distribution
+                total_counts = sum(counts.values()) or 1
+                multi_timeframe['distribution_pct'] = {k: round(v/total_counts*100,2) for k,v in counts.items()}
             else:
                 multi_timeframe['consensus'] = {'primary': 'UNKNOWN'}
+
+            # Market side strength (long vs short)
+            side_score = {'long':0.0,'short':0.0,'neutral':0.0}
+            side_basis = {}
+            rsi_v_main = tech_analysis.get('rsi', {}).get('rsi',50)
+            if rsi_v_main > 55: side_score['long']+=1; side_basis['rsi']='long'
+            elif rsi_v_main < 45: side_score['short']+=1; side_basis['rsi']='short'
+            else: side_basis['rsi']='neutral'
+            macd_hist = tech_analysis.get('macd', {}).get('histogram',0)
+            if macd_hist > 0: side_score['long']+=1; side_basis['macd']='long'
+            elif macd_hist < 0: side_score['short']+=1; side_basis['macd']='short'
+            else: side_basis['macd']='neutral'
+            curve_dir = tech_analysis.get('macd', {}).get('curve_direction','neutral')
+            if 'bullish' in curve_dir: side_score['long']+=0.5; side_basis['macd_curve']=curve_dir
+            elif 'bearish' in curve_dir: side_score['short']+=0.5; side_basis['macd_curve']=curve_dir
+            trend_struct = tech_analysis.get('trend', {}) if isinstance(tech_analysis.get('trend'), dict) else {}
+            if trend_struct.get('trend') in ('bullish','strong_bullish'): side_score['long']+=1; side_basis['trend']='long'
+            elif trend_struct.get('trend') in ('bearish','strong_bearish'): side_score['short']+=1; side_basis['trend']='short'
+            else: side_basis['trend']=trend_struct.get('trend','neutral')
+            bull_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bullish')
+            bear_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bearish')
+            if bull_patterns > bear_patterns: side_score['long']+=1; side_basis['patterns']='long'
+            elif bear_patterns > bull_patterns: side_score['short']+=1; side_basis['patterns']='short'
+            else: side_basis['patterns']='neutral'
+            total_side = side_score['long']+side_score['short']+side_score['neutral'] or 1
+            market_bias = {
+                'long_strength_pct': round(side_score['long']/total_side*100,2),
+                'short_strength_pct': round(side_score['short']/total_side*100,2),
+                'basis': side_basis
+            }
             
             # Position Management Analysis
             position_analysis = self.position_manager.analyze_position_potential(
@@ -2131,6 +2181,13 @@ class MasterAnalyzer:
                 bull_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bullish')
                 bear_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bearish')
                 mt_primary = multi_timeframe.get('consensus', {}).get('primary')
+                data_span_days = None
+                try:
+                    first_ts = candles[0]['time'] if isinstance(candles[0], dict) else candles[0][0]
+                    last_ts = candles[-1]['time'] if isinstance(candles[-1], dict) else candles[-1][0]
+                    data_span_days = round((last_ts - first_ts)/(1000*60*60*24),2)
+                except Exception:
+                    pass
                 for s in trade_setups:
                     addon = f" | MTF: {mt_primary} | Patterns B:{bull_patterns}/S:{bear_patterns}"
                     if 'rationale' in s:
@@ -2138,6 +2195,9 @@ class MasterAnalyzer:
                             s['rationale'] += addon
                     else:
                         s['rationale'] = addon.strip()
+                    if data_span_days is not None:
+                        s['data_span_days'] = data_span_days
+                    s['market_bias'] = market_bias
             except Exception:
                 pass
             
@@ -2186,6 +2246,7 @@ class MasterAnalyzer:
                 'pattern_analysis': pattern_analysis,
                 'position_analysis': position_analysis,
                 'ai_analysis': ai_analysis,
+                'market_bias': market_bias,
                 'liquidation_long': liquidation_long,
                 'liquidation_short': liquidation_short,
                 'trade_setups': trade_setups,
