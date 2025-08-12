@@ -1689,16 +1689,24 @@ class MasterAnalyzer:
         Returns metrics, trade list, equity curve (trimmed) and strategy meta.
         """
         try:
-            # Use existing TA candle fetcher if available else fallback to direct klines
-            klines = self.technical_analysis.get_candle_data(symbol)
+            # Normalize params
+            interval = (interval or '1h').lower()
+            try:
+                limit = int(limit)
+            except Exception:
+                limit = 500
+            limit = max(100, min(limit, 1000))  # ensure enough data but cap for performance
+
+            # Use existing TA candle fetcher (pass interval & limit) else fallback to direct klines
+            klines = self.technical_analysis.get_candle_data(symbol, limit=limit, interval=interval)
             if not klines or len(klines) < 100:
                 print("⚠️ Fallback to direct klines fetch for backtest")
                 # Direct lightweight fetch (spot klines)
-                url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={min(limit,1000)}"
+                url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={limit}"
                 r = requests.get(url, timeout=10)
                 klines = r.json()
             if not isinstance(klines, list) or len(klines) < 60:
-                return {'error': 'Not enough historical data'}
+                return {'error': f'Not enough historical data (have {len(klines)} candles, need >= 120). Try a longer interval or increase limit.'}
 
             # Normalize structure to list of dicts with open, high, low, close, time
             if isinstance(klines[0], list):
@@ -2478,9 +2486,18 @@ def favicon():
 @app.route('/api/ai/status')
 def ai_status():
     try:
-        return jsonify({'success': True, 'data': master_analyzer.ai_system.get_status()})
+        status_data = {}
+        try:
+            if hasattr(master_analyzer, 'ai_system') and master_analyzer.ai_system:
+                status_data = master_analyzer.ai_system.get_status()
+            else:
+                status_data = {'initialized': False, 'model_version': 'unavailable'}
+        except Exception as inner:
+            status_data = {'initialized': False, 'model_version': 'error', 'error': str(inner)}
+        return jsonify({'success': True, 'data': status_data})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        # Absolute fallback – never raise 500 for status endpoint
+        return jsonify({'success': True, 'data': {'initialized': False, 'model_version': 'unavailable', 'error': str(e)}}), 200
 
 @app.route('/api/backtest/<symbol>')
 def backtest(symbol):
