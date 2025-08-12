@@ -26,9 +26,20 @@ with app.test_client() as c:
     check('backtest_15m', r4)
     r5 = c.get(f"/api/logs/recent?limit=15")
     check('recent_logs', r5)
-    # Inspect RSI diff if analyze succeeded
+    # Inspect enterprise fields if analyze succeeded
     if r2.status_code==200:
         data = r2.get_json().get('data', {})
         rsi = data.get('technical_analysis', {}).get('rsi', {})
+        final_score = data.get('final_score', {})
+        timings = data.get('phase_timings_ms', {})
+        mtf = data.get('multi_timeframe', {})
+        ai_hash = data.get('ai_feature_hash')
         print('RSI detail:', rsi)
+        print('Timings keys:', list(timings.keys()))
+        print('MTF consensus:', mtf.get('consensus'))
+        print('AI feature hash:', ai_hash)
+        print('Weights:', data.get('final_score', {}).get('technical_weight'), data.get('final_score', {}).get('ai_weight'))
+        if 'validation' in final_score:
+            v = final_score['validation']
+            print('Validation risk:', v.get('risk_level'), 'Contradictions:', len(v.get('contradictions', [])))
     print("--- SELF TEST END ---")

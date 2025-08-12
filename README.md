@@ -2,9 +2,13 @@
 
 Professional AI-powered trading analysis system with:
 - Real-time price tracking
-- Advanced technical indicators
-- JAX neural networks
-- Professional UI
+- Advanced technical indicators (RSI TV style, MACD curve strength, ATR, Fibonacci, Bollinger, Stoch, CCI, Pivots)
+- Multi-timeframe consensus & pattern scanning
+- Enterprise validation (contradictions: MACD/RSI/Patterns/AI/MTF, risk levels, action gating)
+- Dynamic AI weighting & feature hashing (deterministic traceability)
+- Phase timing metrics per analysis request
+- JAX neural network (strict mode; if unavailable AI weight -> 0)
+- Professional glassmorphism UI
 
 ## Quick Start (Local)
 ```bash
@@ -64,7 +68,9 @@ python test_local.py
 Ensures AI, analyze, backtest, logs endpoints work before pushing.
 
 ## Notes
-- JAX optional: if not installed, AI returns neutral.
+- Strict AI mode: if JAX environment not available the AI component is disabled and weight redistributed (transparently visible in final_score weights).
+- Phase timing metrics returned in `phase_timings_ms` for performance monitoring.
+- Feature hash (ai_feature_hash) allows caching/trace of identical feature vectors.
 - All responses have `X-App-Version` header for deployment freshness.
 
 Live Demo: (set after deployment)

@@ -13,6 +13,8 @@ import json
 import time
 import uuid
 import logging
+import hashlib
+import json
 from collections import deque
 from datetime import datetime, timedelta
 import warnings
@@ -89,7 +91,19 @@ def api_version():
         'commit': APP_COMMIT,
         'started': APP_START_TIME,
         'jax_available': JAX_AVAILABLE,
-        'features': ['rsi_tv_style','structured_logging','backtest_v1','dca_endpoint','cache_refresh','pattern_timeframes']
+        'features': [
+            'rsi_tv_style',
+            'structured_logging',
+            'backtest_v1',
+            'dca_endpoint',
+            'cache_refresh',
+            'pattern_timeframes',
+            'multi_timeframe_consensus',
+            'enterprise_validation',
+            'dynamic_ai_weighting',
+            'feature_hashing',
+            'phase_timings'
+        ]
     })
 
 @app.route('/api/version/refresh', methods=['POST'])
@@ -223,24 +237,16 @@ class PositionManager:
 
 class AdvancedJAXAI:
     def __init__(self):
-        self.mode = 'jax' if JAX_AVAILABLE else 'numpy_fallback'
+        self.mode = 'jax'
         self.training_data = []
-        if JAX_AVAILABLE:
-            self.initialized = True
-            self.key = random.PRNGKey(42)
-            self.model_params = self._init_model()
-            print("🧠 JAX Neural Network initialized: 128→64→32→4 architecture")
-        else:
-            # Numpy fallback weights (deterministic for reproducibility)
-            rng = np.random.default_rng(42)
-            self.initialized = True  # we provide functional fallback
-            self.np_params = {
-                'w1': rng.normal(0,0.1,(128,64)), 'b1': np.zeros(64),
-                'w2': rng.normal(0,0.1,(64,32)),  'b2': np.zeros(32),
-                'w3': rng.normal(0,0.1,(32,16)),  'b3': np.zeros(16),
-                'w4': rng.normal(0,0.1,(16,4)),   'b4': np.zeros(4)
-            }
-            print("⚠️ JAX nicht verfügbar – verwende Numpy Fallback KI (128→64→32→16→4)")
+        if not JAX_AVAILABLE:
+            self.initialized = False
+            print("❌ JAX nicht installiert – KI deaktiviert (Enterprise Modus erfordert JAX)")
+            return
+        self.initialized = True
+        self.key = random.PRNGKey(42)
+        self.model_params = self._init_model()
+        print("🧠 JAX Neural Network initialized: 128→64→32→4 architecture (Enterprise Mode)")
     
     def _init_model(self):
         """Erweiterte 4-Layer Architektur"""
@@ -320,7 +326,7 @@ class AdvancedJAXAI:
     def predict_advanced(self, features):
         """Erweiterte Vorhersage mit 4 Signalen"""
         if not self.initialized:
-            return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':'KI nicht initialisiert'}
+            return {'signal':'HOLD','confidence':0.0,'probabilities':[0.25]*4,'ai_recommendation':'KI deaktiviert (JAX fehlt)','mode':'offline'}
 
         def _postprocess(probs_arr, version_tag):
             probs_np = np.array(probs_arr, dtype=float)
@@ -349,24 +355,13 @@ class AdvancedJAXAI:
             }
 
         try:
-            if self.mode == 'jax':
-                x = jnp.array(features)
-                h1 = jnp.tanh(jnp.dot(x, self.model_params['w1']) + self.model_params['b1'])
-                h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
-                h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
-                logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
-                probs = jnp.exp(logits - logsumexp(logits))
-                return _postprocess(np.array(probs), 'JAX-v2.0')
-            else:
-                x = np.array(features, dtype=float)
-                h1 = np.tanh(x @ self.np_params['w1'] + self.np_params['b1'])
-                h2 = np.tanh(h1 @ self.np_params['w2'] + self.np_params['b2'])
-                h3 = np.tanh(h2 @ self.np_params['w3'] + self.np_params['b3'])
-                logits = h3 @ self.np_params['w4'] + self.np_params['b4']
-                # stable softmax
-                logits = logits - np.max(logits)
-                probs = np.exp(logits)
-                return _postprocess(probs, 'NP-FALLBACK-v1')
+            x = jnp.array(features)
+            h1 = jnp.tanh(jnp.dot(x, self.model_params['w1']) + self.model_params['b1'])
+            h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
+            h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
+            logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
+            probs = jnp.exp(logits - logsumexp(logits))
+            return _postprocess(np.array(probs), 'JAX-v2.0')
         except Exception as e:
             print(f"❌ Neural network error: {e}")
             return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':f'KI-Fehler: {e}','mode':self.mode}
@@ -433,8 +428,8 @@ class AdvancedJAXAI:
             'initialized': self.initialized,
             'samples_collected': len(self.training_data),
             'last_train': getattr(self, 'last_train_info', None),
-            'model_version': 'JAX-v2.0' if self.mode=='jax' else 'NP-FALLBACK-v1',
-            'mode': self.mode
+            'model_version': 'JAX-v2.0' if self.initialized else 'unavailable',
+            'mode': self.mode if self.initialized else 'offline'
         }
     
     def _encode_outcome(self, outcome):
@@ -2006,29 +2001,39 @@ class MasterAnalyzer:
         """Complete analysis of a trading symbol"""
         try:
             print(f"🔍 Starting analysis for {symbol}")
+            phase_t0 = time.time()
+            timings = {}
             
             # Get market data
+            t_phase = time.time()
             ticker_data = self.binance_client.get_ticker_data(symbol)
             current_price = float(ticker_data.get('lastPrice', 0))
+            timings['market_data_ms'] = round((time.time()-t_phase)*1000,2)
             print(f"✅ Got price: {current_price}")
             
             if current_price == 0:
                 return {'error': 'Symbol not found or no price data available'}
             
             # Get candlestick data
+            t_phase = time.time()
             candles = self.technical_analysis.get_candle_data(symbol, interval='1h')
+            timings['candles_fetch_ms'] = round((time.time()-t_phase)*1000,2)
             if not candles:
                 return {'error': 'Unable to fetch candlestick data'}
             print(f"✅ Got {len(candles)} candles")
             
             # Technical Analysis (70% weight) - BASIC ONLY FOR NOW
             print("🔍 Starting technical analysis...")
+            t_phase = time.time()
             tech_analysis = self.technical_analysis.calculate_advanced_indicators(candles)
+            timings['technical_ms'] = round((time.time()-t_phase)*1000,2)
             print("✅ Technical analysis complete")
             
             # Extended Technical Analysis (Enterprise Level) - Temporarily with error handling
             try:
+                t_phase = time.time()
                 extended_analysis = AdvancedTechnicalAnalysis.calculate_extended_indicators(candles)
+                timings['extended_ms'] = round((time.time()-t_phase)*1000,2)
                 print("✅ Extended analysis successful")
             except Exception as e:
                 print(f"❌ Extended analysis error: {e}")
@@ -2042,8 +2047,10 @@ class MasterAnalyzer:
                     'pivot_points': {'pivot': tech_analysis.get('current_price', 0), 'r1': 0},
                     'trend_strength': {'strength': 'medium', 'direction': 'neutral'}
                 }
+                timings['extended_ms'] = round((time.time()-t_phase)*1000,2)
             
             # Pattern Recognition (20% weight)
+            t_phase = time.time()
             pattern_analysis = self.pattern_detector.detect_advanced_patterns(candles)
             # Ensure timeframe tagging for primary pattern detection timeframe
             try:
@@ -2051,6 +2058,25 @@ class MasterAnalyzer:
                     p.setdefault('timeframe', '1h')
             except Exception:
                 pass
+            timings['patterns_ms'] = round((time.time()-t_phase)*1000,2)
+
+            # Multi-timeframe pattern scan (added enterprise)
+            mt_pattern_frames = ['15m','4h','1d']
+            multi_tf_patterns = []
+            for ptf in mt_pattern_frames:
+                try:
+                    ptf_candles = self.technical_analysis.get_candle_data(symbol, interval=ptf, limit=120 if ptf!='1d' else 100)
+                    if not ptf_candles or len(ptf_candles) < 40:
+                        continue
+                    pa = self.pattern_detector.detect_advanced_patterns(ptf_candles)
+                    for pat in pa.get('patterns', []):
+                        pat = dict(pat)
+                        pat['timeframe'] = ptf
+                        multi_tf_patterns.append(pat)
+                except Exception as _e:
+                    continue
+            if multi_tf_patterns:
+                pattern_analysis['multi_timeframe_patterns'] = multi_tf_patterns
 
             # Multi-Timeframe Analysis (NEW)
             mt_timeframes = ['15m', '1h', '4h', '1d']
@@ -2156,19 +2182,32 @@ class MasterAnalyzer:
             )
             
             # AI Analysis (10% weight)
+            t_phase = time.time()
             ai_features = self.ai_system.prepare_advanced_features(
                 tech_analysis, pattern_analysis, ticker_data, position_analysis
             )
+            # Feature integrity hash & stats
+            try:
+                feat_payload = json.dumps(ai_features, sort_keys=True, default=str).encode()
+                feature_hash = hashlib.sha256(feat_payload).hexdigest()[:16]
+            except Exception:
+                feature_hash = 'hash_error'
             ai_analysis = self.ai_system.predict_advanced(ai_features)
+            ai_analysis['feature_hash'] = feature_hash
+            ai_analysis['feature_count'] = len(ai_features) if isinstance(ai_features, dict) else 0
+            timings['ai_ms'] = round((time.time()-t_phase)*1000,2)
             
             # Calculate weighted final score
+            t_phase = time.time()
             final_score = self._calculate_weighted_score(tech_analysis, pattern_analysis, ai_analysis)
+            timings['scoring_ms'] = round((time.time()-t_phase)*1000,2)
             
             # Liquidation Analysis
             liquidation_long = self.liquidation_calc.calculate_liquidation_levels(current_price, 'long')
             liquidation_short = self.liquidation_calc.calculate_liquidation_levels(current_price, 'short')
 
             # Trade Setups (basic R/R framework)
+            t_phase = time.time()
             trade_setups = self._generate_trade_setups(
                 current_price,
                 tech_analysis,
@@ -2188,6 +2227,9 @@ class MasterAnalyzer:
                     data_span_days = round((last_ts - first_ts)/(1000*60*60*24),2)
                 except Exception:
                     pass
+                # attach global data span for response
+                if data_span_days is not None:
+                    tech_analysis['data_span_days'] = data_span_days
                 for s in trade_setups:
                     addon = f" | MTF: {mt_primary} | Patterns B:{bull_patterns}/S:{bear_patterns}"
                     if 'rationale' in s:
@@ -2198,7 +2240,19 @@ class MasterAnalyzer:
                     if data_span_days is not None:
                         s['data_span_days'] = data_span_days
                     s['market_bias'] = market_bias
+                    # remove internal relaxation/fallback flags from public output if present
+                    if 'relaxation_meta' in s:
+                        rm = s['relaxation_meta']
+                        rm.pop('fallback_generated', None)
             except Exception:
+                pass
+            timings['setups_ms'] = round((time.time()-t_phase)*1000,2)
+
+            # Re-run validation including multi-timeframe consensus contradictions enhancement
+            try:
+                if isinstance(final_score, dict):
+                    final_score['validation'] = self._validate_signals(tech_analysis, pattern_analysis, ai_analysis, final_score.get('signal'), multi_timeframe)
+            except Exception as _e:
                 pass
             
             # SAFE RETURN - Convert all numpy types to native Python
@@ -2231,12 +2285,19 @@ class MasterAnalyzer:
                     'risk_level': 'MEDIUM',
                     'contradictions': [],
                     'warnings': [],
-                    'confidence_factors': ['Fallback score used'],
+                    'confidence_factors': ['Default safety score used'],
                     'enterprise_ready': False
                 }
             }
 
             # Build full response object expected by frontend
+            timings['total_ms'] = round((time.time()-phase_t0)*1000,2)
+            validation_summary = safe_final_score.get('validation', {})
+            try:
+                log_event('info', 'Enterprise validation summary', symbol=symbol, risk=validation_summary.get('risk_level'), contradictions=len(validation_summary.get('contradictions', [])), warnings=len(validation_summary.get('warnings', [])))
+            except Exception:
+                pass
+
             result = make_json_safe({
                 'symbol': symbol,
                 'current_price': float(current_price),
@@ -2244,14 +2305,17 @@ class MasterAnalyzer:
                 'technical_analysis': tech_analysis,
                 'extended_analysis': extended_analysis,
                 'pattern_analysis': pattern_analysis,
+                'multi_timeframe': multi_timeframe,
                 'position_analysis': position_analysis,
                 'ai_analysis': ai_analysis,
+                'ai_feature_hash': ai_analysis.get('feature_hash'),
                 'market_bias': market_bias,
                 'liquidation_long': liquidation_long,
                 'liquidation_short': liquidation_short,
                 'trade_setups': trade_setups,
                 'weights': self.weights,
                 'final_score': safe_final_score,
+                'phase_timings_ms': timings,
                 'timestamp': datetime.now().isoformat()
             })
             
@@ -2324,11 +2388,26 @@ class MasterAnalyzer:
         else:
             ai_score = 50
         
+        # Dynamic weight adaptation (reduce AI weight if offline or low confidence)
+        dyn_weights = dict(self.weights)
+        ai_conf = ai_analysis.get('confidence', 50)
+        ai_status = ai_analysis.get('status') or ( 'offline' if not ai_analysis.get('initialized', True) else 'online')
+        if ai_status == 'offline' or ai_conf < 40:
+            # remove AI contribution, re-normalize others
+            removed = dyn_weights.get('ai', 0)
+            dyn_weights['ai'] = 0.0
+            rem = dyn_weights['technical'] + dyn_weights['patterns']
+            if rem <= 0:
+                dyn_weights['technical'] = 0.7
+                dyn_weights['patterns'] = 0.3
+            else:
+                dyn_weights['technical'] = dyn_weights['technical']/rem
+                dyn_weights['patterns'] = dyn_weights['patterns']/rem
         # Weighted final score
         final_score = (
-            tech_score * self.weights['technical'] +
-            pattern_score * self.weights['patterns'] +
-            ai_score * self.weights['ai']
+            tech_score * dyn_weights['technical'] +
+            pattern_score * dyn_weights['patterns'] +
+            ai_score * dyn_weights.get('ai',0)
         )
         
         # Clamp to 0-100 range
@@ -2355,9 +2434,9 @@ class MasterAnalyzer:
             'score': round(final_score, 1),
             'signal': signal,
             'signal_color': signal_color,
-            'technical_weight': f"{self.weights['technical']*100}%",
-            'pattern_weight': f"{self.weights['patterns']*100}%",
-            'ai_weight': f"{self.weights['ai']*100}%",
+            'technical_weight': f"{dyn_weights['technical']*100:.1f}%",
+            'pattern_weight': f"{dyn_weights['patterns']*100:.1f}%",
+            'ai_weight': f"{dyn_weights.get('ai',0)*100:.1f}%",
             'component_scores': {
                 'technical': round(tech_score, 1),
                 'patterns': round(pattern_score, 1),
@@ -2368,7 +2447,7 @@ class MasterAnalyzer:
 
     # (Deprecated earlier _generate_trade_setups removed in favor of advanced version below)
     
-    def _validate_signals(self, tech_analysis, pattern_analysis, ai_analysis, final_signal):
+    def _validate_signals(self, tech_analysis, pattern_analysis, ai_analysis, final_signal, multi_timeframe=None):
         """Enterprise-Level Signal Validation - Eliminiert Widersprüche"""
         warnings = []
         contradictions = []
@@ -2452,16 +2531,81 @@ class MasterAnalyzer:
                 'recommendation': 'Chart Muster sprechen gegen LONG Position!'
             })
         
-        # 5. AI Confidence Validation
+        # 5. AI Confidence & Consistency Validation
         ai_confidence = ai_analysis.get('confidence', 50)
         ai_signal = ai_analysis.get('signal', 'HOLD')
-        
         if ai_confidence < 60:
             warnings.append({
                 'type': 'LOW_AI_CONFIDENCE',
                 'message': f'⚠️ KI Confidence nur {ai_confidence}%',
                 'recommendation': 'KI ist unsicher - warte auf klarere Signale!'
             })
+        # AI vs final signal disagreement (directionally opposite)
+        opposite_map = {
+            'STRONG_BUY': ['SELL','STRONG_SELL'],
+            'BUY': ['STRONG_SELL','SELL'],
+            'STRONG_SELL': ['BUY','STRONG_BUY'],
+            'SELL': ['STRONG_BUY','BUY']
+        }
+        if ai_signal in opposite_map.get(final_signal, []) and ai_confidence >= 55:
+            contradictions.append({
+                'type': 'AI_FINAL_CONTRADICTION',
+                'message': f'⚠️ KI signal {ai_signal} widerspricht {final_signal}',
+                'severity': 'MEDIUM',
+                'recommendation': 'Weitere Bestätigung abwarten'
+            })
+        # Multi-timeframe consensus contradictions
+        if multi_timeframe and isinstance(multi_timeframe, dict):
+            mt_primary = multi_timeframe.get('consensus', {}).get('primary')
+            if mt_primary == 'BULLISH' and final_signal in ['SELL','STRONG_SELL']:
+                contradictions.append({
+                    'type': 'MTF_CONTRADICTION',
+                    'message': 'MTF Konsens BULLISH aber finales Signal bearish',
+                    'severity': 'HIGH',
+                    'recommendation': 'Auf Alignment warten'
+                })
+            if mt_primary == 'BEARISH' and final_signal in ['BUY','STRONG_BUY']:
+                contradictions.append({
+                    'type': 'MTF_CONTRADICTION',
+                    'message': 'MTF Konsens BEARISH aber finales Signal bullish',
+                    'severity': 'HIGH',
+                    'recommendation': 'Auf Alignment warten'
+                })
+            # AI vs MTF
+            if mt_primary == 'BULLISH' and ai_signal in ['SELL','STRONG_SELL'] and ai_confidence >= 55:
+                warnings.append({
+                    'type': 'AI_MTF_MISMATCH',
+                    'message': 'KI bearish vs MTF bullish',
+                    'recommendation': 'Signalqualität prüfen'
+                })
+            if mt_primary == 'BEARISH' and ai_signal in ['BUY','STRONG_BUY'] and ai_confidence >= 55:
+                warnings.append({
+                    'type': 'AI_MTF_MISMATCH',
+                    'message': 'KI bullish vs MTF bearish',
+                    'recommendation': 'Signalqualität prüfen'
+                })
+        # Multi-timeframe pattern majority vs final
+        try:
+            mtp = pattern_analysis.get('multi_timeframe_patterns', [])
+            if mtp:
+                b_mt = sum(1 for p in mtp if p.get('signal')=='bullish')
+                br_mt = sum(1 for p in mtp if p.get('signal')=='bearish')
+                if b_mt > br_mt and final_signal in ['SELL','STRONG_SELL']:
+                    contradictions.append({
+                        'type': 'MTPATTERN_CONTRADICTION',
+                        'message': f'Mehrheit {b_mt} bullish MTF Patterns aber finales Signal bearish',
+                        'severity': 'MEDIUM',
+                        'recommendation': 'Auf Bestätigung warten'
+                    })
+                if br_mt > b_mt and final_signal in ['BUY','STRONG_BUY']:
+                    contradictions.append({
+                        'type': 'MTPATTERN_CONTRADICTION',
+                        'message': f'Mehrheit {br_mt} bearish MTF Patterns aber finales Signal bullish',
+                        'severity': 'MEDIUM',
+                        'recommendation': 'Auf Bestätigung warten'
+                    })
+        except Exception:
+            pass
         
         # 6. Overall Risk Assessment
         risk_level = 'LOW'
