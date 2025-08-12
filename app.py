@@ -2944,6 +2944,78 @@ def index():
                     ${data.confidence?.toFixed(0) || '50'}% confidence
                 </div>
                 
+                <!-- 🎯 LIQUIDATION LEVELS DISPLAY -->
+                ${data.liquidation_map ? `
+                <div style="margin-top: 1rem; padding: 1rem; background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); border-radius: 12px; border: 2px solid rgba(239, 68, 68, 0.3);">
+                    <h4 style="margin: 0 0 0.8rem 0; color: #ef4444; font-size: 1.1rem;">🔥 Liquidation Zones</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem;">
+                        ${data.liquidation_map.all_levels ? data.liquidation_map.all_levels.map(level => `
+                            <div style="background: rgba(239, 68, 68, 0.1); padding: 0.6rem; border-radius: 8px; text-align: center; border: 1px solid rgba(239, 68, 68, 0.2);">
+                                <div style="font-size: 0.75rem; color: #ef4444; font-weight: 600;">${level.leverage}x Leverage</div>
+                                <div style="font-size: 0.7rem; margin: 0.2rem 0;">Long: $${level.long_liquidation?.toLocaleString()}</div>
+                                <div style="font-size: 0.7rem;">Short: $${level.short_liquidation?.toLocaleString()}</div>
+                                <div style="font-size: 0.65rem; color: ${level.distance_long < 5 ? '#ef4444' : level.distance_long < 10 ? '#f59e0b' : '#10b981'};">
+                                    Risk: ${level.distance_long < 5 ? 'HIGH' : level.distance_long < 10 ? 'MED' : 'LOW'}
+                                </div>
+                            </div>
+                        `).join('') : ''}
+                    </div>
+                    <div style="margin-top: 0.8rem; padding: 0.6rem; background: rgba(239, 68, 68, 0.05); border-radius: 6px; font-size: 0.8rem;">
+                        <strong style="color: #ef4444;">⚠️ Risk Assessment:</strong> 
+                        <span style="color: #666;">
+                            Long Liq: $${data.liquidation_map.long_liquidation?.toLocaleString()} | 
+                            Short Liq: $${data.liquidation_map.short_liquidation?.toLocaleString()} | 
+                            Volatility: ${data.liquidation_map.volatility}%
+                        </span>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <!-- 📊 CHART PATTERNS DISPLAY -->
+                ${data.chart_patterns && Object.keys(data.chart_patterns).length > 0 ? `
+                <div style="margin-top: 1rem; padding: 1rem; background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)); border-radius: 12px; border: 2px solid rgba(59, 130, 246, 0.3);">
+                    <h4 style="margin: 0 0 0.8rem 0; color: #3b82f6; font-size: 1.1rem;">📊 Chart Patterns</h4>
+                    <div style="display: grid; gap: 0.6rem;">
+                        ${Object.entries(data.chart_patterns).map(([timeframe, patterns]) => `
+                            <div style="background: rgba(59, 130, 246, 0.1); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                                <div style="font-weight: 600; color: #3b82f6; margin-bottom: 0.4rem;">${timeframe.toUpperCase()} Timeframe</div>
+                                ${Array.isArray(patterns) ? patterns.map(pattern => `
+                                    <div style="margin: 0.3rem 0; padding: 0.4rem; background: rgba(59, 130, 246, 0.05); border-radius: 4px;">
+                                        <div style="font-size: 0.85rem; color: #333; font-weight: 500;">${pattern.name}</div>
+                                        <div style="font-size: 0.75rem; color: #666;">Confidence: ${pattern.confidence}%</div>
+                                        <div style="font-size: 0.75rem; color: #666;">${pattern.description}</div>
+                                    </div>
+                                `).join('') : '<div style="color: #666; font-size: 0.8rem;">No patterns detected</div>'}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                
+                <!-- 🤖 NEURAL NETWORK ANALYSIS -->
+                ${data.neural_network ? `
+                <div style="margin-top: 1rem; padding: 1rem; background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(139, 92, 246, 0.05)); border-radius: 12px; border: 2px solid rgba(139, 92, 246, 0.3);">
+                    <h4 style="margin: 0 0 0.8rem 0; color: #8b5cf6; font-size: 1.1rem;">🤖 JAX Neural Network</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.6rem;">
+                        <div style="background: rgba(139, 92, 246, 0.1); padding: 0.6rem; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 0.75rem; color: #8b5cf6;">Signal</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: #8b5cf6;">${data.neural_network.signal}</div>
+                        </div>
+                        <div style="background: rgba(139, 92, 246, 0.1); padding: 0.6rem; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 0.75rem; color: #8b5cf6;">Confidence</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: #8b5cf6;">${(data.neural_network.confidence * 100).toFixed(1)}%</div>
+                        </div>
+                        <div style="background: rgba(139, 92, 246, 0.1); padding: 0.6rem; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 0.75rem; color: #8b5cf6;">Weight</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: #8b5cf6;">${data.neural_network.weight_in_decision}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 0.6rem; font-size: 0.8rem; color: #666;">
+                        Status: ${data.neural_network.model_status}
+                    </div>
+                </div>
+                ` : ''}
+                
                 <!-- 🚀 NEW TRADING FEATURES V2.0 - FORCE UPDATE -->
                 <div style="margin-top: 1rem; display: flex; gap: 0.6rem; font-size: 0.85rem; border: 2px solid #10b981; padding: 0.5rem; border-radius: 8px; background: rgba(16, 185, 129, 0.05);">
                     <div style="flex: 1; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
