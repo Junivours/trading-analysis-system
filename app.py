@@ -3743,6 +3743,7 @@ DASHBOARD_HTML = """
             displayTechnicalAnalysis(data);
             displayPatternAnalysis(data);
             displayMultiTimeframe(data);
+            displayMarketBias(data);
             displayAIAnalysis(data);
             displayLiquidationTables(data);
         }
@@ -4151,35 +4152,33 @@ DASHBOARD_HTML = """
 
         // Display pattern analysis
         function displayPatternAnalysis(data) {
-            const patterns = data.pattern_analysis;
-            
+            const patterns = data.pattern_analysis || {};
+            const list = patterns.patterns || [];
             let html = `
-                <div class="metric-card" style="margin-bottom: 15px;">
-                    <div class="metric-value ${getSignalColor(patterns.overall_signal)}">${patterns.overall_signal}</div>
-                    <div class="metric-label">Overall Pattern Signal</div>
-                </div>
-                
-                <p style="color: rgba(255,255,255,0.9); margin-bottom: 15px;">
-                    ${patterns.pattern_summary}
-                </p>
-            `;
-
-            if (patterns.patterns && patterns.patterns.length > 0) {
-                html += patterns.patterns.map(pattern => `
-                    <div class="pattern-item fade-in" style="border-left-color: ${getSignalColor(pattern.signal)}">
-                        <div class="pattern-header">
-                            <span class="pattern-type">${pattern.type}</span>
-                            <span class="pattern-confidence">${pattern.confidence}%</span>
-                        </div>
-                        <p style="color: rgba(255,255,255,0.8); font-size: 0.9rem;">
-                            ${pattern.description}
-                        </p>
-                    </div>
-                `).join('');
-            } else {
-                html += '<p style="color: rgba(255,255,255,0.7);">No significant patterns detected</p>';
+                <div class=\"metric-card\" style=\"margin-bottom: 12px;\">
+                    <div class=\"metric-value ${getSignalColor(patterns.overall_signal || 'neutral')}\">${patterns.overall_signal || 'NEUTRAL'}</div>
+                    <div class=\"metric-label\">Overall Pattern Signal</div>
+                </div>`;
+            if (patterns.pattern_summary) {
+                html += `<p style=\"color: var(--text-secondary); font-size:0.6rem; line-height:0.9rem; margin-bottom:10px;\">${patterns.pattern_summary}</p>`;
             }
-
+            if (list.length === 0) {
+                html += '<p style="color: rgba(255,255,255,0.5); font-size:0.65rem;">Keine Muster erkannt</p>';
+            } else {
+                html += '<div style="display:flex; flex-direction:column; gap:10px;">';
+                list.forEach(p => {
+                    html += `
+                    <div class=\"pattern-item fade-in\" style=\"border-left:4px solid ${getSignalColor(p.signal)}\">
+                        <div class=\"pattern-header\">
+                            <span class=\"pattern-type\">${p.type || p.name}<span style=\"margin-left:6px; font-size:0.5rem; background:rgba(255,255,255,0.12); padding:3px 6px; border-radius:6px; letter-spacing:.5px;\">${p.timeframe||'1h'}</span></span>
+                            <span class=\"pattern-confidence\">${p.confidence}%</span>
+                        </div>
+                        <div style=\"font-size:0.55rem; color:var(--text-secondary); margin-bottom:4px;\">Signal: <span style=\"color:${p.signal==='bullish'?'#28a745':p.signal==='bearish'?'#dc3545':'#ffc107'}\">${p.signal}</span></div>
+                        ${p.description?`<div style=\"font-size:0.55rem; color:rgba(255,255,255,0.55); line-height:0.85rem;\">${p.description}</div>`:''}
+                    </div>`;
+                });
+                html += '</div>';
+            }
             document.getElementById('patternAnalysis').innerHTML = html;
         }
 
@@ -4211,33 +4210,48 @@ DASHBOARD_HTML = """
             document.getElementById('aiAnalysis').innerHTML = html;
         }
 
-        function displayMultiTimeframe(data) {
-            const mtf = data.multi_timeframe;
-            if (!mtf) { document.getElementById('multiTimeframe').innerHTML = '<small style="color:var(--text-dim)">No data</small>'; return; }
-            const rows = (mtf.timeframes||[]).map(tf => {
-                if (tf.error) return `<tr><td>${tf.tf}</td><td colspan=5 style='color:#dc3545'>${tf.error}</td></tr>`;
-                const sigColor = tf.signal.includes('bull')? '#28a745' : tf.signal.includes('bear')? '#dc3545' : '#ffc107';
-                return `<tr>
-                    <td>${tf.tf}</td>
-                    <td>${tf.rsi}</td>
-                    <td>${tf.trend}</td>
-                    <td style='color:${sigColor}'>${tf.signal}</td>
-                    <td>${tf.support? tf.support.toFixed(2):'-'}</td>
-                    <td>${tf.resistance? tf.resistance.toFixed(2):'-'}</td>
-                </tr>`;
-            }).join('');
-            const cons = mtf.consensus||{};
-            const consColor = cons.primary==='BULLISH'? '#28a745': cons.primary==='BEARISH'? '#dc3545':'#ffc107';
-            const html = `
-                <table style='width:100%; border-collapse:collapse; font-size:0.6rem;'>
-                    <thead style='background:rgba(255,255,255,0.08)'>
-                        <tr><th>TF</th><th>RSI</th><th>Trend</th><th>Signal</th><th>S</th><th>R</th></tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                <div style='margin-top:8px; font-size:0.6rem;'>Consensus: <span style='color:${consColor}; font-weight:600'>${cons.primary||'-'}</span> (Bull ${cons.bull_score||0} / Bear ${cons.bear_score||0})</div>`;
-            document.getElementById('multiTimeframe').innerHTML = html;
-        }
+                function displayMultiTimeframe(data) {
+                        const mt = data.multi_timeframe || {};
+                        const el = document.getElementById('multiTimeframe');
+                        if (!mt.timeframes || !mt.timeframes.length) { el.innerHTML = '<small style="color:var(--text-dim)">No data</small>'; return; }
+                        let dist = '';
+                        if (mt.distribution_pct) {
+                                dist = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 8px;">' +
+                                        Object.entries(mt.distribution_pct).map(([k,v])=>`<div style=\"font-size:0.5rem; background:rgba(255,255,255,0.1); padding:4px 6px; border-radius:6px;\">${k}: ${v}%</div>`).join('') + '</div>';
+                        }
+                        const cons = mt.consensus || {}; const consColor = cons.primary==='BULLISH'? '#28a745': cons.primary==='BEARISH'? '#dc3545':'#ffc107';
+                        let rows = mt.timeframes.map(t => {
+                                if (t.error) return `<div style='font-size:0.55rem; color:#dc3545; background:rgba(255,255,255,0.06); padding:6px 8px; border-radius:8px;'>${t.tf}: ${t.error}</div>`;
+                                const sigColor = t.signal?.includes('bull')?'#28a745': t.signal?.includes('bear')?'#dc3545':'#ffc107';
+                                return `<div style=\"display:grid; grid-template-columns:50px 70px 50px 1fr; gap:4px; align-items:center; font-size:0.55rem; background:rgba(255,255,255,0.06); padding:6px 8px; border-radius:8px;\">
+                                                <div style=\"font-weight:600;\">${t.tf}</div>
+                                                <div style=\"color:${sigColor}\">${t.signal}</div>
+                                                <div>RSI ${t.rsi ?? '-'} </div>
+                                                <div style=\"opacity:.7;\">${t.trend || ''}</div>
+                                        </div>`;
+                        }).join('');
+                        el.innerHTML = `<div style=\"font-size:0.6rem; margin-bottom:4px;\">Consensus: <span style=\"color:${consColor}; font-weight:600;\">${cons.primary||'-'}</span> (Bull ${cons.bull_score||0} / Bear ${cons.bear_score||0})</div>${dist}<div style=\"display:flex; flex-direction:column; gap:6px;\">${rows}</div>`;
+                }
+
+                function displayMarketBias(data){
+                        const bias = data.market_bias; if(!bias) return;
+                        const container = document.getElementById('signalDisplay');
+                        const longPct = bias.long_strength_pct||0; const shortPct = bias.short_strength_pct||0; const neutralPct = Math.max(0, 100 - longPct - shortPct);
+                        const existing = document.getElementById('marketBiasBar');
+                        const html = `
+                                <div id=\"marketBiasBar\" style=\"margin-top:18px;\">
+                                    <div style=\"font-size:0.55rem; letter-spacing:.5px; color:var(--text-dim); margin-bottom:4px;\">MARKET BIAS</div>
+                                    <div style=\"height:14px; width:100%; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; display:flex;\">
+                                        <div title=\"Long\" style=\"flex:0 0 ${longPct}%; background:#198754;\"></div>
+                                        <div title=\"Neutral\" style=\"flex:0 0 ${neutralPct}%; background:linear-gradient(90deg,#6c757d,#495057);\"></div>
+                                        <div title=\"Short\" style=\"flex:0 0 ${shortPct}%; background:#dc3545;\"></div>
+                                    </div>
+                                    <div style=\"display:flex; justify-content:space-between; font-size:0.5rem; margin-top:4px; color:var(--text-secondary);\">
+                                        <span>Long ${longPct}%</span><span>Neutral ${neutralPct}%</span><span>Short ${shortPct}%</span>
+                                    </div>
+                                </div>`;
+                        if(existing){ existing.outerHTML = html; } else { container.insertAdjacentHTML('beforeend', html); }
+                }
 
         // Fetch AI status
         async function fetchAIStatus() {
