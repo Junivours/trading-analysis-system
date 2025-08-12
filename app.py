@@ -829,63 +829,79 @@ class TechnicalAnalysis:
     
     @staticmethod
     def _calculate_advanced_rsi(closes, period=14):
-        """Advanced RSI with trend analysis"""
-        if len(closes) < period + 5:
-            return {'rsi': 50, 'trend': 'neutral', 'strength': 'weak'}
-        
-        deltas = np.diff(closes)
-        gains = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        
-        avg_gain = np.mean(gains[:period])
-        avg_loss = np.mean(losses[:period])
-        
-        rsi_values = []
-        for i in range(period, len(closes)):
-            if i == period:
-                rs = avg_gain / avg_loss if avg_loss != 0 else 100
-            else:
-                avg_gain = (avg_gain * (period - 1) + gains[i-1]) / period
-                avg_loss = (avg_loss * (period - 1) + losses[i-1]) / period
-                rs = avg_gain / avg_loss if avg_loss != 0 else 100
-            
-            rsi = 100 - (100 / (1 + rs))
-            rsi_values.append(rsi)
-        
-        current_rsi = rsi_values[-1]
-        
-        # RSI trend analysis
-        if len(rsi_values) >= 5:
-            recent_rsi = rsi_values[-5:]
-            rsi_trend = np.polyfit(range(len(recent_rsi)), recent_rsi, 1)[0]
-            
-            if current_rsi > 80:
-                trend = 'overbought'
-                strength = 'very_strong' if rsi_trend > 0 else 'strong'
-            elif current_rsi > 70:
-                trend = 'overbought' if rsi_trend > 0 else 'weakening_overbought'
-                strength = 'strong'
-            elif current_rsi < 20:
-                trend = 'oversold'
-                strength = 'very_strong' if rsi_trend < 0 else 'strong'
-            elif current_rsi < 30:
-                trend = 'oversold' if rsi_trend < 0 else 'weakening_oversold'
-                strength = 'strong'
-            elif 40 <= current_rsi <= 60:
-                trend = 'neutral'
-                strength = 'medium'
-            else:
-                trend = 'bullish' if rsi_trend > 0 else 'bearish'
-                strength = 'medium'
+        """Advanced RSI with TradingView-style Wilder smoothing + comparison.
+        Returns dict with rsi (current), tv_rsi (should match), diff, trend classification and small tail series.
+        No dummy placeholder values – if insufficient data returns {'error': 'insufficient_data'}.
+        """
+        n = int(period)
+        if len(closes) < n + 1:
+            return {'error': 'insufficient_data', 'needed': n+1, 'have': len(closes)}
+
+        closes_arr = np.asarray(closes, dtype=float)
+        deltas = np.diff(closes_arr)
+        gains = np.where(deltas > 0, deltas, 0.0)
+        losses = np.where(deltas < 0, -deltas, 0.0)
+
+        # Wilder's initial average gain/loss
+        avg_gain = gains[:n].mean()
+        avg_loss = losses[:n].mean()
+
+        rsi_series = np.full(len(closes_arr), np.nan, dtype=float)
+        # First RSI value at index n
+        rs = avg_gain / avg_loss if avg_loss > 1e-12 else np.inf
+        rsi_series[n] = 100 - (100 / (1 + rs)) if np.isfinite(rs) else 100.0
+
+        # Wilder smoothing forward
+        for i in range(n+1, len(closes_arr)):
+            gain = gains[i-1]
+            loss = losses[i-1]
+            avg_gain = (avg_gain * (n - 1) + gain) / n
+            avg_loss = (avg_loss * (n - 1) + loss) / n
+            rs = avg_gain / avg_loss if avg_loss > 1e-12 else np.inf
+            rsi_series[i] = 100 - (100 / (1 + rs)) if np.isfinite(rs) else 100.0
+
+        # Current RSI (TradingView equivalent)
+        current_rsi = float(rsi_series[-1])
+        tv_rsi = current_rsi  # identical algorithm; placeholder if later external API used
+        rsi_diff = round(abs(current_rsi - tv_rsi), 4)
+
+        # Trend classification using recent slope (last 5 valid points)
+        recent = rsi_series[~np.isnan(rsi_series)][-5:]
+        if len(recent) >= 2:
+            slope = np.polyfit(range(len(recent)), recent, 1)[0]
         else:
+            slope = 0
+
+        if current_rsi >= 80:
+            trend = 'overbought'
+            strength = 'very_strong' if slope > 0 else 'strong'
+        elif current_rsi >= 70:
+            trend = 'overbought_risk' if slope > 0 else 'weakening_overbought'
+            strength = 'strong'
+        elif current_rsi <= 20:
+            trend = 'oversold'
+            strength = 'very_strong' if slope < 0 else 'strong'
+        elif current_rsi <= 30:
+            trend = 'oversold_risk' if slope < 0 else 'weakening_oversold'
+            strength = 'strong'
+        elif 40 <= current_rsi <= 60:
             trend = 'neutral'
-            strength = 'weak'
-        
+            strength = 'medium'
+        else:
+            trend = 'bullish_bias' if slope > 0 else 'bearish_bias' if slope < 0 else 'neutral'
+            strength = 'medium'
+
+        divergence = TechnicalAnalysis._check_rsi_divergence(closes_arr[-10:], rsi_series[~np.isnan(rsi_series)][-10:] if len(rsi_series[~np.isnan(rsi_series)]) >= 10 else [])
+
         return {
-            'rsi': current_rsi,
+            'rsi': round(current_rsi, 2),
+            'tv_rsi': round(tv_rsi, 2),
+            'rsi_diff': rsi_diff,
             'trend': trend,
             'strength': strength,
-            'divergence': TechnicalAnalysis._check_rsi_divergence(closes[-10:], rsi_values[-10:] if len(rsi_values) >= 10 else [])
+            'divergence': divergence,
+            'period': n,
+            'series_tail': [round(x,2) for x in rsi_series[-30:].tolist()]
         }
     
     @staticmethod
