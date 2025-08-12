@@ -482,8 +482,16 @@ class ChartPatternTrader:
 
 class PositionManager:
     @staticmethod
-    def analyze_position_potential(current_price, support, resistance, trend_analysis, patterns):
-        """Intelligente Position Management Empfehlungen"""
+    def analyze_position_potential(current_price, support, resistance, trend_analysis, patterns, market_context=None, account_equity=None):
+        """Intelligente Position Management Empfehlungen (erweitert)
+
+        Erweiterungen:
+        - Dynamische Positionsgröße basierend auf Stop-Distanz & Risikoprozent
+        - Trailing Stop Vorschläge (ATR- & Struktur-basiert)
+        - Skalierungsplan (Scale-Out an R-Multiples / Key-Levels)
+        - Orderbuch / Flow Kontext (falls verfügbar)
+        - Pattern Konfluenz Score
+        """
         
         # Berechne Potenzial bis Key-Levels
         resistance_potential = ((resistance - current_price) / current_price) * 100 if resistance else 0
@@ -555,6 +563,8 @@ class PositionManager:
                 })
         
         # 🔄 Pattern-basierte Empfehlungen
+        bullish_count = 0
+        bearish_count = 0
         for pattern in patterns.get('patterns', []):
             if pattern['signal'] == 'bullish' and pattern['confidence'] > 70:
                 recommendations.append({
@@ -565,6 +575,7 @@ class PositionManager:
                     'confidence': pattern['confidence'],
                     'color': '#28a745'
                 })
+                bullish_count += 1
             elif pattern['signal'] == 'bearish' and pattern['confidence'] > 70:
                 recommendations.append({
                     'type': 'PATTERN',
@@ -574,8 +585,73 @@ class PositionManager:
                     'confidence': pattern['confidence'],
                     'color': '#dc3545'
                 })
+                bearish_count += 1
+        pattern_confluence_score = (bullish_count - bearish_count) * 5  # einfache Heuristik
+
+        # Orderbuch / Flow Kontext
+        orderbook_note = None
+        flow_note = None
+        ob_imbalance = None
+        if market_context:
+            ob = market_context.get('order_book') or {}
+            bids = ob.get('bids', [])
+            asks = ob.get('asks', [])
+            try:
+                bid_vol = sum(float(b[1]) for b in bids[:10]) if bids else 0
+                ask_vol = sum(float(a[1]) for a in asks[:10]) if asks else 0
+                if bid_vol + ask_vol > 0:
+                    ob_imbalance = round((bid_vol - ask_vol)/(bid_vol+ask_vol)*100,2)
+                    if ob_imbalance > 15:
+                        orderbook_note = f'Starke Bid-Dominanz (+{ob_imbalance}%)'
+                    elif ob_imbalance < -15:
+                        orderbook_note = f'Starke Ask-Dominanz ({ob_imbalance}%)'
+                    else:
+                        orderbook_note = f'Neutraler Orderflow ({ob_imbalance}%)'
+            except Exception:
+                pass
+            flow = market_context.get('recent_trades', {})
+            if isinstance(flow, dict):
+                buy_ratio = flow.get('buy_ratio')
+                if buy_ratio is not None:
+                    if buy_ratio > 0.6:
+                        flow_note = f'Käuferdominanz ({int(buy_ratio*100)}%)'
+                    elif buy_ratio < 0.4:
+                        flow_note = f'Verkäuferdominanz ({int((1-buy_ratio)*100)}%)'
+                    else:
+                        flow_note = 'Flow ausgeglichen'
+
+        # Dynamische Positionsgröße (angenommen 1% Account-Risk falls Equity bekannt)
+        position_sizing = None
+        if account_equity and support and resistance:
+            # Nehme konservativen Stop-Distance als 1.2% des Preises oder Distanz zu nächstem Level
+            structural_stop = min(abs(current_price - support), abs(resistance - current_price)) if resistance and support else current_price*0.012
+            structural_stop = max(structural_stop, current_price*0.004)
+            risk_amount = account_equity * 0.01  # 1% Risk
+            units = risk_amount / structural_stop if structural_stop else 0
+            position_sizing = {
+                'risk_per_trade_pct': 1.0,
+                'structural_stop_distance': round(structural_stop,4),
+                'suggested_units': round(units,4),
+                'notional_position_value': round(units*current_price,2)
+            }
+
+        # Trailing Stop Plan (ATR-basiert wenn Context ATR liefert)
+        trailing_plan = None
+        if market_context and market_context.get('atr'):
+            atr_val = market_context['atr']
+            trailing_plan = {
+                'initial_trailing': f'{round(atr_val*1.5,2)} (1.5 ATR)',
+                'aggressive_trailing': f'{round(atr_val,2)} (1.0 ATR nach +2R)',
+                'structure_shift': 'Nach Break über Resistance -> Stop unter letzter Higher Low Struktur verschieben'
+            }
+
+        # Scaling Plan (universell)
+        scaling_plan = {
+            'scale_out_levels': ['50% bei 2R', '25% bei 3-4R', 'Rest laufen lassen bis Strukturbruch / Swing Level'],
+            're_add_condition': 'Re-Entry bei Pullback zu 0.382/0.5 Fib mit bestätigtem Volumen'
+        }
         
-        return {
+        result = {
             'position_status': position_status,
             'recommendations': recommendations,
             'resistance_potential': resistance_potential,
@@ -584,8 +660,16 @@ class PositionManager:
                 'next_resistance': resistance,
                 'next_support': support,
                 'current_price': current_price
-            }
+            },
+            'pattern_confluence_score': pattern_confluence_score,
+            'orderbook_note': orderbook_note,
+            'flow_note': flow_note,
+            'orderbook_imbalance_pct': ob_imbalance,
+            'position_sizing': position_sizing,
+            'trailing_stop_plan': trailing_plan,
+            'scaling_plan': scaling_plan
         }
+        return result
 
 # ========================================================================================
 # 🤖 ADVANCED JAX AI WITH TRAINING
@@ -981,48 +1065,64 @@ class AdvancedPatternDetector:
     
     @staticmethod
     def _detect_head_shoulders_with_volume(highs, lows, volumes, lookback=25):
-        """Head & Shoulders mit Volumen-Bestätigung"""
+        """Head & Shoulders + Inverse Variante mit Volumen-Bestätigung"""
         if len(highs) < lookback:
             return None
-        
         recent_highs = highs[-lookback:]
-        recent_volumes = volumes[-lookback:]
-        
-        # Find peaks with volume analysis
+        recent_lows = lows[-lookback:]
+        recent_vols = volumes[-lookback:]
+
+        # Bearish Head & Shoulders
         peaks = []
-        for i in range(1, len(recent_highs) - 1):
+        for i in range(1, len(recent_highs)-1):
             if recent_highs[i] > recent_highs[i-1] and recent_highs[i] > recent_highs[i+1]:
-                volume_at_peak = recent_volumes[i]
-                peaks.append((i, recent_highs[i], volume_at_peak))
-        
+                peaks.append((i, recent_highs[i], recent_vols[i]))
         if len(peaks) >= 3:
-            # Sort by height to find head (highest) and shoulders
-            peaks_by_height = sorted(peaks, key=lambda x: x[1], reverse=True)
-            head = peaks_by_height[0]
-            potential_shoulders = peaks_by_height[1:3]
-            
-            # Check if shoulders are similar height
-            shoulder_diff = abs(potential_shoulders[0][1] - potential_shoulders[1][1])
-            if shoulder_diff / potential_shoulders[0][1] < 0.03:  # Within 3%
-                
-                # Volume should be lower on right shoulder (bearish confirmation)
-                left_shoulder_vol = potential_shoulders[0][2]
-                right_shoulder_vol = potential_shoulders[1][2]
-                head_volume = head[2]
-                
-                volume_confirmation = right_shoulder_vol < left_shoulder_vol
-                
-                return {
-                    'type': 'Head and Shoulders',
-                    'signal': 'bearish',
-                    'confidence': 80 if volume_confirmation else 65,
-                    'description': f'Klassische Umkehrformation. Volumen-Bestätigung: {"✅" if volume_confirmation else "⚠️"}',
-                    'head_level': head[1],
-                    'neckline': min(potential_shoulders[0][1], potential_shoulders[1][1]),
-                    'target': min(potential_shoulders[0][1], potential_shoulders[1][1]) * 0.92,  # 8% below neckline
-                    'strength': 'VERY_STRONG' if volume_confirmation else 'STRONG'
-                }
-        
+            peaks_sorted = sorted(peaks, key=lambda x: x[1], reverse=True)
+            head = peaks_sorted[0]
+            shoulders = peaks_sorted[1:3]
+            if len(shoulders) == 2:
+                h_diff = abs(shoulders[0][1]-shoulders[1][1]) / max(shoulders[0][1],1e-9)
+                if h_diff < 0.035:
+                    left_vol = shoulders[0][2]; right_vol = shoulders[1][2]
+                    vol_conf = right_vol < left_vol
+                    neckline = min(shoulders[0][1], shoulders[1][1])
+                    return {
+                        'type': 'Head and Shoulders',
+                        'signal': 'bearish',
+                        'confidence': 80 if vol_conf else 66,
+                        'description': f'Umbau Top-Struktur. Volumen rechts schwächer: {"✅" if vol_conf else "⚠️"}',
+                        'head_level': head[1],
+                        'neckline': neckline,
+                        'target': neckline * 0.92,
+                        'strength': 'VERY_STRONG' if vol_conf else 'STRONG'
+                    }
+
+        # Bullish Inverse Head & Shoulders
+        valleys = []
+        for i in range(1, len(recent_lows)-1):
+            if recent_lows[i] < recent_lows[i-1] and recent_lows[i] < recent_lows[i+1]:
+                valleys.append((i, recent_lows[i], recent_vols[i]))
+        if len(valleys) >= 3:
+            valleys_sorted = sorted(valleys, key=lambda x: x[1])  # tiefste zuerst
+            head_v = valleys_sorted[0]
+            shoulders_v = valleys_sorted[1:3]
+            if len(shoulders_v) == 2:
+                d_diff = abs(shoulders_v[0][1]-shoulders_v[1][1]) / max(shoulders_v[0][1],1e-9)
+                if d_diff < 0.035:
+                    l_vol = shoulders_v[0][2]; r_vol = shoulders_v[1][2]
+                    vol_conf_b = r_vol < l_vol  # rechts leichter
+                    neckline_b = max(shoulders_v[0][1], shoulders_v[1][1])
+                    return {
+                        'type': 'Inverse Head and Shoulders',
+                        'signal': 'bullish',
+                        'confidence': 78 if vol_conf_b else 64,
+                        'description': f'Bullische Bodenstruktur. Volumen rechts leichter: {"✅" if vol_conf_b else "⚠️"}',
+                        'head_level': head_v[1],
+                        'neckline': neckline_b,
+                        'target': neckline_b * 1.08,
+                        'strength': 'STRONG' if vol_conf_b else 'MEDIUM'
+                    }
         return None
     
     @staticmethod
@@ -1087,43 +1187,61 @@ class AdvancedPatternDetector:
     
     @staticmethod
     def _detect_cup_and_handle(highs, lows, closes, lookback=30):
-        """Cup & Handle Pattern Detection"""
+        """Cup & Handle + inverted Variante"""
         if len(closes) < lookback:
             return None
-        
+
         recent_closes = closes[-lookback:]
-        
-        # Find potential cup (U-shape)
         start_price = recent_closes[0]
         end_price = recent_closes[-1]
         min_price = min(recent_closes)
         min_index = recent_closes.index(min_price)
-        
-        # Cup criteria
-        cup_depth = (start_price - min_price) / start_price
-        recovery_ratio = (end_price - min_price) / (start_price - min_price)
-        
-        if 0.1 < cup_depth < 0.5 and recovery_ratio > 0.7:  # Valid cup shape
-            # Look for handle (small pullback)
-            handle_start = int(lookback * 0.7)  # Last 30% of data
-            handle_data = recent_closes[handle_start:]
-            
-            if len(handle_data) > 5:
-                handle_high = max(handle_data)
-                handle_low = min(handle_data)
-                handle_depth = (handle_high - handle_low) / handle_high
-                
-                if 0.05 < handle_depth < 0.15:  # Valid handle
+
+        cup_depth = (start_price - min_price)/start_price if start_price else 0
+        span = (start_price - min_price)
+        recovery = (end_price - min_price)/span if span else 0
+
+        # Bullish
+        if 0.1 < cup_depth < 0.5 and recovery > 0.7:
+            h_start = int(lookback * 0.7)
+            hd = recent_closes[h_start:]
+            if len(hd) > 5:
+                h_high = max(hd); h_low = min(hd)
+                h_depth = (h_high - h_low)/h_high if h_high else 0
+                if 0.05 < h_depth < 0.18:
                     return {
                         'type': 'Cup and Handle',
                         'signal': 'bullish',
                         'confidence': 82,
-                        'description': f'Cup-Tiefe: {cup_depth:.1%}, Handle-Korrektur: {handle_depth:.1%}',
-                        'breakout_level': handle_high * 1.02,
-                        'target': handle_high * (1 + cup_depth),
+                        'description': f'Cup-Tiefe: {cup_depth:.1%}, Handle-Korrektur: {h_depth:.1%}',
+                        'breakout_level': h_high * 1.02,
+                        'target': h_high * (1 + cup_depth),
                         'strength': 'VERY_STRONG'
                     }
-        
+
+        # Inverted bearish
+        max_price = max(recent_closes)
+        max_index = recent_closes.index(max_price)
+        inv_depth = (max_price - min_price)/max_price if max_price else 0
+        inv_span = (max_price - min_price)
+        inv_recovery = (max_price - end_price)/inv_span if inv_span else 0
+        if 0.1 < inv_depth < 0.5 and inv_recovery > 0.7 and max_index < min_index:
+            h_start_i = int(lookback * 0.7)
+            hd_i = recent_closes[h_start_i:]
+            if len(hd_i) > 5:
+                ih = max(hd_i); il = min(hd_i)
+                i_depth = (ih - il)/ih if ih else 0
+                if 0.05 < i_depth < 0.20:
+                    return {
+                        'type': 'Inverted Cup and Handle',
+                        'signal': 'bearish',
+                        'confidence': 78,
+                        'description': f'Invertiert: Tiefe {inv_depth:.1%}, Handle {i_depth:.1%}',
+                        'breakout_level': il * 0.98,
+                        'target': il * (1 - inv_depth),
+                        'strength': 'STRONG'
+                    }
+
         return None
     
     @staticmethod
@@ -3162,7 +3280,24 @@ class MasterAnalyzer:
                             'validation_score': 'PROFESSIONAL' if all([
                                 trend_validation_passed, enterprise_ready, contradiction_count==0, risk_pct<=2.0
                             ]) else 'STANDARD',
-                            'rationale':'Multi-validated Einstieg nahe Support mit Professional Risk Management'
+                            'rationale':'Multi-validated Einstieg nahe Support mit Professional Risk Management',
+                            'justification': {
+                                'core_thesis': 'Pullback in intaktem Aufwärtstrend zurück in Nachfragezone (Support Re-Test).',
+                                'confluence': [
+                                    'Trend Align (bullish / nicht bearish)',
+                                    f'RSI moderat ({rsi:.1f}) -> noch kein Extrem',
+                                    'Support strukturell bestätigt',
+                                    'Risk <= 2% akzeptabel',
+                                    'Keine starken Widersprüche'
+                                ],
+                                'risk_model': 'Stop unter strukturellem Support + ATR-Puffer (~1.2 ATR).',
+                                'invalidations': [
+                                    'Tiefer Schlusskurs 1.5% unter Support',
+                                    'RSI Divergenz bearish + MACD Curve kippt',
+                                    'Volumen Distribution Shift gegen Trend'
+                                ],
+                                'execution_plan': 'Limit/Stop-Order leicht über Re-Test Candle High, Teilgewinn bei 2R, Rest trailen.'
+                            }
                         })
 
                 entry_bo = resistance * 1.0015
@@ -3180,7 +3315,23 @@ class MasterAnalyzer:
                         {'t':'Momentum intakt','s':'ok'},
                         {'t':'Kein starker Widerspruch','s':'ok' if contradiction_count==0 else 'bad'}
                     ],
-                    'rationale':'Ausbruch nutzt Momentum Beschleunigung'
+                    'rationale':'Ausbruch nutzt Momentum Beschleunigung',
+                    'justification': {
+                        'core_thesis': 'Preis akzeptiert oberhalb vorherigen Angebotslevels -> mögliche Preisentfaltung / Imbalance Fill.',
+                        'confluence': [
+                            'Break + Close über Resistance',
+                            'Momentum bestätigt (MACD Curve / Volumen Spike möglich)',
+                            f'RSI noch unter Extremzone ({rsi:.1f})',
+                            'Keine akuten Widerspruchs-Signale'
+                        ],
+                        'risk_model': 'Stop unter ehemaligem Widerstand (jetzt potentielle Unterstützung) + ATR-Schutz.',
+                        'invalidations': [
+                            'Rückfall & Close zurück unter Level',
+                            'Low-Volume Fakeout (Volumen unter Durchschnitt)',
+                            'Bearish Engulfing direkt nach Break'
+                        ],
+                        'execution_plan': 'Stop-Order geringfügig über Break-Level, Confirm Candle abwarten, dann Staffeln der TPs.'
+                    }
                 })
 
                 # Pattern Confirmation LONG
@@ -3203,7 +3354,23 @@ class MasterAnalyzer:
                         'pattern_timeframe': tfb,
                         'pattern_refs':[f"{top_b.get('name','?')}@{tfb}"],
                         'source_signals':['pattern','macd_curve','rsi'],
-                        'rationale':'Bullisches Muster bestätigt Fortsetzung'
+                        'rationale':'Bullisches Muster bestätigt Fortsetzung',
+                        'justification': {
+                            'core_thesis': f'Bestätigtes bullisches {top_b.get("name","Pattern")} auf {tfb} mit Momentum-Unterstützung.',
+                            'confluence': [
+                                'Muster + Trend nicht dagegen',
+                                'MACD Curve positiv',
+                                f'RSI gesund ({rsi:.1f})',
+                                'Kein unmittelbarer Widerstand direkt vor Entry'
+                            ],
+                            'risk_model': 'Stop unter Pattern-Struktur + ATR-Puffer.',
+                            'invalidations': [
+                                'Bruch Pattern Low',
+                                'Volumen-Absorption am Entry',
+                                'Bearish Divergenz entsteht'
+                            ],
+                            'execution_plan': 'Einstieg nach Bestätigungs-Close, Teilverkäufe an 2R / Strukturzonen.'
+                        }
                     })
 
                 # Momentum Continuation LONG
@@ -3219,7 +3386,14 @@ class MasterAnalyzer:
                         'confidence': _confidence(50,[10 if rsi>60 else 5, 6]),
                         'conditions':[{'t':'MACD Curve bullish','s':'ok'},{'t':f'RSI {rsi:.1f}','s':'ok'},{'t':'Trend nicht bearish','s':'ok' if 'bearish' not in trend else 'warn'}],
                         'source_signals':['macd_curve','rsi','trend'],
-                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI'
+                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI',
+                        'justification': {
+                            'core_thesis': 'Fortsetzung nach impulsiver Expansionsphase ohne Erschöpfungssignale.',
+                            'confluence': [ 'Bull MACD Curve', f'RSI > 55 ({rsi:.1f})', 'Keine bearishe Divergenz', 'Trend nicht kontra' ],
+                            'risk_model': 'Stop unter kurzfristigem Momentum Pivot (letzte Mini-Konsolidierung).',
+                            'invalidations': [ 'Momentum Collapse (starker Gegen-Volumen Spike)', 'RSI fällt unter 48', 'MACD Curve dreht sofort bearisch' ],
+                            'execution_plan': 'Market/Limit Entry in leichte Pullback-Candle, aggressives Trail nach 2R.'
+                        }
                     })
 
                 # Support Rejection LONG
@@ -3238,7 +3412,14 @@ class MasterAnalyzer:
                         'pattern_timeframe': tfb2,
                         'pattern_refs':[f"{top_b2.get('name','?')}@{tfb2}"],
                         'source_signals':['support','pattern'],
-                        'rationale':'Rejection nahe Support + bullisches Muster'
+                        'rationale':'Rejection nahe Support + bullisches Muster',
+                        'justification': {
+                            'core_thesis': 'Agressive Käufer verteidigen Key-Support -> frische Nachfrage bestätigt.',
+                            'confluence': [ 'Wick Rejection / schnelle Zurückweisung', 'Bull Pattern aktiv', 'Volatilität moderat', 'Support mehrfach getestet' ],
+                            'risk_model': 'Stop unter Rejection-Trigger + Struktur Low.',
+                            'invalidations': [ 'Close unter Support', 'Volumen trocknet aus', 'Pattern verliert Struktur' ],
+                            'execution_plan': 'Entry nach Rejection Candle High Break, konservatives Teilziel bei 2R.'
+                        }
                     })
 
             # Relax RSI: previously 32 -> now 35
@@ -3254,7 +3435,14 @@ class MasterAnalyzer:
                     'targets': _targets(entry_mr, stop_mr,'LONG', [('Resistance', resistance)]),
                     'confidence': _confidence(42,[10 if rsi<28 else 4]),
                     'conditions': [ {'t':f'RSI {rsi:.1f}','s':'ok'}, {'t':'Trend nicht stark bearish','s':'ok' if 'bearish' not in trend else 'warn'} ],
-                    'rationale':'Überverkaufte Bedingung -> Rebound Szenario'
+                    'rationale':'Überverkaufte Bedingung -> Rebound Szenario',
+                    'justification': {
+                        'core_thesis': 'Kurzfristige Übertreibung (Oversold) mit mean reversion Potenzial.',
+                        'confluence': [ f'RSI < 35 ({rsi:.1f})', 'Trend nicht stark bearish', 'Keine massiven Distribution-Spikes' ],
+                        'risk_model': 'Stop unter lokaler Exhaustion / Spike Low.',
+                        'invalidations': [ 'Weitere starke Long Liquidations', 'RSI fällt unter 20 ohne Reaktionsvolumen' ],
+                        'execution_plan': 'Scaling Entry in 2 Tranchen, enges Management, frühes Secure bei 1.5-2R.'
+                    }
                 })
 
             # SHORT strategies (relax: allow if not strongly bullish)
@@ -3291,7 +3479,14 @@ class MasterAnalyzer:
                             'validation_score': 'PROFESSIONAL' if all([
                                 short_trend_validation_passed, enterprise_ready, contradiction_count==0, risk_pct_short<=2.0
                             ]) else 'STANDARD',
-                            'rationale':'Multi-validated Pullback an Widerstand mit Professional Risk Management'
+                            'rationale':'Multi-validated Pullback an Widerstand mit Professional Risk Management',
+                            'justification': {
+                                'core_thesis': 'Pullback in aktiven Abwärtstrend zurück in Angebotszone (Lower High Opportunity).',
+                                'confluence': [ 'Trend Align bearish / nicht bullisch', f'RSI neutral ({rsi:.1f}) -> Raum für Abwärtsbewegung', 'Widerstand bestätigt', 'Risk <= 2%' ],
+                                'risk_model': 'Stop über strukturellem Swing High + ATR-Puffer.',
+                                'invalidations': [ 'Starker Close über Widerstand', 'Bullische Volume Absorption', 'Momentum Shift (MACD Curve bullisch)' ],
+                                'execution_plan': 'Entry mittels Limit nahe Pullback Spitze, Teilgewinn bei 2R.'
+                            }
                         })
 
                 entry_bd = support*0.9985
@@ -3303,7 +3498,14 @@ class MasterAnalyzer:
                     'targets': _targets(entry_bd, stop_bd,'SHORT', [('Fib 0.236', fib.get('fib_236'))]),
                     'confidence': _confidence(48,[14 if enterprise_ready else 4, 5]),
                     'conditions': [ {'t':'Bruch unter Support','s':'ok'}, {'t':'Keine bull. Divergenz','s':'ok'} ],
-                    'rationale':'Beschleunigter Momentum-Handel beim Support-Bruch'
+                    'rationale':'Beschleunigter Momentum-Handel beim Support-Bruch',
+                    'justification': {
+                        'core_thesis': 'Akzeptanz unter Key-Support -> möglicher Preis-Entleerungsbereich (Liquidity Vacuum).',
+                        'confluence': [ 'Bruch + Close unter Support', 'Keine bullische Divergenz', 'Volumen nicht kollabierend', 'Trend nicht bullisch' ],
+                        'risk_model': 'Stop über Breakdown Level + ATR.',
+                        'invalidations': [ 'Starker Reclaim Support', 'Volumen Divergenz (fallender Preis, fallendes Volumen)', 'Bull Pattern formt sich sofort' ],
+                        'execution_plan': 'Entry über Stop-Order unter Bestätigungscandle, schnelles Tightening nach initialem Flush.'
+                    }
                 })
 
                 # Pattern Confirmation SHORT
@@ -3326,7 +3528,14 @@ class MasterAnalyzer:
                         'pattern_timeframe': tfs,
                         'pattern_refs':[f"{top_s.get('name','?')}@{tfs}"],
                         'source_signals':['pattern','macd_curve','rsi'],
-                        'rationale':'Bearishes Muster bestätigt Fortsetzung'
+                        'rationale':'Bearishes Muster bestätigt Fortsetzung',
+                        'justification': {
+                            'core_thesis': f'Bestätigtes bearisches {top_s.get("name","Pattern")} auf {tfs} mit Momentum-Unterstützung.',
+                            'confluence': [ 'Muster + Trend nicht bullish', 'MACD Curve negativ', f'RSI intakt ({rsi:.1f})', 'Kein unmittelbarer Support darunter' ],
+                            'risk_model': 'Stop über Pattern-Struktur + ATR-Puffer.',
+                            'invalidations': [ 'Close zurück in Pattern', 'Volumen Absorption durch Käufer', 'Bull Divergenz bildet sich' ],
+                            'execution_plan': 'Entry nach Bestätigungs-Close, Teilziel 2R, Rest laufen bis Strukturbruch.'
+                        }
                     })
 
                 # Momentum Continuation SHORT
@@ -3342,7 +3551,14 @@ class MasterAnalyzer:
                         'confidence': _confidence(50,[10 if rsi<40 else 5, 6]),
                         'conditions':[{'t':'MACD Curve bearish','s':'ok'},{'t':f'RSI {rsi:.1f}','s':'ok'},{'t':'Trend nicht bullish','s':'ok' if 'bullish' not in trend else 'warn'}],
                         'source_signals':['macd_curve','rsi','trend'],
-                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI'
+                        'rationale':'Momentum Fortsetzung basierend auf MACD Bogen + RSI',
+                        'justification': {
+                            'core_thesis': 'Fortlaufende Abwärts-Beschleunigung ohne deutliche Gegenreaktion (Momentum Squeeze).',
+                            'confluence': [ 'Bear MACD Curve', f'RSI < 45 ({rsi:.1f})', 'Kein aggressives Buying', 'Trend nicht kontra' ],
+                            'risk_model': 'Stop über kurzfristigem Momentum Pivot / Mini Range High.',
+                            'invalidations': [ 'Sharp Reversal Candle mit Volumen', 'RSI Erholung > 52', 'Pattern Flip bullisch' ],
+                            'execution_plan': 'Entry in Micro-Pullback, aggressives Trailing nach 2R.'
+                        }
                     })
 
                 # Resistance Rejection SHORT
@@ -3360,7 +3576,14 @@ class MasterAnalyzer:
                         'pattern_timeframe': tfs2,
                         'pattern_refs':[f"{top_s2.get('name','?')}@{tfs2}"],
                         'source_signals':['resistance','pattern'],
-                        'rationale':'Rejection nahe Resistance + bearisches Muster'
+                        'rationale':'Rejection nahe Resistance + bearisches Muster',
+                        'justification': {
+                            'core_thesis': 'Verkaufsabsorptionszone wird verteidigt -> Angebot dominiert weiter.',
+                            'confluence': [ 'Mehrfaches Rejection Verhalten', 'Bear Pattern aktiv', 'Volatilität moderat', 'Kein Momentum Reversal' ],
+                            'risk_model': 'Stop über Rejection Wick + ATR.',
+                            'invalidations': [ 'Close über Level', 'Volumen Shift pro Käufer', 'Pattern Struktur bricht' ],
+                            'execution_plan': 'Entry nach Bestätigung Reversal Candle, konservatives Ziel 2R, Rest strukturbasiert.'
+                        }
                     })
 
             # Relax RSI upper band: previously 68 -> now 65
@@ -3376,7 +3599,14 @@ class MasterAnalyzer:
                     'targets': _targets(entry_mrs, stop_mrs,'SHORT', [('Support', support)]),
                     'confidence': _confidence(42,[10 if rsi>72 else 4]),
                     'conditions': [ {'t':f'RSI {rsi:.1f}','s':'ok'}, {'t':'Trend nicht stark bullish','s':'ok' if 'bullish' not in trend else 'warn'} ],
-                    'rationale':'Überkaufte Bedingung -> Rücksetzer / Mean Reversion'
+                    'rationale':'Überkaufte Bedingung -> Rücksetzer / Mean Reversion',
+                    'justification': {
+                        'core_thesis': 'Kurzfristige Überdehnung (Overbought) lädt Mean-Reversion Bewegung ein.',
+                        'confluence': [ f'RSI > 65 ({rsi:.1f})', 'Keine frische Breakout Momentum Candle', 'Trend nicht stark bullish' ],
+                        'risk_model': 'Stop über Exhaustion Hoch.',
+                        'invalidations': [ 'Fortgesetzter Momentum Squeeze', 'RSI > 78 mit Volumen Expansion' ],
+                        'execution_plan': 'Entry gestaffelt, schneller Stop Tightening, conservative Targets.'
+                    }
                 })
 
             # Pattern injected setups if patterns present & not enough direction from trend
