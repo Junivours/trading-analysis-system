@@ -2791,7 +2791,7 @@ class MasterAnalyzer:
                         'confidence': _confidence(52,[min(18,int(top_b.get('confidence',50)/3)), 5 if 'bullish' in trend else 0]),
                         'conditions': [
                             {'t':f'Pattern {top_b.get("name","?")}@{tfb}','s':'ok'},
-                            {'t':f'MACD Curve {tech_analysis.get('macd',{}).get('curve_direction')}','s':'ok'},
+                            {'t': f"MACD Curve {tech_analysis.get('macd', {}).get('curve_direction')}", 's':'ok'},
                             {'t':f'RSI {rsi:.1f}','s':'ok' if rsi<70 else 'warn'}
                         ],
                         'pattern_timeframe': tfb,
@@ -2893,7 +2893,7 @@ class MasterAnalyzer:
                         'confidence': _confidence(52,[min(18,int(top_s.get('confidence',50)/3)), 5 if 'bearish' in trend else 0]),
                         'conditions': [
                             {'t':f'Pattern {top_s.get("name","?")}@{tfs}','s':'ok'},
-                            {'t':f'MACD Curve {tech_analysis.get('macd',{}).get('curve_direction')}','s':'ok'},
+                            {'t': f"MACD Curve {tech_analysis.get('macd', {}).get('curve_direction')}", 's':'ok'},
                             {'t':f'RSI {rsi:.1f}','s':'ok' if rsi>30 else 'warn'}
                         ],
                         'pattern_timeframe': tfs,
