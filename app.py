@@ -223,15 +223,24 @@ class PositionManager:
 
 class AdvancedJAXAI:
     def __init__(self):
+        self.mode = 'jax' if JAX_AVAILABLE else 'numpy_fallback'
+        self.training_data = []
         if JAX_AVAILABLE:
             self.initialized = True
             self.key = random.PRNGKey(42)
             self.model_params = self._init_model()
-            self.training_data = []
             print("🧠 JAX Neural Network initialized: 128→64→32→4 architecture")
         else:
-            self.initialized = False
-            print("⚠️ JAX Neural Network not available")
+            # Numpy fallback weights (deterministic for reproducibility)
+            rng = np.random.default_rng(42)
+            self.initialized = True  # we provide functional fallback
+            self.np_params = {
+                'w1': rng.normal(0,0.1,(128,64)), 'b1': np.zeros(64),
+                'w2': rng.normal(0,0.1,(64,32)),  'b2': np.zeros(32),
+                'w3': rng.normal(0,0.1,(32,16)),  'b3': np.zeros(16),
+                'w4': rng.normal(0,0.1,(16,4)),   'b4': np.zeros(4)
+            }
+            print("⚠️ JAX nicht verfügbar – verwende Numpy Fallback KI (128→64→32→16→4)")
     
     def _init_model(self):
         """Erweiterte 4-Layer Architektur"""
@@ -310,57 +319,57 @@ class AdvancedJAXAI:
     
     def predict_advanced(self, features):
         """Erweiterte Vorhersage mit 4 Signalen"""
-        if not self.initialized or not JAX_AVAILABLE:
-            return {
-                'signal': 'HOLD',
-                'confidence': 50.0,
-                'probabilities': [0.25, 0.25, 0.25, 0.25],
-                'ai_recommendation': 'KI nicht verfügbar'
-            }
-        
-        try:
-            x = jnp.array(features)
-            h1 = jnp.tanh(jnp.dot(x, self.model_params['w1']) + self.model_params['b1'])
-            h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
-            h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
-            logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
-            
-            probs = jnp.exp(logits - logsumexp(logits))
-            probs_np = np.array(probs)
-            
+        if not self.initialized:
+            return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':'KI nicht initialisiert'}
+
+        def _postprocess(probs_arr, version_tag):
+            probs_np = np.array(probs_arr, dtype=float)
+            probs_np = probs_np / (probs_np.sum()+1e-9)
             signals = ['STRONG_SELL', 'SELL', 'BUY', 'STRONG_BUY']
-            max_idx = np.argmax(probs_np)
+            max_idx = int(np.argmax(probs_np))
             signal = signals[max_idx]
-            confidence = float(probs_np[max_idx] * 100)
-            
-            # KI-Empfehlung generieren
-            if signal == 'STRONG_BUY' and confidence > 80:
-                ai_recommendation = '🚀 KI ist sehr bullish - Starkes Kaufsignal!'
-            elif signal == 'BUY' and confidence > 70:
-                ai_recommendation = '📈 KI sieht Aufwärtspotenzial - Moderate Kaufempfehlung'
-            elif signal == 'STRONG_SELL' and confidence > 80:
-                ai_recommendation = '📉 KI ist sehr bearish - Starkes Verkaufssignal!'
-            elif signal == 'SELL' and confidence > 70:
-                ai_recommendation = '⚠️ KI sieht Abwärtsrisiko - Vorsicht geboten'
+            confidence = float(probs_np[max_idx]*100)
+            if signal == 'STRONG_BUY' and confidence > 75:
+                rec = '🚀 KI sehr bullish'
+            elif signal == 'BUY' and confidence > 60:
+                rec = '📈 Moderat bullish'
+            elif signal == 'STRONG_SELL' and confidence > 75:
+                rec = '📉 Stark bearish'
+            elif signal == 'SELL' and confidence > 60:
+                rec = '⚠️ Abwärtsrisiko'
             else:
-                ai_recommendation = '🔄 KI ist neutral - Abwarten und beobachten'
-            
+                rec = '🔄 Neutral / Beobachten'
             return {
                 'signal': signal,
-                'confidence': confidence,
-                'probabilities': probs_np.tolist(),
-                'ai_recommendation': ai_recommendation,
-                'model_version': 'JAX-v2.0'
+                'confidence': round(confidence,2),
+                'probabilities': probs_np.round(4).tolist(),
+                'ai_recommendation': rec,
+                'model_version': version_tag,
+                'mode': self.mode
             }
-            
+
+        try:
+            if self.mode == 'jax':
+                x = jnp.array(features)
+                h1 = jnp.tanh(jnp.dot(x, self.model_params['w1']) + self.model_params['b1'])
+                h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
+                h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
+                logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
+                probs = jnp.exp(logits - logsumexp(logits))
+                return _postprocess(np.array(probs), 'JAX-v2.0')
+            else:
+                x = np.array(features, dtype=float)
+                h1 = np.tanh(x @ self.np_params['w1'] + self.np_params['b1'])
+                h2 = np.tanh(h1 @ self.np_params['w2'] + self.np_params['b2'])
+                h3 = np.tanh(h2 @ self.np_params['w3'] + self.np_params['b3'])
+                logits = h3 @ self.np_params['w4'] + self.np_params['b4']
+                # stable softmax
+                logits = logits - np.max(logits)
+                probs = np.exp(logits)
+                return _postprocess(probs, 'NP-FALLBACK-v1')
         except Exception as e:
             print(f"❌ Neural network error: {e}")
-            return {
-                'signal': 'HOLD',
-                'confidence': 50.0,
-                'probabilities': [0.25, 0.25, 0.25, 0.25],
-                'ai_recommendation': f'KI-Fehler: {str(e)}'
-            }
+            return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':f'KI-Fehler: {e}','mode':self.mode}
     
     def add_training_data(self, features, actual_outcome):
         """Training data sammeln für späteres Lernen"""
@@ -424,7 +433,8 @@ class AdvancedJAXAI:
             'initialized': self.initialized,
             'samples_collected': len(self.training_data),
             'last_train': getattr(self, 'last_train_info', None),
-            'model_version': 'JAX-v2.0' if self.initialized else 'unavailable'
+            'model_version': 'JAX-v2.0' if self.mode=='jax' else 'NP-FALLBACK-v1',
+            'mode': self.mode
         }
     
     def _encode_outcome(self, outcome):
@@ -2438,6 +2448,18 @@ class MasterAnalyzer:
             risk_level = validation.get('risk_level', 'MEDIUM')
             contradictions = validation.get('contradictions', [])
             contradiction_count = len(contradictions)
+            patterns = pattern_analysis.get('patterns', [])
+            bullish_pattern_present = any(p.get('signal')=='bullish' for p in patterns)
+            bearish_pattern_present = any(p.get('signal')=='bearish' for p in patterns)
+            # Relaxation metadata container
+            relaxation = {
+                'trend_original': trend,
+                'rsi_original': rsi,
+                'relaxed_trend_logic': False,
+                'relaxed_rsi_bounds': False,
+                'fallback_generated': False,
+                'pattern_injected': False
+            }
 
             # Ensure a minimum ATR baseline so targets are not "zu knapp"
             min_atr = max(atr_val, current_price * 0.0025)
@@ -2491,8 +2513,10 @@ class MasterAnalyzer:
                         break
                 return filtered
 
-            # LONG strategies
-            if 'bullish' in trend:
+            # Relaxed trend rule: allow LONG setups if not strongly bearish
+            if 'bullish' in trend or trend in ['neutral','weak','moderate']:
+                if 'bullish' not in trend:
+                    relaxation['relaxed_trend_logic'] = True
                 entry_pb = support * 1.003
                 stop_pb = support - atr_val*0.6
                 setups.append({
@@ -2530,7 +2554,10 @@ class MasterAnalyzer:
                     'rationale':'Ausbruch nutzt Momentum Beschleunigung'
                 })
 
+            # Relax RSI: previously 32 -> now 35
             if rsi < 32:
+                relaxation['relaxed_rsi_bounds'] = True  # because condition used strict threshold but we mark band widening below
+            if rsi < 35:
                 entry_mr = current_price*0.998
                 stop_mr = entry_mr - atr_val*0.9
                 setups.append({
@@ -2543,8 +2570,10 @@ class MasterAnalyzer:
                     'rationale':'Überverkaufte Bedingung -> Rebound Szenario'
                 })
 
-            # SHORT strategies
-            if 'bearish' in trend:
+            # SHORT strategies (relax: allow if not strongly bullish)
+            if 'bearish' in trend or trend in ['neutral','weak','moderate']:
+                if 'bearish' not in trend:
+                    relaxation['relaxed_trend_logic'] = True
                 entry_pbs = resistance*0.997
                 stop_pbs = resistance + atr_val*0.6
                 setups.append({
@@ -2569,7 +2598,10 @@ class MasterAnalyzer:
                     'rationale':'Beschleunigter Momentum-Handel beim Support-Bruch'
                 })
 
+            # Relax RSI upper band: previously 68 -> now 65
             if rsi > 68:
+                relaxation['relaxed_rsi_bounds'] = True
+            if rsi > 65:
                 entry_mrs = current_price*1.002
                 stop_mrs = entry_mrs + atr_val*0.9
                 setups.append({
@@ -2582,11 +2614,72 @@ class MasterAnalyzer:
                     'rationale':'Überkaufte Bedingung -> Rücksetzer / Mean Reversion'
                 })
 
+            # Pattern injected setups if patterns present & not enough direction from trend
+            if bullish_pattern_present and len([s for s in setups if s['direction']=='LONG']) < 2:
+                entry_pat = current_price*1.001
+                stop_pat = current_price - atr_val
+                setups.append({
+                    'id':'L-PAT', 'direction':'LONG', 'strategy':'Pattern Boost Long',
+                    'entry': round(entry_pat,2), 'stop_loss': round(stop_pat,2),
+                    'risk_percent': round((entry_pat-stop_pat)/entry_pat*100,2),
+                    'targets': _targets(entry_pat, stop_pat,'LONG', [('Resistance', resistance)]),
+                    'confidence': 55,
+                    'conditions': [{'t':'Bullish Pattern','s':'ok'}],
+                    'rationale':'Bullish Chart Pattern aktiviert (relaxed)'
+                })
+                relaxation['pattern_injected'] = True
+            if bearish_pattern_present and len([s for s in setups if s['direction']=='SHORT']) < 2:
+                entry_pats = current_price*0.999
+                stop_pats = current_price + atr_val
+                setups.append({
+                    'id':'S-PAT', 'direction':'SHORT', 'strategy':'Pattern Boost Short',
+                    'entry': round(entry_pats,2), 'stop_loss': round(stop_pats,2),
+                    'risk_percent': round((stop_pats-entry_pats)/entry_pats*100,2),
+                    'targets': _targets(entry_pats, stop_pats,'SHORT', [('Support', support)]),
+                    'confidence': 55,
+                    'conditions': [{'t':'Bearish Pattern','s':'ok'}],
+                    'rationale':'Bearish Chart Pattern aktiviert (relaxed)'
+                })
+                relaxation['pattern_injected'] = True
+
+            # Fallback generic setups if still too few (ensure at least 2 directions)
+            if len(setups) < 2:
+                relaxation['fallback_generated'] = True
+                generic_risk = max(atr_val, current_price*0.003)
+                # Generic LONG
+                entry_gl = current_price
+                stop_gl = entry_gl - generic_risk
+                setups.append({
+                    'id':'L-FB', 'direction':'LONG', 'strategy':'Generic Long',
+                    'entry': round(entry_gl,2), 'stop_loss': round(stop_gl,2),
+                    'risk_percent': round((entry_gl-stop_gl)/entry_gl*100,2),
+                    'targets': _targets(entry_gl, stop_gl,'LONG', [('Resistance', resistance)]),
+                    'confidence': 45,
+                    'conditions': [{'t':'Fallback','s':'info'}],
+                    'rationale':'Fallback Long Setup (relaxed)'
+                })
+                # Generic SHORT
+                entry_gs = current_price
+                stop_gs = entry_gs + generic_risk
+                setups.append({
+                    'id':'S-FB', 'direction':'SHORT', 'strategy':'Generic Short',
+                    'entry': round(entry_gs,2), 'stop_loss': round(stop_gs,2),
+                    'risk_percent': round((stop_gs-entry_gs)/entry_gs*100,2),
+                    'targets': _targets(entry_gs, stop_gs,'SHORT', [('Support', support)]),
+                    'confidence': 45,
+                    'conditions': [{'t':'Fallback','s':'info'}],
+                    'rationale':'Fallback Short Setup (relaxed)'
+                })
+
             for s in setups:
                 if s.get('targets'):
                     s['primary_rr'] = s['targets'][0]['rr']
             setups.sort(key=lambda x: x['confidence'], reverse=True)
-            return setups[:8]
+            trimmed = setups[:8]
+            # Attach relaxation meta to first element for transparency
+            if trimmed:
+                trimmed[0]['relaxation_meta'] = relaxation
+            return trimmed
         except Exception as e:
             print(f"Trade setup generation error: {e}")
             return []
@@ -2731,8 +2824,20 @@ def quick_price(symbol):
 
 @app.route('/favicon.ico')
 def favicon():
-    # Suppress favicon 404 noise; could serve a real icon later
-    return ('', 204)
+    # Serve a tiny inline favicon (16x16) to prevent browser 404/502 spam.
+    # If behind a proxy sometimes an empty 204 can show as 502 when worker restarts.
+    import base64
+    ico_b64 = (
+        b'AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAA\n'
+        b'AAAAAACZmZkAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZm\n'
+        b'AGZmZgBmZmYA///////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
+        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////////\n'
+        b'////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
+        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
+        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
+    )
+    data = base64.b64decode(ico_b64)
+    return app.response_class(data, mimetype='image/x-icon')
 
 @app.route('/api/ai/status')
 def ai_status():
