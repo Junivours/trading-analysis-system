@@ -495,6 +495,7 @@ DASHBOARD_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ultimate Trading System V5</title>
     <link rel="stylesheet" href="/static/css/main.css">
+    <script src="/static/js/helpers.js"></script>
     <style>
         :root {
             --bg: #0b0f17;
@@ -2023,187 +2024,45 @@ DASHBOARD_HTML = """
                 function displayFeatureContributions(data) {
                     const featureContainer = document.getElementById('featureContributions');
                     if (!featureContainer || !data.ai_analysis?.feature_contributions) return;
-                    
                     const features = data.ai_analysis.feature_contributions;
-                    if (features.error) {
-                        featureContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${features.error}</div>`;
-                        return;
-                    }
-
-                    // Serverseitige Explainability Meta nutzen (falls vorhanden)
+                    if (features.error) { featureContainer.innerHTML = `<div class='alert alert-warning'>⚠️ ${features.error}</div>`; return; }
                     const explainMeta = data.ai_explainability_meta;
                     let serverExplanation = '';
                     if (explainMeta && !explainMeta.error) {
-                        function renderReasonGroup(title, items, color) {
-                            if (!Array.isArray(items) || !items.length) return '';
-                            return `<div style="margin-top:8px;">
-                                <div style="font-size:0.58rem; font-weight:600; letter-spacing:.5px; color:${color}; margin:0 0 4px;">${title}</div>
-                                <ul style="margin:0; padding-left:16px; display:flex; flex-direction:column; gap:3px;">
-                                   ${items.map(r=>`<li style='font-size:0.53rem; line-height:1.05rem; color:var(--text-secondary);'>${r}</li>`).join('')}
-                                </ul>
-                            </div>`;
+                        const grp = (title, arr, color) => (Array.isArray(arr)&&arr.length)?`<div style='margin-top:8px;'><div style='font-size:0.58rem;font-weight:600;color:${color};margin:0 0 4px;'>${title}</div><ul style='margin:0;padding-left:16px;display:flex;flex-direction:column;gap:3px;'>${arr.map(r=>`<li style="font-size:0.53rem;line-height:1.05rem;color:var(--text-secondary);">${r}</li>`).join('')}</ul></div>`:'';
+                        let debugBlock='';
+                        if (explainMeta.debug_factors && Object.keys(explainMeta.debug_factors).length){
+                            const rows = Object.entries(explainMeta.debug_factors).map(([k,v])=>`<div style='display:flex;justify-content:space-between;gap:8px;'><span style='color:var(--text-dim);'>${k}</span><span style='color:#8b5cf6;'>${v==null?'-':v}</span></div>`).join('');
+                            debugBlock = `<div id='debugFactorsBlock' style='display:none;margin-top:10px;padding:8px 10px;border:1px dashed rgba(255,255,255,0.15);border-radius:10px;background:rgba(255,255,255,0.03);'><div style='font-size:0.55rem;font-weight:600;margin:0 0 6px;color:#8b5cf6;'>Debug Faktoren</div><div style='display:flex;flex-direction:column;gap:4px;font-size:0.5rem;'>${rows}</div></div>`;
                         }
-                        const neg = renderReasonGroup('Widersprechende Faktoren', explainMeta.reasons_negative, '#ff4d4f');
-                        const pos = renderReasonGroup('Unterstützende Faktoren', explainMeta.reasons_positive, '#26c281');
-                        const neu = renderReasonGroup('Neutrale Kontextfaktoren', explainMeta.reasons_neutral, '#ffc107');
-                        let debugBlock = '';
-                        if (explainMeta.debug_factors && Object.keys(explainMeta.debug_factors).length) {
-                            const rows = Object.entries(explainMeta.debug_factors).map(([k,v])=>`<div style='display:flex; justify-content:space-between; gap:8px;'><span style="color:var(--text-dim);">${k}</span><span style="color:#8b5cf6;">${(v===null||v===undefined)?'-':v}</span></div>`).join('');
-                            debugBlock = `<div id='debugFactorsBlock' style="display:none; margin-top:10px; padding:8px 10px; border:1px dashed rgba(255,255,255,0.15); border-radius:10px; background:rgba(255,255,255,0.03);">
-                                <div style="font-size:0.55rem; font-weight:600; margin:0 0 6px; letter-spacing:.5px; color:#8b5cf6;">Debug Faktoren</div>
-                                <div style="display:flex; flex-direction:column; gap:4px; font-size:0.5rem;">${rows}</div>
-                            </div>`;
-                        }
-                        serverExplanation = `
-                            <div id='serverExplainBox' style="margin-top:12px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:linear-gradient(135deg, rgba(13,110,253,0.10), rgba(255,255,255,0.02));">
-                                <div style="display:flex; align-items:center; gap:6px; margin:0 0 4px; font-size:0.65rem; font-weight:600; letter-spacing:.5px; color:#0d6efd;">🤖 KI Erklärbarkeit (Server)</div>
-                                <div style="font-size:0.5rem; color:var(--text-dim);">Signal: <span style='color:#fff;'>${explainMeta.signal}</span> • Conf ${explainMeta.confidence?.toFixed?explainMeta.confidence.toFixed(1):explainMeta.confidence}% • Rel ${explainMeta.reliability?.toFixed?explainMeta.reliability.toFixed(1):explainMeta.reliability}%</div>
-                                ${neg}${pos}${neu}${debugBlock}
-                                <div style="margin-top:6px; font-size:0.45rem; color:var(--text-dim);">Serverseitige Meta erklärt warum Modellrichtung gewählt wurde (pos/neg/neutral). Debug optional einblendbar.</div>
-                            </div>`;
+                        serverExplanation = `<div id='serverExplainBox' style='margin-top:12px;padding:10px 12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:linear-gradient(135deg, rgba(13,110,253,0.10), rgba(255,255,255,0.02));'>
+                            <div style='display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:0.65rem;font-weight:600;color:#0d6efd;'>🤖 KI Erklärbarkeit (Server)</div>
+                            <div style='font-size:0.5rem;color:var(--text-dim);'>Signal: <span style='color:#fff;'>${explainMeta.signal}</span> • Conf ${explainMeta.confidence?.toFixed?explainMeta.confidence.toFixed(1):explainMeta.confidence}% • Rel ${explainMeta.reliability?.toFixed?explainMeta.reliability.toFixed(1):explainMeta.reliability}%</div>
+                            ${grp('Widersprechende Faktoren', explainMeta.reasons_negative,'#ff4d4f')}
+                            ${grp('Unterstützende Faktoren', explainMeta.reasons_positive,'#26c281')}
+                            ${grp('Neutrale Kontextfaktoren', explainMeta.reasons_neutral,'#ffc107')}
+                            ${debugBlock}
+                            <div style='margin-top:6px;font-size:0.45rem;color:var(--text-dim);'>Serverseitige Meta erklärt das Modell-Rationale.</div>
+                        </div>`;
                     }
-                    // Falls kein serverseitiges Meta vorhanden, optional heuristische Fallback-Box (vereinfachte Logik)
-                    let fallbackHeuristic = '';
-                    if (!serverExplanation) {
-                        try {
-                            const aiSignal = data.ai_analysis?.signal;
-                            const tech = data.technical_analysis || {};
-                            const rsiVal = (tech.rsi && tech.rsi.rsi) ? tech.rsi.rsi : 50;
-                            if (['SELL','STRONG_SELL'].includes(aiSignal) && rsiVal < 40) {
-                                fallbackHeuristic = `<div style='margin-top:10px; font-size:0.5rem; color:var(--text-dim);'>Heuristik: KI SELL trotz niedriger RSI Werte – mögliche strukturelle Schwäche.</div>`;
-                            }
-                        } catch(e) { /* silent */ }
+                    let fallbackHeuristic='';
+                    if(!serverExplanation){
+                        try{ const aiSignal=data.ai_analysis?.signal; const rsiVal=(data.technical_analysis?.rsi?.rsi)||50; if(['SELL','STRONG_SELL'].includes(aiSignal)&& rsiVal<40){ fallbackHeuristic = `<div style='margin-top:10px;font-size:0.5rem;color:var(--text-dim);'>Heuristik: KI SELL trotz niedriger RSI – strukturelle Schwäche.</div>`;} }catch(e){}
                     }
-                            // Geringer Support-Puffer für Long (Support weit entfernt => schlechtes CRV defensive Sicht?)
-                            if (typeof supportRisk === 'number' && supportRisk > 5) {
-                                reasons.push(`Große Distanz zum Support (~${supportRisk.toFixed(2)}%) erhöht potentiellen Downside bis zur nächsten Nachfragezone.`);
-                            }
-                            // Zu niedrige KI-Zuverlässigkeit
-                            if (typeof reliability === 'number' && reliability < 45) {
-                                reasons.push(`Niedrige KI Reliability (${reliability.toFixed(1)}%) → konservative Ausrichtung (SELL statt HOLD/BUY).`);
-                            }
-                            // Feature-spezifische Hinweise
-                            if (featMap['trend_is_bear'] && featMap['trend_is_bear'].importance > 5) {
-                                reasons.push(`Feature 'trend_is_bear' trägt signifikant zur Modellgewichtung bei (Bear-Bias).`);
-                            }
-                            if (featMap['volatility_atr_pct'] && featMap['volatility_atr_pct'].importance > 4) {
-                                reasons.push(`Volatilitäts-Feature (ATR%) liefert starken Risikobeitrag.`);
-                            }
-                            if (reasons.length) {
-                                extraExplanation = `
-                                    <div style="margin-top:12px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:linear-gradient(135deg, rgba(255,0,0,0.08), rgba(255,255,255,0.02));">
-                                        <div style="display:flex; align-items:center; gap:6px; margin:0 0 6px; font-size:0.65rem; font-weight:600; letter-spacing:.5px; color:#ff4d4f;">
-                                            🤖 Warum KI ${aiSignal} trotz bullischer Signale
-                                        </div>
-                                        ${ (explainMeta && explainMeta.debug_factors) ? '<button id="toggleDebugBtn" style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Debug</button>' : ''}
-                                        <ul style="margin:0; padding-left:16px; display:flex; flex-direction:column; gap:4px;">
-                                            ${reasons.map(r=>`<li style='font-size:0.55rem; color:var(--text-secondary); line-height:1.2;'>${r}</li>`).join('')}
-                                        </ul>
-                                        <div style="margin-top:6px; font-size:0.5rem; color:var(--text-dim); font-style:italic;">Hinweis: Modell aggregiert mehrere normalisierte Einflussgrößen – einzelne bullische Indikatoren reichen nicht, wenn Risiko-/Struktur-Faktoren dagegen stehen.</div>
-                                    </div>`;
-                            }
-                        }
-                    } catch(e) { /* stille Fehler */ }
-                    
-                    featureContainer.innerHTML = `
-                        <div class="feature-contributions-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
-                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🔍 AI Feature Contributions</h5>
-                            
-                            <div style="margin:0 0 12px;">
-                                <strong style="color:var(--text-secondary);">Signal Confidence:</strong>
-                                <span style="color:${features.ai_signal_confidence > 70 ? '#28a745' : features.ai_signal_confidence > 50 ? '#ffc107' : '#dc3545'}; font-weight:700;">
-                                    ${features.ai_signal_confidence?.toFixed(1) || 0}%
-                                </span>
-                                <span style="margin-left:10px; color:var(--text-dim); font-size:0.55rem;">
-                                    (${features.total_features_analyzed || 0} features analyzed)
-                                </span>
-                            </div>
-                            
-                            ${features.top_features && features.top_features.length > 0 ? `
-                                <div class="top-features" style="margin:0 0 12px;">
-                                    <strong style="color:var(--text-secondary);">Top Contributing Features:</strong>
-                                    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
-                                        <button id="exportFeatJsonBtn" style="background:rgba(13,110,253,0.15); border:1px solid rgba(13,110,253,0.4); color:#0d6efd; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Export JSON</button>
-                                        <button id="toggleExplainBtn" style="background:rgba(255,193,7,0.15); border:1px solid rgba(255,193,7,0.4); color:#ffc107; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Erklärung ein/aus</button>
-                                    </div>
-                                    <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-                                        ${features.top_features.map(feature => {
-                                            const tip = featureTooltip(feature.feature);
-                                            const barColor = feature.impact === 'positive' ? 'linear-gradient(90deg, rgba(38,194,129,0.55), rgba(38,194,129,0.10))' : 'linear-gradient(90deg, rgba(255,77,79,0.55), rgba(255,77,79,0.10))';
-                            ${serverExplanation || fallbackHeuristic}
-                                            return `
-                                            <div style="position:relative; display:grid; grid-template-columns:1fr 70px 74px; align-items:center; gap:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:0.6rem; overflow:hidden;" title="${tip}">
-                                                <div style="position:absolute; left:0; top:0; bottom:0; width:${Math.min(100, imp)}%; background:${barColor}; opacity:0.55; pointer-events:none;"></div>
-                                                <span style="font-weight:500; color:var(--text-primary); position:relative;" title="${tip}">${feature.feature}</span>
-                    try {
-                        const toggleBtn = document.getElementById('toggleExplainBtn');
-                        if (toggleBtn) {
-                            toggleBtn.addEventListener('click', () => {
-                                const box = document.getElementById('serverExplainBox');
-                                if (box) box.style.display = (box.style.display === 'none') ? '' : 'none';
-                            });
-                        }
-                        const debugBtn = document.getElementById('toggleDebugBtn');
-                        if (debugBtn) {
-                            debugBtn.addEventListener('click', () => {
-                                const d = document.getElementById('debugFactorsBlock');
-                                if (d) d.style.display = (d.style.display === 'none') ? 'block' : 'none';
-                            });
-                        }
-                        const exportBtn = document.getElementById('exportFeatJsonBtn');
-                        if (exportBtn) {
-                            exportBtn.addEventListener('click', () => {
-                                try {
-                                    const payload = {
-                                        timestamp: new Date().toISOString(),
-                                        symbol: data.symbol,
-                                        ai_signal: data.ai_analysis?.signal,
-                                        ai_confidence: data.ai_analysis?.confidence,
-                                        reliability: data.ai_analysis?.reliability_score,
-                                        top_features: features.top_features,
-                                        interpretations: features.contextual_interpretations,
-                                        explainability_meta: explainMeta || null
-                                    };
-                                    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `ai_feature_attribution_${data.symbol || 'symbol'}_${Date.now()}.json`;
-                                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                                    URL.revokeObjectURL(url);
-                                } catch(e) { console.warn('Export failed', e); }
-                            });
-                        }
-                    } catch(e) { /* silent */ }
-                            toggleBtn.addEventListener('click', () => {
-                                const box = featureContainer.querySelector('div[style*="Warum KI"]');
-                                if (box) { box.style.display = (box.style.display === 'none') ? '' : 'none'; }
-                            });
-                        }
-                        const exportBtn = document.getElementById('exportFeatJsonBtn');
-                        if (exportBtn) {
-                            exportBtn.addEventListener('click', () => {
-                                try {
-                                    const payload = {
-                                        timestamp: new Date().toISOString(),
-                                        symbol: data.symbol,
-                                        ai_signal: data.ai_analysis?.signal,
-                                        ai_confidence: data.ai_analysis?.confidence,
-                                        reliability: data.ai_analysis?.reliability_score,
-                                        top_features: features.top_features,
-                                        interpretations: features.contextual_interpretations
-                                    };
-                                    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `ai_feature_attribution_${data.symbol || 'symbol'}_${Date.now()}.json`;
-                                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                                    URL.revokeObjectURL(url);
-                                } catch(e) { console.warn('Export failed', e); }
-                            });
-                        }
-                    } catch(e) { /* silent */ }
+                    const featRows = (features.top_features||[]).map(f=>{ const barColor = f.impact==='positive'? 'linear-gradient(90deg, rgba(38,194,129,0.55), rgba(38,194,129,0.10))':'linear-gradient(90deg, rgba(255,77,79,0.55), rgba(255,77,79,0.10))'; const imp=f.importance||0; return `<div class='feature-bar' title='${f.feature}'> <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100,imp)}%;background:${barColor};opacity:.55;"></div><span style='position:relative;font-weight:500;'>${f.feature}</span><span style='text-align:center;color:${f.impact==='positive'?'#26c281':'#ff4d4f'};font-weight:600;position:relative;'>${f.impact==='positive'?'+':'-'}${imp}%</span><span style='font-size:0.55rem;color:var(--text-dim);position:relative;'>val: ${f.value}</span></div>`; }).join('');
+                    featureContainer.innerHTML = `<div class='feature-contributions-display' style='border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:18px 18px 16px;margin:10px 0;background:linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));'>
+                        <h5 style='margin:0 0 14px;font-size:0.8rem;letter-spacing:.5px;font-weight:600;'>🔍 AI Feature Contributions</h5>
+                        <div style='margin:0 0 12px;'><strong style='color:var(--text-secondary);'>Signal Confidence:</strong> <span style='color:${features.ai_signal_confidence>70?'#28a745':features.ai_signal_confidence>50?'#ffc107':'#dc3545'};font-weight:700;'>${features.ai_signal_confidence?.toFixed?features.ai_signal_confidence.toFixed(1):features.ai_signal_confidence||0}%</span> <span style='margin-left:10px;color:var(--text-dim);font-size:0.55rem;'>(${features.total_features_analyzed||0} features)</span></div>
+                        ${featRows?`<div><div style='margin-bottom:6px;display:flex;gap:8px;flex-wrap:wrap;'><button id='exportFeatJsonBtn' class='btn-ghost' style='font-size:0.55rem;padding:5px 10px;'>Export JSON</button><button id='toggleExplainBtn' class='btn-ghost' style='font-size:0.55rem;padding:5px 10px;'>Meta ein/aus</button>${(explainMeta && explainMeta.debug_factors)?"<button id='toggleDebugBtn' class='btn-ghost' style='font-size:0.55rem;padding:5px 10px;'>Debug</button>":''}</div><div style='display:flex;flex-direction:column;gap:6px;'>${featRows}</div></div>`:''}
+                        ${(features.contextual_interpretations||[]).length?`<div style='margin-top:10px;'><strong style='color:var(--text-secondary);'>Key Interpretations:</strong><ul style='margin:6px 0 0;padding-left:16px;'>${features.contextual_interpretations.map(i=>`<li style="font-size:0.55rem;color:var(--text-secondary);margin:2px 0;">${i}</li>`).join('')}</ul></div>`:''}
+                        ${features.note?`<div style='margin-top:10px;font-size:0.55rem;color:var(--text-secondary);font-style:italic;'>💡 ${features.note}</div>`:''}
+                        ${serverExplanation || fallbackHeuristic}
+                    </div>`;
+                    // Events
+                    try{ const t=document.getElementById('toggleExplainBtn'); if(t){ t.addEventListener('click',()=>{ const box=document.getElementById('serverExplainBox'); if(box) box.style.display = box.style.display==='none'? '' : 'none'; }); }
+                        const dbg=document.getElementById('toggleDebugBtn'); if(dbg){ dbg.addEventListener('click',()=>{ const d=document.getElementById('debugFactorsBlock'); if(d) d.style.display = d.style.display==='none'? 'block':'none'; }); }
+                        const exp=document.getElementById('exportFeatJsonBtn'); if(exp){ exp.addEventListener('click',()=>{ try { const payload={ timestamp:new Date().toISOString(), symbol:data.symbol, ai_signal:data.ai_analysis?.signal, ai_confidence:data.ai_analysis?.confidence, reliability:data.ai_analysis?.reliability_score, top_features:features.top_features, interpretations:features.contextual_interpretations, explainability_meta: explainMeta||null }; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`ai_feature_attribution_${data.symbol||'symbol'}_${Date.now()}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);}catch(e){ console.warn('Export failed',e);} }); }
+                    }catch(e){}
                 }
                 
                 function displayAdaptiveRiskTargets(data) {
