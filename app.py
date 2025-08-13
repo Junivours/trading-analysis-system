@@ -6128,58 +6128,59 @@ DASHBOARD_HTML = """
                     const deltaPercent = (flow.delta_momentum * 100).toFixed(1);
                     
                     orderFlowContainer.innerHTML = `
-                        <div class="order-flow-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
-                            <h5 style="margin-bottom: 15px; color: #495057;">📊 Order Flow Analysis</h5>
+                        <div class="order-flow-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(155deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">📊 Order Flow Analysis</h5>
                             
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:0 0 12px;">
                                 <div class="flow-metric">
-                                    <strong>Flow Sentiment:</strong>
-                                    <span style="color: ${sentimentColors[flow.flow_sentiment]};">
+                                    <strong style="color:var(--text-secondary);">Flow Sentiment:</strong>
+                                    <span style="color:${sentimentColors[flow.flow_sentiment]}; font-weight:600;">
                                         ${sentimentEmojis[flow.flow_sentiment]} ${flow.flow_sentiment.replace('_', ' ').toUpperCase()}
                                     </span>
                                 </div>
                                 
                                 <div class="flow-metric">
-                                    <strong>Flow Strength:</strong>
-                                    <span style="color: ${flow.flow_strength === 'strong' ? '#28a745' : flow.flow_strength === 'moderate' ? '#ffc107' : '#6c757d'};">
+                                    <strong style="color:var(--text-secondary);">Flow Strength:</strong>
+                                    <span style="color:${flow.flow_strength === 'strong' ? '#28a745' : flow.flow_strength === 'moderate' ? '#ffc107' : '#6c757d'}; font-weight:600;">
                                         ${flow.flow_strength.toUpperCase()}
                                     </span>
                                 </div>
                                 
                                 <div class="flow-metric">
-                                    <strong>Spread:</strong>
+                                    <strong style="color:var(--text-secondary);">Spread:</strong>
                                     <span>${flow.spread_bps || 0} bps</span>
                                 </div>
                                 
                                 <div class="flow-metric">
-                                    <strong>Order Imbalance:</strong>
+                                    <strong style="color:var(--text-secondary);">Order Imbalance:</strong>
                                     <span style="color: ${flow.order_book_imbalance > 0 ? '#28a745' : flow.order_book_imbalance < 0 ? '#dc3545' : '#6c757d'};">
                                         ${imbalancePercent}%
                                     </span>
                                 </div>
                                 
                                 <div class="flow-metric">
-                                    <strong>Delta Momentum:</strong>
+                                    <strong style="color:var(--text-secondary);">Delta Momentum:</strong>
                                     <span style="color: ${flow.delta_momentum > 0 ? '#28a745' : flow.delta_momentum < 0 ? '#dc3545' : '#6c757d'};">
                                         ${deltaPercent}%
                                     </span>
                                 </div>
                                 
                                 <div class="flow-metric">
-                                    <strong>Volume POC:</strong>
+                                    <strong style="color:var(--text-secondary);">Volume POC:</strong>
                                     <span>${flow.volume_profile_poc || 'N/A'}</span>
                                 </div>
                             </div>
                             
                             ${flow.liquidity_zones && flow.liquidity_zones.length > 0 ? `
-                                <div class="liquidity-zones" style="margin-top: 10px;">
-                                    <strong>Liquidity Zones:</strong>
-                                    <div style="margin-top: 5px;">
+                                <div class="liquidity-zones" style="margin-top:6px;">
+                                    <strong style="color:var(--text-secondary); font-size:0.65rem;">Liquidity Zones:</strong>
+                                    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
                                         ${flow.liquidity_zones.map(zone => `
-                                            <span style="display: inline-block; margin: 2px 5px; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; 
-                                                  background: ${zone.type === 'support' ? '#d4edda' : '#f8d7da'}; 
-                                                  color: ${zone.type === 'support' ? '#155724' : '#721c24'};">
-                                                ${zone.type.toUpperCase()} @ ${zone.level} (${zone.strength})
+                                            <span style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border-radius:8px; font-size:0.55rem; letter-spacing:.3px; 
+                                                  background:${zone.type === 'support' ? 'rgba(38,194,129,0.15)' : 'rgba(255,77,79,0.15)'}; 
+                                                  border:1px solid ${zone.type === 'support' ? 'rgba(38,194,129,0.35)' : 'rgba(255,77,79,0.35)'}; 
+                                                  color:${zone.type === 'support' ? '#26c281' : '#ff4d4f'}; font-weight:500;">
+                                                ${zone.type.toUpperCase()} @ ${zone.level} <span style='opacity:.75;'>(${zone.strength})</span>
                                             </span>
                                         `).join('')}
                                     </div>
@@ -6187,7 +6188,7 @@ DASHBOARD_HTML = """
                             ` : ''}
                             
                             ${flow.analysis_note ? `
-                                <div style="margin-top: 10px; font-size: 0.85em; color: #666; font-style: italic;">
+                                <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
                                     💡 ${flow.analysis_note}
                                 </div>
                             ` : ''}
@@ -6206,32 +6207,28 @@ DASHBOARD_HTML = """
                     }
                     
                     featureContainer.innerHTML = `
-                        <div class="feature-contributions-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
-                            <h5 style="margin-bottom: 15px; color: #495057;">🔍 AI Feature Contributions</h5>
+                        <div class="feature-contributions-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🔍 AI Feature Contributions</h5>
                             
-                            <div style="margin-bottom: 15px;">
-                                <strong>Signal Confidence:</strong>
-                                <span style="color: ${features.ai_signal_confidence > 70 ? '#28a745' : features.ai_signal_confidence > 50 ? '#ffc107' : '#dc3545'}; font-weight: bold;">
+                            <div style="margin:0 0 12px;">
+                                <strong style="color:var(--text-secondary);">Signal Confidence:</strong>
+                                <span style="color:${features.ai_signal_confidence > 70 ? '#28a745' : features.ai_signal_confidence > 50 ? '#ffc107' : '#dc3545'}; font-weight:700;">
                                     ${features.ai_signal_confidence?.toFixed(1) || 0}%
                                 </span>
-                                <span style="margin-left: 10px; color: #666; font-size: 0.9em;">
+                                <span style="margin-left:10px; color:var(--text-dim); font-size:0.55rem;">
                                     (${features.total_features_analyzed || 0} features analyzed)
                                 </span>
                             </div>
                             
                             ${features.top_features && features.top_features.length > 0 ? `
-                                <div class="top-features" style="margin-bottom: 15px;">
-                                    <strong>Top Contributing Features:</strong>
-                                    <div style="margin-top: 8px;">
+                                <div class="top-features" style="margin:0 0 12px;">
+                                    <strong style="color:var(--text-secondary);">Top Contributing Features:</strong>
+                                    <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
                                         ${features.top_features.map(feature => `
-                                            <div style="display: flex; align-items: center; margin: 5px 0; padding: 5px; background: white; border-radius: 3px;">
-                                                <span style="flex: 1; font-weight: 500;">${feature.feature}</span>
-                                                <span style="margin: 0 10px; color: ${feature.impact === 'positive' ? '#28a745' : '#dc3545'};">
-                                                    ${feature.impact === 'positive' ? '+' : '-'}${feature.importance}%
-                                                </span>
-                                                <span style="font-size: 0.85em; color: #666;">
-                                                    val: ${feature.value}
-                                                </span>
+                                            <div style="display:grid; grid-template-columns:1fr 70px 74px; align-items:center; gap:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:0.6rem;">
+                                                <span style="font-weight:500; color:var(--text-primary);">${feature.feature}</span>
+                                                <span style="text-align:center; color:${feature.impact === 'positive' ? '#26c281' : '#ff4d4f'}; font-weight:600;">${feature.impact === 'positive' ? '+' : '-'}${feature.importance}%</span>
+                                                <span style="font-size:0.55rem; color:var(--text-dim);">val: ${feature.value}</span>
                                             </div>
                                         `).join('')}
                                     </div>
@@ -6239,18 +6236,18 @@ DASHBOARD_HTML = """
                             ` : ''}
                             
                             ${features.contextual_interpretations && features.contextual_interpretations.length > 0 ? `
-                                <div class="contextual-interpretations" style="margin-top: 15px;">
-                                    <strong>Key Interpretations:</strong>
-                                    <ul style="margin-top: 5px; margin-bottom: 0;">
+                                <div class="contextual-interpretations" style="margin-top:10px;">
+                                    <strong style="color:var(--text-secondary);">Key Interpretations:</strong>
+                                    <ul style="margin:6px 0 0; padding-left:16px;">
                                         ${features.contextual_interpretations.map(interp => `
-                                            <li style="font-size: 0.9em; color: #495057; margin: 3px 0;">${interp}</li>
+                                            <li style="font-size:0.55rem; color:var(--text-secondary); margin:2px 0;">${interp}</li>
                                         `).join('')}
                                     </ul>
                                 </div>
                             ` : ''}
                             
                             ${features.note ? `
-                                <div style="margin-top: 10px; font-size: 0.8em; color: #666; font-style: italic;">
+                                <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
                                     💡 ${features.note}
                                 </div>
                             ` : ''}
@@ -6277,66 +6274,63 @@ DASHBOARD_HTML = """
                     const targets = risk.targets || {};
                     
                     adaptiveContainer.innerHTML = `
-                        <div class="adaptive-risk-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
-                            <h5 style="margin-bottom: 15px; color: #495057;">🎯 Adaptive Risk Management</h5>
+                        <div class="adaptive-risk-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🎯 Adaptive Risk Management</h5>
                             
                             <!-- Risk Overview -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px;">
                                 <div class="risk-metric">
-                                    <strong>Risk %:</strong>
-                                    <span style="color: ${riskColors[risk.risk_category]}; font-weight: bold;">
+                                    <strong style="color:var(--text-secondary);">Risk %:</strong>
+                                    <span style="color:${riskColors[risk.risk_category]}; font-weight:700;">
                                         ${risk.adaptive_risk_pct}%
                                     </span>
                                 </div>
                                 
                                 <div class="risk-metric">
-                                    <strong>Reward Ratio:</strong>
-                                    <span style="color: #007bff; font-weight: bold;">
+                                    <strong style="color:var(--text-secondary);">Reward Ratio:</strong>
+                                    <span style="color:#0d6efd; font-weight:700;">
                                         1:${risk.adaptive_reward_ratio}
                                     </span>
                                 </div>
                                 
                                 <div class="risk-metric">
-                                    <strong>Position Size:</strong>
+                                    <strong style="color:var(--text-secondary);">Position Size:</strong>
                                     <span>${risk.position_size}</span>
                                 </div>
                                 
                                 <div class="risk-metric">
-                                    <strong>Risk Amount:</strong>
-                                    <span style="color: ${riskColors[risk.risk_category]};">
+                                    <strong style="color:var(--text-secondary);">Risk Amount:</strong>
+                                    <span style="color:${riskColors[risk.risk_category]}; font-weight:600;">
                                         $${risk.risk_amount_usd}
                                     </span>
                                 </div>
                             </div>
                             
                             <!-- Stop Loss & Targets -->
-                            <div class="stop-targets" style="margin-bottom: 15px;">
-                                <h6 style="margin-bottom: 10px; color: #495057;">📍 Stop Loss & Targets</h6>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
-                                    <div style="padding: 8px; background: #fff3cd; border-radius: 4px; text-align: center;">
-                                        <div style="font-size: 0.8em; color: #856404;">Stop Loss</div>
-                                        <div style="font-weight: bold; color: #dc3545;">${risk.stop_loss}</div>
+                            <div class="stop-targets" style="margin:0 0 12px;">
+                                <h6 style="margin:0 0 10px; font-size:0.65rem; letter-spacing:.5px; font-weight:600; color:var(--text-secondary);">📍 Stop Loss & Targets</h6>
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px;">
+                                    <div style="padding:10px 8px; background:rgba(255,77,79,0.08); border:1px solid rgba(255,77,79,0.35); border-radius:12px; text-align:center;">
+                                        <div style="font-size:0.55rem; letter-spacing:.5px; color:#ff4d4f; font-weight:600;">Stop Loss</div>
+                                        <div style="font-weight:700; color:#ff4d4f; font-size:0.7rem;">${risk.stop_loss}</div>
                                     </div>
-                                    
-                                    <div style="padding: 8px; background: #d1ecf1; border-radius: 4px; text-align: center;">
-                                        <div style="font-size: 0.8em; color: #0c5460;">Target 1</div>
-                                        <div style="font-weight: bold; color: #155724;">${targets.target_1}</div>
+                                    <div style="padding:10px 8px; background:rgba(13,110,253,0.08); border:1px solid rgba(13,110,253,0.35); border-radius:12px; text-align:center;">
+                                        <div style="font-size:0.55rem; letter-spacing:.5px; color:#0d6efd; font-weight:600;">Target 1</div>
+                                        <div style="font-weight:700; color:#26c281; font-size:0.7rem;">${targets.target_1}</div>
                                     </div>
-                                    
-                                    <div style="padding: 8px; background: #d4edda; border-radius: 4px; text-align: center;">
-                                        <div style="font-size: 0.8em; color: #155724;">Target 2</div>
-                                        <div style="font-weight: bold; color: #155724;">${targets.target_2}</div>
+                                    <div style="padding:10px 8px; background:rgba(38,194,129,0.10); border:1px solid rgba(38,194,129,0.35); border-radius:12px; text-align:center;">
+                                        <div style="font-size:0.55rem; letter-spacing:.5px; color:#26c281; font-weight:600;">Target 2</div>
+                                        <div style="font-weight:700; color:#26c281; font-size:0.7rem;">${targets.target_2}</div>
                                     </div>
-                                    
-                                    <div style="padding: 8px; background: #c3e6cb; border-radius: 4px; text-align: center;">
-                                        <div style="font-size: 0.8em; color: #155724;">Target 3</div>
-                                        <div style="font-weight: bold; color: #28a745;">${targets.target_3}</div>
+                                    <div style="padding:10px 8px; background:linear-gradient(135deg, rgba(38,194,129,0.18), rgba(13,110,253,0.12)); border:1px solid rgba(38,194,129,0.40); border-radius:12px; text-align:center;">
+                                        <div style="font-size:0.55rem; letter-spacing:.5px; color:#26c281; font-weight:600;">Target 3</div>
+                                        <div style="font-weight:700; color:#26c281; font-size:0.7rem;">${targets.target_3}</div>
                                     </div>
                                 </div>
                             </div>
                             
                             ${risk.reasoning ? `
-                                <div style="margin-top: 10px; font-size: 0.8em; color: #666; font-style: italic; padding: 8px; background: white; border-radius: 4px;">
+                                <div style="margin-top:8px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
                                     💡 ${risk.reasoning}
                                 </div>
                             ` : ''}
