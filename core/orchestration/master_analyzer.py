@@ -428,7 +428,7 @@ class MasterAnalyzer:
         except Exception as e:
             return {'error': str(e)}
 
-    def analyze_symbol(self, symbol):
+    def analyze_symbol(self, symbol, base_interval: str = '1h', mt_frames: list | None = None):
         """Complete analysis pipeline for a symbol."""
         try:
             phase_t0 = time.time(); timings = {}
@@ -437,8 +437,15 @@ class MasterAnalyzer:
             timings['market_data_ms'] = round((time.time()-phase_t0)*1000,2)
             if current_price == 0:
                 return {'error': 'Symbol not found or no price data available'}
+            # Normalize base interval and MTF list
+            try:
+                base_interval = (base_interval or '1h').lower()
+            except Exception:
+                base_interval = '1h'
+            if mt_frames is None:
+                mt_frames = ['15m','1h','4h','1d']
             t_phase = time.time()
-            candles = self.technical_analysis.get_candle_data(symbol, interval='1h')
+            candles = self.technical_analysis.get_candle_data(symbol, interval=base_interval)
             timings['candles_fetch_ms'] = round((time.time()-t_phase)*1000,2)
             if not candles:
                 return {'error': 'Unable to fetch candlestick data'}
@@ -456,13 +463,13 @@ class MasterAnalyzer:
             pattern_analysis = self.pattern_detector.detect_advanced_patterns(candles)
             try:
                 for p in pattern_analysis.get('patterns', []):
-                    p.setdefault('timeframe','1h')
+                    p.setdefault('timeframe', base_interval)
             except Exception:
                 pass
             timings['patterns_ms'] = round((time.time()-t_phase)*1000,2)
             # Multi-timeframe patterns
             multi_tf_patterns = []
-            for ptf in ['15m','4h','1d']:
+            for ptf in [tf for tf in ['15m','1h','4h','1d'] if tf != base_interval and tf in ['15m','1h','4h','1d']]:
                 try:
                     ptf_candles = self.technical_analysis.get_candle_data(symbol, interval=ptf, limit=120 if ptf!='1d' else 100)
                     if not ptf_candles or len(ptf_candles)<40: continue
@@ -476,7 +483,7 @@ class MasterAnalyzer:
             # Multi-timeframe technical consensus
             multi_timeframe = {'timeframes': [], 'consensus': {}}
             mt_signals = []
-            for tf in ['15m','1h','4h','1d']:
+            for tf in (mt_frames or ['15m','1h','4h','1d']):
                 try:
                     tf_candles = self.technical_analysis.get_candle_data(symbol, interval=tf, limit=150 if tf!='1d' else 120)
                     if len(tf_candles) < 50:
@@ -543,7 +550,7 @@ class MasterAnalyzer:
             order_flow_data = self._analyze_order_flow(symbol, current_price, tech_analysis.get('volume_analysis', {}), multi_timeframe)
             # Inject lightweight derived patterns (OrderFlow, POC bounce, Correlation)
             try:
-                derived = self._derive_additional_patterns(symbol, tech_analysis, extended_analysis, multi_timeframe, order_flow_data)
+                derived = self._derive_additional_patterns(symbol, tech_analysis, extended_analysis, multi_timeframe, order_flow_data, base_tf=base_interval)
                 if derived:
                     pattern_analysis.setdefault('patterns', []).extend(derived)
                     # Keep a compact summary note
@@ -623,7 +630,7 @@ class MasterAnalyzer:
             try:
                 for s in (base_setups or []):
                     if 'timeframe' not in s:
-                        s['timeframe'] = s.get('pattern_timeframe', '1h')
+                        s['timeframe'] = s.get('pattern_timeframe', base_interval)
             except Exception:
                 pass
             vector_setups = self._generate_vector_scalp_setups(symbol, current_price, vector_analysis, tech_analysis, extended_analysis, multi_timeframe)
@@ -684,6 +691,7 @@ class MasterAnalyzer:
             result = make_json_safe({
                 'symbol': symbol,
                 'current_price': float(current_price),
+                'base_interval': base_interval,
                 'market_data': ticker_data,
                 'technical_analysis': tech_analysis,
                 'extended_analysis': extended_analysis,
@@ -827,7 +835,7 @@ class MasterAnalyzer:
         except Exception as e:
             return {'error': f'Order flow analysis failed: {str(e)}','flow_sentiment':'unknown','flow_strength':'unknown'}
 
-    def _derive_additional_patterns(self, symbol, tech, extended, multi_timeframe, order_flow):
+    def _derive_additional_patterns(self, symbol, tech, extended, multi_timeframe, order_flow, base_tf: str = '1h'):
         """Leitet zusätzliche leichte Muster aus vorhandenen Analysen ab (keine Extra-API-Calls).
         - OrderFlow Imbalance (Proxy via Volumenverhältnis/Flow-Sentiment)
         - POC Bounce (Nähe zu volume_profile_poc)
@@ -847,7 +855,7 @@ class MasterAnalyzer:
                 out.append({
                     'type': 'OrderFlow Imbalance',
                     'signal': 'bullish' if flow=='buy_pressure' else 'bearish',
-                    'timeframe': '1h',
+                    'timeframe': base_tf or '1h',
                     'strength': 'MEDIUM',
                     'confidence': 60,
                     'quality_grade': 'C',
@@ -861,7 +869,7 @@ class MasterAnalyzer:
                     out.append({
                         'type': 'POC Bounce',
                         'signal': 'bullish' if price>=poc else 'bearish',
-                        'timeframe': '1h',
+                        'timeframe': base_tf or '1h',
                         'strength': 'MEDIUM',
                         'confidence': 58,
                         'quality_grade': 'C',

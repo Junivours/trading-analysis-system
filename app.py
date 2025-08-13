@@ -153,8 +153,12 @@ def analyze_symbol(symbol):
         if request.args.get('refresh') == '1':
             master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
             log_event('info', 'Cache cleared for analyze', symbol=symbol.upper())
-        log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1')
-        analysis = master_analyzer.analyze_symbol(symbol.upper())
+        base_tf = (request.args.get('tf') or '1h').lower()
+        # Limit to supported set
+        if base_tf not in ('15m','1h','4h','1d'):
+            base_tf = '1h'
+        log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1', tf=base_tf)
+        analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=base_tf)
         if request.args.get('diag') == '1':
             try:
                 analysis['diagnostics'] = run_symbol_diagnostics(analysis)
@@ -1204,6 +1208,12 @@ DASHBOARD_HTML = """
                 <div class="toolbar">
                     <button id="themeToggle" class="btn-ghost" title="Theme umschalten">🌓 Theme</button>
                     <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">🔄 Refresh</button>
+                    <select id="baseTfSelect" class="btn-ghost" title="Basis-Zeiteinheit" style="padding:8px 10px;">
+                        <option value="15m">15m</option>
+                        <option value="1h" selected>1h</option>
+                        <option value="4h">4h</option>
+                        <option value="1d">1d</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -1466,7 +1476,9 @@ DASHBOARD_HTML = """
             currentSymbol = query.toUpperCase();
 
             try {
-                const response = await fetch(`/api/analyze/${currentSymbol}?diag=1&validate=1`);
+                const tfSel = document.getElementById('baseTfSelect');
+                const tf = tfSel && tfSel.value ? tfSel.value : '1h';
+                const response = await fetch(`/api/analyze/${currentSymbol}?diag=1&validate=1&tf=${tf}`);
                 const result = await response.json();
 
                 if (result.success) {
@@ -1565,6 +1577,7 @@ DASHBOARD_HTML = """
                     </div>
                 </div>
             `;
+            const baseTfBadge = `<div style="font-size:.55rem; color:var(--text-dim); margin-top:8px;">Basis-Zeiteinheit: <span style="color:#0d6efd; font-weight:700;">${data.base_interval || '1h'}</span></div>`;
             signalDisplay.innerHTML = `
                 <div class="signal-value" style="color: ${signal.signal_color}">
                     ${signal.signal}
@@ -1577,6 +1590,7 @@ DASHBOARD_HTML = """
                     <div class="weight-item">🔍 Patterns: ${signal.pattern_weight}</div>
                     <div class="weight-item">🤖 AI: ${signal.ai_weight}</div>
                 </div>
+                ${baseTfBadge}
                 ${rsiChips}
                 ${emotionBadges}`;
             try { displaySignalReasons(data); } catch(e) { /* non-fatal */ }
