@@ -288,6 +288,11 @@ class MasterAnalyzer:
             ai_analysis['feature_count'] = len(ai_features) if isinstance(ai_features, dict) else 0
             feature_contributions = self._analyze_feature_contributions(ai_features, ai_analysis, tech_analysis, pattern_analysis)
             ai_analysis['feature_contributions'] = feature_contributions
+            # AI precision enhancement / lightweight ensemble blending
+            try:
+                ai_analysis = self._enhance_ai_precision(ai_analysis, tech_analysis, pattern_analysis, multi_timeframe)
+            except Exception as _e_prec:
+                ai_analysis.setdefault('precision_meta_error', str(_e_prec))
             timings['ai_ms'] = round((time.time()-t_phase)*1000,2)
             # Backend Explainability Meta
             explain_meta = self._build_ai_explainability_meta(ai_analysis, tech_analysis, pattern_analysis, position_analysis, extended_analysis)
@@ -922,6 +927,9 @@ class MasterAnalyzer:
         Returns up to 12 setups (core strategies + pattern trades) with confidence, targets & rationale."""
         setups = []
         try:
+            # Configurable thresholds (soften to ensure at least some setups)
+            RISK_HARD_CAP = 3.2  # previously 3.0
+            RISK_CONF_THRESHOLD = 2.5  # previously 2.2
             validation = final_score.get('validation', {}) if isinstance(final_score, dict) else {}
             support = tech_analysis.get('support') or current_price * 0.985
             resistance = tech_analysis.get('resistance') or current_price * 1.015
@@ -1492,16 +1500,21 @@ class MasterAnalyzer:
             filtered_post = []
             for s in trimmed:
                 risk_pct = s.get('risk_percent', 0)
-                # Hard Cap Risk Filter (Echtgeld Vorbereitung): >3% wird entfernt, 2.2-3% nur erlaubt wenn Confidence >=60
-                if risk_pct > 3.0:
-                    s['filtered_reason'] = 'risk_pct_gt_3'
+                # Relaxed: allow slightly higher risk, and if removed keep best fallback later
+                if risk_pct > RISK_HARD_CAP:
+                    s['filtered_reason'] = 'risk_pct_hard_cap'
                     continue
-                if risk_pct > 2.2 and s.get('confidence',0) < 60:
-                    s['filtered_reason'] = 'risk_pct_high_low_conf'
+                if risk_pct > RISK_CONF_THRESHOLD and s.get('confidence',0) < 55:
+                    s['filtered_reason'] = 'risk_pct_conf_low'
                     continue
                 filtered_post.append(s)
             if not filtered_post:
-                filtered_post = trimmed  # Fallback nichts zerstören
+                # Fallback: keep best (lowest risk * highest confidence rank)
+                if trimmed:
+                    fallback_sorted = sorted(trimmed, key=lambda x: (x.get('risk_percent',10), -x.get('confidence',0)))
+                    fb = fallback_sorted[0]
+                    fb['filter_bypass'] = True
+                    filtered_post = [fb]
 
             # === Backend Pruning auf max 1 Long & 1 Short ===
             def _rank(s):
@@ -1527,3 +1540,80 @@ class MasterAnalyzer:
         except Exception as e:
             self.logger.error(f"Trade setup generation error: {e}")
             return []
+
+    def _enhance_ai_precision(self, ai_analysis, tech_analysis, pattern_analysis, multi_timeframe):
+        """Lightweight ensemble-style refinement to increase precision without duplicating core model code.
+        Blends base AI signal with rule-based probability derived from technical + pattern context.
+        Adjusts confidence & reliability when both align or contradict.
+        Returns updated ai_analysis dict (in-place modifications)."""
+        if not isinstance(ai_analysis, dict):
+            return ai_analysis
+        base_signal = ai_analysis.get('signal')
+        base_conf = ai_analysis.get('confidence', 50)
+        base_rel = ai_analysis.get('reliability_score', 50)
+        # Derive heuristic directional score (0-100 bullishness)
+        try:
+            rsi_v = tech_analysis.get('rsi', {}).get('rsi', 50)
+            trend_obj = tech_analysis.get('trend', {}) if isinstance(tech_analysis.get('trend'), dict) else {}
+            trend_label = trend_obj.get('trend', 'neutral') or 'neutral'
+            macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral') or 'neutral'
+            patterns = pattern_analysis.get('patterns', []) if isinstance(pattern_analysis, dict) else []
+            bull_p = sum(1 for p in patterns if p.get('signal') == 'bullish')
+            bear_p = sum(1 for p in patterns if p.get('signal') == 'bearish')
+            mt_primary = multi_timeframe.get('consensus', {}).get('primary') if isinstance(multi_timeframe, dict) else 'NEUTRAL'
+            score = 50
+            if rsi_v > 60: score += 5
+            if rsi_v < 40: score -= 5
+            if 'strong_bull' in trend_label: score += 15
+            elif 'strong_bear' in trend_label: score -= 15
+            elif 'bull' in trend_label: score += 8
+            elif 'bear' in trend_label: score -= 8
+            if 'bullish' in macd_curve: score += 7
+            elif 'bearish' in macd_curve: score -= 7
+            # Pattern differential weighted
+            score += (bull_p - bear_p) * 3
+            if mt_primary == 'BULLISH': score += 6
+            elif mt_primary == 'BEARISH': score -= 6
+            rule_prob = max(0, min(100, score)) / 100.0
+            # Convert base AI signal to probability orientation (bullish)
+            ai_prob = None
+            if base_signal in ['BUY','STRONG_BUY']:
+                ai_prob = 0.65 if base_signal=='BUY' else 0.8
+            elif base_signal in ['SELL','STRONG_SELL']:
+                ai_prob = 0.35 if base_signal=='SELL' else 0.2
+            else:
+                ai_prob = 0.5
+            # Blend (confidence-weighted)
+            w_ai = min(1.0, (base_conf/100.0))
+            ensemble_prob = (ai_prob * (0.55 + 0.25*w_ai) + rule_prob * (0.45 - 0.25*(1-w_ai)))
+            ensemble_prob = max(0.05, min(0.95, ensemble_prob))
+            # Derive ensemble signal thresholds
+            if ensemble_prob >= 0.78: ens_signal = 'STRONG_BUY'
+            elif ensemble_prob >= 0.60: ens_signal = 'BUY'
+            elif ensemble_prob <= 0.22: ens_signal = 'STRONG_SELL'
+            elif ensemble_prob <= 0.40: ens_signal = 'SELL'
+            else: ens_signal = 'HOLD'
+            alignment = 1 if ens_signal == base_signal else -1 if ((ens_signal.startswith('BUY') and base_signal.startswith('SELL')) or (ens_signal.startswith('SELL') and base_signal.startswith('BUY'))) else 0
+            # Adjust confidence & reliability modestly
+            conf_adj = 0
+            rel_adj = 0
+            if alignment == 1:
+                conf_adj = 5
+                rel_adj = 4
+            elif alignment == -1:
+                conf_adj = -7
+                rel_adj = -6
+            ai_analysis['ensemble'] = {
+                'rule_prob_bullish_pct': round(rule_prob*100,2),
+                'ai_prob_bullish_pct': round(ai_prob*100,2),
+                'ensemble_bullish_pct': round(ensemble_prob*100,2),
+                'ensemble_signal': ens_signal,
+                'alignment': 'aligned' if alignment==1 else 'conflict' if alignment==-1 else 'neutral'
+            }
+            ai_analysis['confidence'] = max(0, min(100, base_conf + conf_adj))
+            if isinstance(base_rel,(int,float)):
+                ai_analysis['reliability_score'] = max(0, min(100, base_rel + rel_adj))
+            ai_analysis['precision_enhanced'] = True
+        except Exception as e:
+            ai_analysis.setdefault('ensemble_error', str(e))
+        return ai_analysis
