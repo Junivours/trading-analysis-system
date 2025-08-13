@@ -519,8 +519,31 @@ class MasterAnalyzer:
 
             trade_setups = []
             base_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
+            # Ensure timeframe on base setups (defaulting to main analysis tf 1h or pattern_timeframe)
+            try:
+                for s in (base_setups or []):
+                    if 'timeframe' not in s:
+                        s['timeframe'] = s.get('pattern_timeframe', '1h')
+            except Exception:
+                pass
             vector_setups = self._generate_vector_scalp_setups(symbol, current_price, vector_analysis, tech_analysis, extended_analysis, multi_timeframe)
             trade_setups = self._merge_and_prune_setups(base_setups, vector_setups)
+            # Hard directional consistency with AI signal: if AI says SELL, hide LONG setups and vice versa
+            try:
+                ai_sig = None
+                ens = (ai_analysis or {}).get('ensemble') if isinstance(ai_analysis, dict) else None
+                if isinstance(ens, dict):
+                    ai_sig = ens.get('ensemble_signal')
+                if not ai_sig:
+                    ai_sig = (ai_analysis or {}).get('signal') if isinstance(ai_analysis, dict) else None
+                if isinstance(ai_sig, str) and trade_setups:
+                    up = ai_sig.upper()
+                    if 'SELL' in up:
+                        trade_setups = [s for s in trade_setups if s.get('direction') == 'SHORT']
+                    elif 'BUY' in up:
+                        trade_setups = [s for s in trade_setups if s.get('direction') == 'LONG']
+            except Exception:
+                pass
             # If No-Trade-Zone triggered, do not block completely; lower confidence and flag warning
             try:
                 if ntz_meta.get('active') and isinstance(trade_setups, list):
@@ -2125,6 +2148,7 @@ class MasterAnalyzer:
                     'id': sid,
                     'direction': dir_lbl,
                     'strategy': 'Vector Candle Scalp',
+                    'timeframe': (vector_analysis or {}).get('timeframe', '5m'),
                     'entry': round(entry, 2),
                     'stop_loss': round(raw_stop, 2),
                     'risk_percent': round(risk_pct, 2),

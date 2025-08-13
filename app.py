@@ -1517,7 +1517,9 @@ DASHBOARD_HTML = """
                     }).join('');
                     return `<div class="setup-card pattern-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
-                        <div class="setup-title">${s.direction} <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background:linear-gradient(45deg,#FFD700,#FFA500); color:#000;">${s.pattern_name || s.strategy}</span></div>
+                        <div class="setup-title">${s.direction} <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background:linear-gradient(45deg,#FFD700,#FFA500); color:#000;">${s.pattern_name || s.strategy}</span>
+                            <span style="margin-left:6px; font-size:.5rem; opacity:.75; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px;">${s.timeframe || s.pattern_timeframe || '1h'}</span>
+                        </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry_price || s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
                         ${s.risk_percent || s.risk_reward_ratio ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>` : ''}
@@ -1538,7 +1540,9 @@ DASHBOARD_HTML = """
                     const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price}${t.rr?` (${t.rr}R)`:''}</span>`).join('');
                     return `<div class="setup-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
-                        <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span></div>
+                        <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span>
+                            <span style="margin-left:6px; font-size:.5rem; opacity:.75; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px;">${s.timeframe || '1h'}</span>
+                        </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
                         ${s.risk_percent ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>`:''}
