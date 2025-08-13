@@ -738,6 +738,17 @@ class AdvancedJAXAI:
         self.initialized = True
         self.key = random.PRNGKey(42)
         self.model_params = self._init_model()
+        # Laufende Feature-Statistiken für Standardisierung (Welford)
+        self.feature_stats = {
+            'count': 0,
+            'mean': np.zeros(128, dtype=float),
+            'M2': np.zeros(128, dtype=float)
+        }
+        # Temperatur für Wahrscheinlichkeits-Kalibrierung (logit scaling)
+        try:
+            self.temperature = float(os.getenv('MODEL_TEMPERATURE', '1.0'))
+        except Exception:
+            self.temperature = 1.0
         print("🧠 JAX Neural Network initialized: 128→64→32→4 architecture (Enterprise Mode)")
     
     def _init_model(self):
@@ -812,8 +823,31 @@ class AdvancedJAXAI:
         # Fill remaining with noise for regularization
         for i in range(122, 128):
             features[i] = np.random.normal(0, 0.05)
-        
+        # Update Running Stats & Standardisieren (nach Warmup)
+        self._update_feature_stats(features)
+        if self.feature_stats['count'] > 30:  # Erst standardisieren wenn genug Daten
+            features = self._standardize(features)
         return features
+
+    def _update_feature_stats(self, x):
+        """Numerisch stabile inkrementelle Mittelwert/Varianz (Welford)."""
+        try:
+            fs = self.feature_stats
+            fs['count'] += 1
+            delta = x - fs['mean']
+            fs['mean'] += delta / fs['count']
+            delta2 = x - fs['mean']
+            fs['M2'] += delta * delta2
+        except Exception as e:
+            print(f"Feature stats update error: {e}")
+
+    def _standardize(self, x):
+        fs = self.feature_stats
+        if fs['count'] < 2:
+            return x
+        var = fs['M2'] / max(1, fs['count'] - 1)
+        var = np.clip(var, 1e-6, 1e6)
+        return (x - fs['mean']) / np.sqrt(var)
     
     def predict_advanced(self, features):
         """Erweiterte Vorhersage mit 4 Signalen"""
@@ -852,7 +886,10 @@ class AdvancedJAXAI:
             h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
             h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
             logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
-            probs = jnp.exp(logits - logsumexp(logits))
+            # Temperatur-Skalierung (clamped für Stabilität)
+            temp = max(0.25, min(4.0, self.temperature))
+            scaled = logits / temp
+            probs = jnp.exp(scaled - logsumexp(scaled))
             return _postprocess(np.array(probs), 'JAX-v2.0')
         except Exception as e:
             print(f"❌ Neural network error: {e}")
