@@ -1322,7 +1322,15 @@ DASHBOARD_HTML = """
         function displayMainSignal(data) {
             const signal = data.final_score;
             const signalDisplay = document.getElementById('signalDisplay');
-            
+            const mt = data.multi_timeframe || {}; const tWanted=['15m','1h','4h','1d'];
+            let rsiChips='';
+            try {
+                const map={}; (mt.timeframes||[]).forEach(t=>map[t.tf]=t);
+                rsiChips = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;">' + tWanted.map(tf=>{
+                    const r=map[tf]?.rsi; let col='#6c757d';
+                    if(typeof r==='number'){ if(r>70) col='#dc3545'; else if(r<30) col='#0d6efd'; else col='#198754'; }
+                    return `<span style=\"font-size:0.5rem; background:rgba(255,255,255,0.07); padding:4px 6px; border-radius:8px; letter-spacing:.5px; color:${col}; font-weight:600;\">${tf} RSI ${r??'-'}</span>`;}).join('') + '</div>';
+            } catch(e){ rsiChips=''; }
             signalDisplay.innerHTML = `
                 <div class="signal-value" style="color: ${signal.signal_color}">
                     ${signal.signal}
@@ -1335,7 +1343,7 @@ DASHBOARD_HTML = """
                     <div class="weight-item">🔍 Patterns: ${signal.pattern_weight}</div>
                     <div class="weight-item">🤖 AI: ${signal.ai_weight}</div>
                 </div>
-            `;
+                ${rsiChips}`;
         }
 
         // NEW: Enterprise Validation Display
@@ -1349,7 +1357,7 @@ DASHBOARD_HTML = """
                     <div class="trading-action" style="color: ${validation.trading_action === 'WAIT' ? '#dc3545' : '#28a745'}">
                         EMPFEHLUNG: ${validation.trading_action}
                     </div>
-                    <div class="risk-level" style="color: ${getRiskColor(validation.risk_level)}">
+                    <div class="risk-level" style="color: ${validation.risk_level === 'LOW' ? '#28a745' : validation.risk_level === 'HIGH' ? '#dc3545' : '#ffc107'}">
                         RISIKO: ${validation.risk_level}
                     </div>
                     <div class="enterprise-ready" style="color: ${validation.enterprise_ready ? '#28a745' : '#dc3545'}">
@@ -1410,16 +1418,6 @@ DASHBOARD_HTML = """
             }
             
             return div;
-        }
-
-        function getRiskColor(riskLevel) {
-            switch(riskLevel) {
-                case 'LOW': return '#28a745';
-                case 'MEDIUM': return '#ffc107';
-                case 'HIGH': return '#fd7e14';
-                case 'VERY_HIGH': return '#dc3545';
-                default: return '#6c757d';
-            }
         }
 
         // Display key metrics
@@ -1486,7 +1484,7 @@ DASHBOARD_HTML = """
                         ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color:#28a745;">${s.risk_reward_ratio}</span></div>`:''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
-                        ${s.rationale ? `<div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale}</div>` : ''}
+                        ${s.rationale ? `<div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:.75rem;">${s.rationale}</div>` : ''}
                     </div>`;
                 }).join('') + '</div>';
             }
@@ -1507,7 +1505,7 @@ DASHBOARD_HTML = """
                         ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style=\"color:#28a745;\">${s.primary_rr}R</span></div>`:''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
-                        ${s.rationale ? `<div style=\"margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;\">${s.rationale}</div>`:''}
+                        ${s.rationale ? `<div style=\"margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:.75rem;\">${s.rationale}</div>`:''}
                     </div>`;
                 }).join('') + '</div>';
             }
@@ -1659,12 +1657,12 @@ DASHBOARD_HTML = """
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">ATR %:</span>
                              <span style="font-weight:600;" class="${getVolatilityColor(extended?.atr?.volatility)}">${safeFixed(extended?.atr?.percentage,2)}%</span>
-                             <span style="opacity:.55;">(${extended?.atr?.risk_level || '-'})</span>
+                             <span style="opacity:.55; color:#dc3545;">(${extended?.atr?.risk_level || '-'})</span>
                          </div>
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">Trend Strength:</span>
                              <span style="font-weight:600;" class="${getTrendStrengthColor(extended?.trend_strength?.strength)}">${safeUpper(extended?.trend_strength?.strength)}</span>
-                             <span style="opacity:.55;">(${extended?.trend_strength?.direction || '-'})</span>
+                             <span style="opacity:.55; color:var(--text-dim);">(${extended?.trend_strength?.direction || '-'})</span>
                          </div>
                      </div>
                  </div>
@@ -1760,6 +1758,11 @@ DASHBOARD_HTML = """
                             <span class="level-value">${safeFixed(tech?.support,4)}</span>
                             <span class="level-distance">${(typeof tech?.support==='number' && typeof tech?.current_price==='number'? (((tech.support - tech.current_price) / tech.current_price) * 100).toFixed(2)+'%':'-')}</span>
                         </div>
+                        <div class="level-item">
+                            <span class="level-name">Pivot:</span>
+                            <span class="level-value">${safeFixed(extended?.pivot_points?.pivot,4)}</span>
+                            <span class="level-distance">${(typeof extended?.pivot_points?.r1==='number' ? 'R1 '+extended.pivot_points.r1.toFixed(4):'')}</span>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1802,28 +1805,35 @@ DASHBOARD_HTML = """
         // Display AI analysis
         function displayAIAnalysis(data) {
             const ai = data.ai_analysis;
-            
+            const ens = ai && ai.ensemble ? ai.ensemble : null;
+            let ensBadge = '';
+            if(ens){
+                const alignColor = ens.alignment==='aligned' ? '#28a745' : (ens.alignment==='conflict' ? '#dc3545' : '#ffc107');
+                ensBadge = `<div style="display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px;">
+                    <span style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">Ensemble <strong>${ens.ensemble_signal}</strong></span>
+                    <span style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">Bull ${ens.ensemble_bullish_pct ?? '-'}%</span>
+                    <span style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">Rule ${ens.rule_prob_bullish_pct ?? '-'}%</span>
+                    <span style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">AI ${ens.ai_prob_bullish_pct ?? '-'}%</span>
+                    <span style="background:${alignColor}; color:#000; padding:4px 8px; border-radius:12px; font-size:0.5rem; font-weight:600;">${ens.alignment}</span>
+                </div>`;
+            }
             const html = `
                 <div class="metric-card" style="margin-bottom: 15px;">
                     <div class="metric-value ${getSignalColor(ai.signal)}">${ai.signal}</div>
                     <div class="metric-label">AI Signal</div>
                 </div>
-                
                 <div class="metric-card" style="margin-bottom: 15px;">
                     <div class="metric-value">${ai.confidence.toFixed(1)}%</div>
                     <div class="metric-label">AI Confidence</div>
                 </div>
-                
+                ${ensBadge}
                 <p style="color: rgba(255,255,255,0.9); margin-bottom: 10px;">
                     <strong>AI Recommendation:</strong><br>
                     ${ai.ai_recommendation}
                 </p>
-                
                 <small style="color: rgba(255,255,255,0.7);">
                     Model: ${ai.model_version || 'JAX-v2.0'}
-                </small>
-            `;
-
+                </small>`;
             document.getElementById('aiAnalysis').innerHTML = html;
         }
 
@@ -1870,7 +1880,9 @@ DASHBOARD_HTML = """
                         const existing = document.getElementById('marketBiasBar');
                         const html = `
                                 <div id=\"marketBiasBar\" style=\"margin-top:18px;\">
-                                    <div style=\"font-size:0.55rem; letter-spacing:.5px; color:var(--text-dim); margin-bottom:4px;\">MARKET BIAS</div>
+                                    <div style=\"font-size:0.55rem; letter-spacing:.5px; color:var(--text-dim); margin-bottom:4px; line-height:.7rem;\">
+                                        MARKET BIAS
+                                    </div>
                                     <div style=\"height:14px; width:100%; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; display:flex;\">
                                         <div title=\"Long\" style=\"flex:0 0 ${longPct}%; background:#198754;\"></div>
                                         <div title=\"Neutral\" style=\"flex:0 0 ${neutralPct}%; background:linear-gradient(90deg,#6c757d,#495057);\"></div>
@@ -1935,7 +1947,7 @@ DASHBOARD_HTML = """
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
                             <div style="background: rgba(255,255,255,0.05); padding: 6px 8px; border-radius: 8px; font-size: 0.55rem;">
                                 <div style="color: var(--text-dim);">ATR</div>
-                                <div style="color: white; font-weight: 600;">${regime.atr_percentage?.toFixed(1) || 'N/A'}%</div>
+                                <div style="color: white; font-weight: 600;">${regime.atr_percentage?.toFixed?regime.atr_percentage.toFixed(1):regime.atr_percentage||0}%</div>
                             </div>
                             <div style="background: rgba(255,255,255,0.05); padding: 6px 8px; border-radius: 8px; font-size: 0.55rem;">
                                 <div style="color: var(--text-dim);">Volatility</div>

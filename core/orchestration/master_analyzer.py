@@ -803,11 +803,19 @@ class MasterAnalyzer:
             extra = 0.1 if avg_std>0.18 else 0.05
             final_score = 50 + (final_score-50)*(1-extra)
         final_score = max(0,min(100,final_score))
-        if final_score>=75: signal='STRONG_BUY'; signal_color='#28a745'
-        elif final_score>=60: signal='BUY'; signal_color='#6f42c1'
-        elif final_score<=25: signal='STRONG_SELL'; signal_color='#dc3545'
-        elif final_score<=40: signal='SELL'; signal_color='#fd7e14'
-        else: signal='HOLD'; signal_color='#6c757d'
+        # Stricter gating: require minimum ai confidence & reliability alignment
+        ai_conf_gate = ai_analysis.get('confidence',50)
+        ai_rel_gate = ai_analysis.get('reliability_score',50)
+        if final_score>=78 and ai_conf_gate>=55 and ai_rel_gate>=45:
+            signal='STRONG_BUY'; signal_color='#28a745'
+        elif final_score>=63 and ai_conf_gate>=50:
+            signal='BUY'; signal_color='#6f42c1'
+        elif final_score<=22 and ai_conf_gate>=55 and ai_rel_gate>=45:
+            signal='STRONG_SELL'; signal_color='#dc3545'
+        elif final_score<=37 and ai_conf_gate>=50:
+            signal='SELL'; signal_color='#fd7e14'
+        else:
+            signal='HOLD'; signal_color='#6c757d'
         # Legacy heuristic probability from final score
         calibrated_prob = 1/(1+math.exp(-(final_score-50)*0.09))
         bullish_prob = calibrated_prob
@@ -1551,11 +1559,11 @@ class MasterAnalyzer:
         base_signal = ai_analysis.get('signal')
         base_conf = ai_analysis.get('confidence', 50)
         base_rel = ai_analysis.get('reliability_score', 50)
-        # Derive heuristic directional score (0-100 bullishness)
         try:
+            # === Heuristic directional score (bullishness 0-100) ===
             rsi_v = tech_analysis.get('rsi', {}).get('rsi', 50)
             trend_obj = tech_analysis.get('trend', {}) if isinstance(tech_analysis.get('trend'), dict) else {}
-            trend_label = trend_obj.get('trend', 'neutral') or 'neutral'
+            trend_label = (trend_obj.get('trend') or 'neutral')
             macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral') or 'neutral'
             patterns = pattern_analysis.get('patterns', []) if isinstance(pattern_analysis, dict) else []
             bull_p = sum(1 for p in patterns if p.get('signal') == 'bullish')
@@ -1570,45 +1578,61 @@ class MasterAnalyzer:
             elif 'bear' in trend_label: score -= 8
             if 'bullish' in macd_curve: score += 7
             elif 'bearish' in macd_curve: score -= 7
-            # Pattern differential weighted
-            score += (bull_p - bear_p) * 3
+            score += (bull_p - bear_p) * 3  # pattern differential
             if mt_primary == 'BULLISH': score += 6
             elif mt_primary == 'BEARISH': score -= 6
+            # Context: volatility / regime (soft shrink toward neutral to reduce false extremes)
+            atr_pct = None
+            try:
+                atr_pct = tech_analysis.get('atr', {}).get('percentage') or tech_analysis.get('atr_pct')
+            except Exception:
+                atr_pct = None
+            regime_ctx = ai_analysis.get('regime_analysis', {}).get('regime') or tech_analysis.get('regime_context') if isinstance(tech_analysis, dict) else None
+            if isinstance(atr_pct,(int,float)):
+                if atr_pct > 3.5:
+                    score = 50 + (score-50)*0.85
+                elif atr_pct < 1.0:
+                    score = 50 + (score-50)*0.9
+            if isinstance(regime_ctx,str):
+                if regime_ctx == 'expansion':
+                    score = 50 + (score-50)*0.88
+                elif regime_ctx == 'ranging' and ('strong_bull' in trend_label or 'strong_bear' in trend_label):
+                    score = 50 + (score-50)*0.9
             rule_prob = max(0, min(100, score)) / 100.0
-            # Convert base AI signal to probability orientation (bullish)
-            ai_prob = None
+            # === Convert base AI signal to probability ===
             if base_signal in ['BUY','STRONG_BUY']:
-                ai_prob = 0.65 if base_signal=='BUY' else 0.8
+                ai_prob = 0.65 if base_signal == 'BUY' else 0.80
             elif base_signal in ['SELL','STRONG_SELL']:
-                ai_prob = 0.35 if base_signal=='SELL' else 0.2
+                ai_prob = 0.35 if base_signal == 'SELL' else 0.20
             else:
-                ai_prob = 0.5
-            # Blend (confidence-weighted)
-            w_ai = min(1.0, (base_conf/100.0))
+                ai_prob = 0.50
+            # === Blend (confidence weighted) ===
+            w_ai = min(1.0, base_conf/100.0)
             ensemble_prob = (ai_prob * (0.55 + 0.25*w_ai) + rule_prob * (0.45 - 0.25*(1-w_ai)))
+            if isinstance(atr_pct,(int,float)) and atr_pct > 4.5:
+                ensemble_prob = 0.5 + (ensemble_prob-0.5)*0.8
+            if regime_ctx == 'ranging':
+                ensemble_prob = 0.5 + (ensemble_prob-0.5)*0.85
             ensemble_prob = max(0.05, min(0.95, ensemble_prob))
-            # Derive ensemble signal thresholds
+            # === Ensemble signal thresholds ===
             if ensemble_prob >= 0.78: ens_signal = 'STRONG_BUY'
             elif ensemble_prob >= 0.60: ens_signal = 'BUY'
             elif ensemble_prob <= 0.22: ens_signal = 'STRONG_SELL'
             elif ensemble_prob <= 0.40: ens_signal = 'SELL'
             else: ens_signal = 'HOLD'
-            alignment = 1 if ens_signal == base_signal else -1 if ((ens_signal.startswith('BUY') and base_signal.startswith('SELL')) or (ens_signal.startswith('SELL') and base_signal.startswith('BUY'))) else 0
-            # Adjust confidence & reliability modestly
-            conf_adj = 0
-            rel_adj = 0
-            if alignment == 1:
-                conf_adj = 5
-                rel_adj = 4
-            elif alignment == -1:
-                conf_adj = -7
-                rel_adj = -6
+            # Alignment assessment
+            alignment = 1 if ens_signal == base_signal else -1 if ((ens_signal.startswith('BUY') and str(base_signal or '').startswith('SELL')) or (ens_signal.startswith('SELL') and str(base_signal or '').startswith('BUY'))) else 0
+            # Confidence & reliability tweaks
+            conf_adj = 5 if alignment == 1 else -7 if alignment == -1 else 0
+            rel_adj = 4 if alignment == 1 else -6 if alignment == -1 else 0
             ai_analysis['ensemble'] = {
                 'rule_prob_bullish_pct': round(rule_prob*100,2),
                 'ai_prob_bullish_pct': round(ai_prob*100,2),
                 'ensemble_bullish_pct': round(ensemble_prob*100,2),
                 'ensemble_signal': ens_signal,
-                'alignment': 'aligned' if alignment==1 else 'conflict' if alignment==-1 else 'neutral'
+                'alignment': 'aligned' if alignment==1 else 'conflict' if alignment==-1 else 'neutral',
+                'volatility_pct': atr_pct,
+                'regime_context': regime_ctx
             }
             ai_analysis['confidence'] = max(0, min(100, base_conf + conf_adj))
             if isinstance(base_rel,(int,float)):
