@@ -1,5 +1,5 @@
 # ========================================================================================
-# ðŸš€ ULTIMATE TRADING SYSTEM V5 - BEAUTIFUL & INTELLIGENT EDITION  
+# ULTIMATE TRADING SYSTEM V5 - BEAUTIFUL & INTELLIGENT EDITION  
 # ========================================================================================
 # Professional Trading Dashboard mit intelligenter Position Management
 # Basierend auf deinem schÃ¶nen Backup + erweiterte Features
@@ -398,7 +398,7 @@ def dca_position():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ========================================================================================
-# ðŸŽ¨ BEAUTIFUL GLASSMORPHISM FRONTEND
+# BEAUTIFUL GLASSMORPHISM FRONTEND
 # ========================================================================================
 
 DASHBOARD_HTML = """
@@ -407,7 +407,7 @@ DASHBOARD_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ðŸš€ Ultimate Trading System V5</title>
+    <title>Ultimate Trading System V5</title>
     <style>
         :root {
             --bg: #0b0f17;
@@ -931,7 +931,7 @@ DASHBOARD_HTML = """
         <!-- Header -->
         <div class="header">
             <div class="header-inner">
-                <h1>ðŸš€ Ultimate Trading System V5</h1>
+                <h1>Ultimate Trading System V5</h1>
                 <p>Professional Analysis â€¢ Intelligent Position Management â€¢ JAX Neural Networks</p>
                 <div class="toolbar">
                     <button id="themeToggle" class="btn-ghost" title="Theme umschalten">ðŸŒ— Theme</button>
@@ -953,7 +953,7 @@ DASHBOARD_HTML = """
         <!-- Loading Animation -->
         <div id="loadingSection" class="loading">
             <div class="spinner"></div>
-            <p>ðŸ§  Analyzing with AI â€¢ ðŸ“Š Calculating Patterns â€¢ ðŸ’¡ Generating Insights...</p>
+            <p>Analyzing with AI • Calculating Patterns • Generating Insights...</p>
         </div>
 
         <!-- Analysis Results -->
@@ -967,7 +967,7 @@ DASHBOARD_HTML = """
 
             <!-- Key Metrics -->
             <div class="glass-card">
-                <div class="section-title"><span class="icon">ðŸ“Š</span> Key Metrics <span class="tag">LIVE</span></div>
+                <div class="section-title">Key Metrics <span class="tag">LIVE</span></div>
                 <div id="metricsGrid" class="metrics-grid">
                     <!-- Metrics will be inserted here -->
                 </div>
@@ -1060,7 +1060,7 @@ DASHBOARD_HTML = """
 
                 <!-- Order Flow Analysis -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ“Š</span> Order Flow <span class="tag">NEW</span></div>
+                    <div class="section-title">Order Flow <span class="tag">NEW</span></div>
                     <div id="orderFlowAnalysis">
                         <!-- Order flow analysis -->
                     </div>
@@ -1209,7 +1209,7 @@ DASHBOARD_HTML = """
                     Score: ${signal.score}/100
                 </div>
                 <div class="signal-weights">
-                    <div class="weight-item">ðŸ“Š Technical: ${signal.technical_weight}</div>
+                    <div class="weight-item">Technical: ${signal.technical_weight}</div>
                     <div class="weight-item">ðŸ” Patterns: ${signal.pattern_weight}</div>
                     <div class="weight-item">ðŸ¤– AI: ${signal.ai_weight}</div>
                 </div>
@@ -1386,7 +1386,7 @@ DASHBOARD_HTML = """
             if (regularTrades.length > 0) {
                 html += `<div class="trade-section">
                     <h4 style="color: #17a2b8; margin-bottom: 12px; font-size: 0.85rem; display: flex; align-items: center;">
-                        ðŸ“Š <span style="margin-left: 6px;">Technical Analysis Setups (${regularTrades.length})</span>
+                        <span style="margin-left: 6px;">Technical Analysis Setups (${regularTrades.length})</span>
                     </h4>`;
                 
                 const regularBlocks = regularTrades.map(s => {
@@ -1498,7 +1498,7 @@ DASHBOARD_HTML = """
                  </div>
                  <!-- Core Indicators -->
                  <div style="flex:0 0 230px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px; backdrop-filter:blur(4px);">
-                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#17a2b8; margin-bottom:10px; display:flex; align-items:center; gap:4px;">ðŸ“Š KERNINDIKATOREN</div>
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#17a2b8; margin-bottom:10px; display:flex; align-items:center; gap:4px;">KERNINDIKATOREN</div>
                      <div style="display:flex; flex-direction:column; gap:6px;">
                          <div style="display:flex; justify-content:space-between; font-size:.6rem;">
                              <span style="color:var(--text-secondary);">RSI:</span>
@@ -1618,7 +1618,7 @@ DASHBOARD_HTML = """
                 </div>
                 
                 <div class="indicator-section">
-                    <h4 style="color: #17a2b8; margin: 15px 0 10px 0;">ðŸ“Š BASIC INDICATORS</h4>
+                    <h4 style="color: #17a2b8; margin: 15px 0 10px 0;">BASIC INDICATORS</h4>
                     <div class="indicator-grid">
                         <div class="indicator-item">
                             <span class="indicator-name">RSI:</span>
@@ -1795,10 +1795,10 @@ DASHBOARD_HTML = """
                     };
                     
                     const regimeIcons = {
-                        'trending': 'ðŸ“ˆ',
-                        'ranging': 'â†”ï¸',
-                        'expansion': 'ðŸ’¥',
-                        'volatility_crush': 'ðŸ¤'
+                        'trending': '',
+                        'ranging': '',
+                        'expansion': '',
+                        'volatility_crush': ''
                     };
                     
                     const color = regimeColors[regime.regime] || '#6c757d';
@@ -1887,7 +1887,7 @@ DASHBOARD_HTML = """
                     
                     orderFlowContainer.innerHTML = `
                         <div class="order-flow-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(155deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
-                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">ðŸ“Š Order Flow Analysis</h5>
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">Order Flow Analysis</h5>
                             
                             <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:0 0 12px;">
                                 <div class="flow-metric">
@@ -2340,8 +2340,8 @@ DASHBOARD_HTML = """
 </html>
 """
 
-print("ðŸš€ ULTIMATE TRADING SYSTEM")
-print("ðŸ“Š Professional Trading Analysis")
+print("ULTIMATE TRADING SYSTEM")
+print("Professional Trading Analysis")
 print("âš¡ Server starting on port: 5000")
 print("ðŸŒ Environment: Development")
 
