@@ -5,3 +5,5 @@ gunicorn==21.2.0
 Werkzeug==2.3.7
 --find-links https://storage.googleapis.com/jax-releases/jax_releases.html
 jax[cpu]
+pytest==8.2.2
+pytest-timeout==2.3.1
