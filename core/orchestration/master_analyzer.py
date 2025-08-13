@@ -264,7 +264,12 @@ class MasterAnalyzer:
             total_side = side_score['long']+side_score['short']+side_score['neutral'] or 1
             market_bias = {'long_strength_pct': round(side_score['long']/total_side*100,2),'short_strength_pct': round(side_score['short']/total_side*100,2),'basis': side_basis}
             # Position potential
-            position_analysis = self.position_manager.analyze_position_potential(current_price, tech_analysis.get('support'), tech_analysis.get('resistance'), tech_analysis.get('trend', {}), pattern_analysis)
+            # Korrekte Parameter-Reihenfolge: (symbol, current_price, support, resistance, patterns)
+            try:
+                pattern_list_for_pos = pattern_analysis.get('patterns', []) if isinstance(pattern_analysis, dict) else []
+            except Exception:
+                pattern_list_for_pos = []
+            position_analysis = self.position_manager.analyze_position_potential(symbol, current_price, tech_analysis.get('support'), tech_analysis.get('resistance'), pattern_list_for_pos)
             # Order flow
             order_flow_data = self._analyze_order_flow(symbol, current_price, tech_analysis.get('volume_analysis', {}), multi_timeframe)
             # AI features & prediction
@@ -284,6 +289,8 @@ class MasterAnalyzer:
             feature_contributions = self._analyze_feature_contributions(ai_features, ai_analysis, tech_analysis, pattern_analysis)
             ai_analysis['feature_contributions'] = feature_contributions
             timings['ai_ms'] = round((time.time()-t_phase)*1000,2)
+            # Backend Explainability Meta
+            explain_meta = self._build_ai_explainability_meta(ai_analysis, tech_analysis, pattern_analysis, position_analysis, extended_analysis)
             t_phase = time.time()
             final_score = self._calculate_weighted_score(tech_analysis, pattern_analysis, ai_analysis)
             timings['scoring_ms'] = round((time.time()-t_phase)*1000,2)
@@ -291,7 +298,37 @@ class MasterAnalyzer:
             liquidation_short = self.liquidation_calc.calculate_liquidation_levels(current_price, 'short')
             regime_data = self._detect_market_regime(candles, tech_analysis, extended_analysis, pattern_analysis, multi_timeframe)
             t_phase = time.time()
-            trade_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
+            # No-Trade-Zone (Extrembereiche -> lieber warten, verringert Overtrading in Live Geldumgebung)
+            ntz_meta = {}
+            try:
+                sup = tech_analysis.get('support') or 0
+                res = tech_analysis.get('resistance') or 0
+                ntz_upper = (res and current_price > res * 1.005)
+                ntz_lower = (sup and current_price < sup * 0.995)
+                if ntz_upper or ntz_lower:
+                    ntz_meta = {
+                        'active': True,
+                        'reason': 'price_extended_above_resistance' if ntz_upper else 'price_breaking_below_support',
+                        'note': 'No-Trade-Zone aktiviert: Preis in Extrembereich (>0.5% über R oder <0.5% unter S)'
+                    }
+                else:
+                    # Zusätzlich: sehr enger Korridor -> Vermeide False Break Scalps
+                    if sup and res and (res - sup)/current_price*100 < 0.9:
+                        ntz_meta = {
+                            'active': True,
+                            'reason': 'ultra_tight_range',
+                            'note': 'No-Trade-Zone: extrem enge Range (<0.9%) – geringes CRV'
+                        }
+                    else:
+                        ntz_meta = {'active': False}
+            except Exception:
+                ntz_meta = {'active': False, 'error': 'ntz_calc_failed'}
+
+            trade_setups = []
+            if not ntz_meta.get('active'):
+                trade_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
+            else:
+                trade_setups = []
             timings['setups_ms'] = round((time.time()-t_phase)*1000,2)
             try:
                 if isinstance(final_score, dict):
@@ -330,6 +367,7 @@ class MasterAnalyzer:
                 'multi_timeframe': multi_timeframe,
                 'position_analysis': position_analysis,
                 'ai_analysis': ai_analysis,
+                'ai_explainability_meta': explain_meta,
                 'ai_feature_hash': ai_analysis.get('feature_hash'),
                 'order_flow_analysis': order_flow_data,
                 'adaptive_risk_targets': adaptive_risk,
@@ -338,6 +376,7 @@ class MasterAnalyzer:
                 'liquidation_long': liquidation_long,
                 'liquidation_short': liquidation_short,
                 'trade_setups': trade_setups,
+                'trade_filter_meta': ntz_meta,
                 'weights': self.weights,
                 'final_score': safe_final_score,
                 'phase_timings_ms': timings,
@@ -464,40 +503,197 @@ class MasterAnalyzer:
 
     def _analyze_feature_contributions(self, features, ai_analysis, tech_analysis, pattern_analysis):
         try:
-            if not isinstance(features,(list,np.ndarray)) or len(features)==0:
-                return {'error':'No features available for contribution analysis'}
-            if isinstance(features,list): features=np.array(features)
-            feature_names=['RSI','RSI_Overbought','RSI_Oversold','MACD','MACD_Hist','MACD_Bull_Curve','MACD_Bear_Curve','MACD_Bull_Rev','MACD_Bear_Rev','SMA_9','SMA_20','Support_Strength','Resistance_Strength']
-            for i in range(len(feature_names),50): feature_names.append(f'Tech_{i}')
-            for i in range(50,80): feature_names.append(f'Pattern_{i-50}')
-            for i in range(80,100): feature_names.append(f'Market_{i-80}')
-            for i in range(100,120): feature_names.append(f'Position_{i-100}')
-            for i in range(120,128): feature_names.append(f'Time_{i-120}')
-            while len(feature_names) < len(features): feature_names.append(f'Feature_{len(feature_names)}')
-            feature_magnitudes = np.abs(features)
-            feature_activations = np.where(features>0, features, -features*0.5)
-            importance_scores = feature_magnitudes * feature_activations
-            total_importance = np.sum(importance_scores)
-            normalized_importance = (importance_scores/total_importance*100) if total_importance>0 else np.zeros_like(importance_scores)
-            top_indices = np.argsort(normalized_importance)[-10:][::-1]
-            contributions=[]
-            for idx in top_indices:
-                if idx < len(feature_names) and normalized_importance[idx] > 0.5:
-                    contributions.append({'feature': feature_names[idx],'importance': round(float(normalized_importance[idx]),2),'value': round(float(features[idx]),4),'impact':'positive' if features[idx]>0 else 'negative'})
-            interpretations=[]
-            rsi_val = tech_analysis.get('rsi', {}).get('rsi',50)
-            if rsi_val > 70: interpretations.append('RSI overbought condition reducing BUY confidence')
-            elif rsi_val < 30: interpretations.append('RSI oversold condition increasing BUY potential')
-            pattern_count = len(pattern_analysis.get('patterns', []))
-            if pattern_count>0:
-                bull_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal')=='bullish')
-                if bull_patterns>0: interpretations.append(f'{bull_patterns} bullish patterns supporting upside')
-            ai_signal = ai_analysis.get('signal','HOLD'); ai_conf = ai_analysis.get('confidence',0)
-            if ai_conf > 70: interpretations.append(f'High AI confidence ({ai_conf:.1f}%) in {ai_signal} signal')
-            return {'top_features': contributions[:5],'total_features_analyzed': len(features),'ai_signal_confidence': ai_conf,'contextual_interpretations': interpretations,'analysis_method':'magnitude_activation_heuristic','note':'Simplified feature attribution'}
+            # Unified Eingang: dict (neues System) oder list/array (ältere Backtests)
+            feature_names = []
+            values = []
+            if isinstance(features, dict):
+                # Bevorzugt Schema des AI-Systems für stabile Reihenfolge
+                try:
+                    schema = self.ai_system.get_feature_schema() if hasattr(self, 'ai_system') else None
+                except Exception:
+                    schema = None
+                if schema:
+                    for name in schema:
+                        try:
+                            v = features.get(name, 0)
+                            if isinstance(v,(int,float)):
+                                feature_names.append(name); values.append(float(v))
+                            else:
+                                feature_names.append(name); values.append(0.0)
+                        except Exception:
+                            feature_names.append(name); values.append(0.0)
+                else:
+                    # Fallback: alphabetisch sortierte Keys
+                    for name in sorted(features.keys()):
+                        v = features.get(name,0)
+                        if isinstance(v,(int,float)):
+                            feature_names.append(name); values.append(float(v))
+                if not values:
+                    return {'error':'Keine numerischen Feature-Werte gefunden','top_features':[],'analysis_method':'z_score'}
+                values_arr = np.array(values, dtype=float)
+            elif isinstance(features,(list,tuple,np.ndarray)) and len(features)>0:
+                values_arr = np.array(features, dtype=float)
+                feature_names = [f'feat_{i}' for i in range(len(values_arr))]
+            else:
+                return {'error':'Keine Features für Analyse verfügbar','top_features':[],'analysis_method':'z_score'}
+
+            # Z-Scores (Standardisierung) -> Importance = |z|; robust gegen Skalierung
+            mean = float(values_arr.mean())
+            std = float(values_arr.std())
+            if std < 1e-9:
+                # Alle Werte praktisch identisch -> keine Aussagekraft
+                return {'top_features':[], 'total_features_analyzed': int(len(values_arr)), 'ai_signal_confidence': ai_analysis.get('confidence',0), 'contextual_interpretations':['Alle Features nahezu identisch – keine dominante Einflussquelle'], 'analysis_method':'z_score', 'note':'Keine Varianz'}
+            z = (values_arr - mean) / (std + 1e-9)
+            importance = np.abs(z)
+            # Normalisieren auf 100%
+            total_imp = importance.sum()
+            if total_imp <= 0:
+                return {'top_features':[], 'total_features_analyzed': int(len(values_arr)), 'ai_signal_confidence': ai_analysis.get('confidence',0), 'contextual_interpretations':['Keine signifikanten Abweichungen'], 'analysis_method':'z_score'}
+            norm_imp = importance / total_imp * 100.0
+            # Top N auswählen
+            top_n = 6
+            idx_sorted = np.argsort(norm_imp)[::-1][:top_n]
+            contributions = []
+            ai_signal = ai_analysis.get('signal','HOLD')
+            ai_conf = ai_analysis.get('confidence',0)
+            for idx in idx_sorted:
+                if norm_imp[idx] < 1.0:  # Skip sehr kleine Beiträge
+                    continue
+                raw_val = values_arr[idx]
+                impact = 'positiv' if raw_val >= mean else 'negativ'
+                contributions.append({
+                    'feature': feature_names[idx],
+                    'importance_pct': round(float(norm_imp[idx]),2),
+                    'z_score': round(float(z[idx]),3),
+                    'raw_value': round(float(raw_val),4),
+                    'impact_direction': impact
+                })
+
+            # Kontextuelle Interpretationen
+            interpretations = []
+            try:
+                rsi_val = tech_analysis.get('rsi', {}).get('rsi',50)
+                if isinstance(rsi_val,(int,float)):
+                    if rsi_val > 70: interpretations.append('RSI überkauft – limitiert bullische Qualität')
+                    elif rsi_val < 30: interpretations.append('RSI überverkauft – mögliches Rebound-Potenzial')
+                pattern_list = pattern_analysis.get('patterns', [])
+                if pattern_list:
+                    bull_patterns = sum(1 for p in pattern_list if p.get('signal')=='bullish')
+                    bear_patterns = sum(1 for p in pattern_list if p.get('signal')=='bearish')
+                    if bull_patterns and bull_patterns > bear_patterns:
+                        interpretations.append(f'{bull_patterns} bullishe Pattern unterstützen Aufwärtsrichtung')
+                    if bear_patterns and bear_patterns > bull_patterns:
+                        interpretations.append(f'{bear_patterns} bearishe Pattern dämpfen Kaufsignale')
+                if ai_conf > 70:
+                    interpretations.append(f'Hohe KI-Konfidenz ({ai_conf:.1f}%) für {ai_signal}')
+            except Exception:
+                pass
+
+            # Kompatibilitätsfelder für Frontend: importance, value, impact
+            legacy_formatted = []
+            for c in contributions:
+                legacy_formatted.append({
+                    'feature': c['feature'],
+                    'importance': c['importance_pct'],  # Prozentwert
+                    'value': c['raw_value'],
+                    'impact': 'positive' if c['impact_direction'] == 'positiv' else 'negative'
+                })
+            return {
+                'top_features': legacy_formatted,
+                'total_features_analyzed': int(len(values_arr)),
+                'ai_signal_confidence': ai_conf,
+                'contextual_interpretations': interpretations,
+                'analysis_method': 'z_score',
+                'note': 'Heuristische Attribution basierend auf |z|-Gewichtung'
+            }
         except Exception as e:
             return {'error': f'Feature contribution analysis failed: {str(e)}','top_features': [],'analysis_method':'error'}
 
+    def _build_ai_explainability_meta(self, ai_analysis, tech, patterns, position, extended):
+        """Erzeugt strukturierte Erklärgründe (serverseitig) für das KI-Signal.
+        Liefert Gründe pro Kategorie: widersprechend, unterstützend, neutral.
+        """
+        meta = {
+            'signal': ai_analysis.get('signal'),
+            'confidence': ai_analysis.get('confidence'),
+            'reliability': ai_analysis.get('reliability_score'),
+            'entropy': ai_analysis.get('entropy'),
+            'prob_margin': ai_analysis.get('prob_margin'),
+            'reasons_negative': [],
+            'reasons_positive': [],
+            'reasons_neutral': [],
+            'debug_factors': {}
+        }
+        try:
+            rsi = tech.get('rsi', {}).get('rsi', 50)
+            trend_obj = tech.get('trend', {}) if isinstance(tech.get('trend'), dict) else {}
+            macd_curve = tech.get('macd', {}).get('curve_direction', 'neutral')
+            support = tech.get('support'); resistance = tech.get('resistance'); price = tech.get('current_price')
+            pat_list = patterns.get('patterns', []) if isinstance(patterns, dict) else []
+            bull_p = sum(1 for p in pat_list if p.get('signal')=='bullish')
+            bear_p = sum(1 for p in pat_list if p.get('signal')=='bearish')
+            bull_dom = bull_p > bear_p
+            bear_dom = bear_p > bull_p
+            dist_res = ((resistance - price)/price*100) if (resistance and price) else None
+            dist_sup = ((price - support)/price*100) if (support and price) else None
+            atr_pct = extended.get('atr', {}).get('percentage') if isinstance(extended, dict) else None
+            regime = extended.get('regime_type') or extended.get('regime')
+            # store debug
+            meta['debug_factors'] = {
+                'rsi': rsi,
+                'trend': trend_obj.get('trend'),
+                'trend_strength': trend_obj.get('strength'),
+                'macd_curve': macd_curve,
+                'bull_patterns': bull_p,
+                'bear_patterns': bear_p,
+                'dist_resistance_pct': dist_res,
+                'dist_support_pct': dist_sup,
+                'atr_pct': atr_pct,
+                'regime': regime
+            }
+            signal = meta['signal']
+            # Positive / supportive factors
+            if bull_dom:
+                meta['reasons_positive'].append(f"{bull_p} bullishe Pattern unterstützen Aufwärtsstruktur")
+            if bear_dom:
+                meta['reasons_positive'].append(f"{bear_p} bearishe Pattern bestätigen Abwärtsstruktur")
+            if isinstance(rsi, (int,float)) and 45 <= rsi <= 60:
+                meta['reasons_positive'].append(f"RSI neutral/stabil ({rsi:.1f}) – Spielraum für Trend-Fortsetzung")
+            if 'bullish' in str(macd_curve) and signal in ['BUY','STRONG_BUY']:
+                meta['reasons_positive'].append('MACD Kurvenrichtung bullisch unterstützt Kaufsignal')
+            if 'bearish' in str(macd_curve) and signal in ['SELL','STRONG_SELL']:
+                meta['reasons_positive'].append('MACD Kurvenrichtung bearisch stützt Verkaufssignal')
+            # Negative / contradictive
+            if signal in ['BUY','STRONG_BUY'] and bear_dom:
+                meta['reasons_negative'].append(f"{bear_p} bearishe Pattern widersprechen LONG")
+            if signal in ['SELL','STRONG_SELL'] and bull_dom:
+                meta['reasons_negative'].append(f"{bull_p} bullishe Pattern dämpfen SELL")
+            if signal in ['BUY','STRONG_BUY'] and dist_res is not None and dist_res < 1.2:
+                meta['reasons_negative'].append(f"Widerstand sehr nah ({dist_res:.2f}%) – begrenztes Upside")
+            if signal in ['SELL','STRONG_SELL'] and dist_sup is not None and dist_sup < 1.2:
+                meta['reasons_negative'].append(f"Support sehr nah ({dist_sup:.2f}%) – begrenztes Downside")
+            if signal in ['BUY','STRONG_BUY'] and 'bearish' in str(trend_obj.get('trend')):
+                meta['reasons_negative'].append('Übergeordneter Trend bearish – Trendkonflikt')
+            if signal in ['SELL','STRONG_SELL'] and 'bullish' in str(trend_obj.get('trend')):
+                meta['reasons_negative'].append('Übergeordneter Trend bullisch – Trendkonflikt')
+            if isinstance(rsi,(int,float)) and rsi > 70 and signal in ['BUY','STRONG_BUY']:
+                meta['reasons_negative'].append(f"RSI überkauft ({rsi:.1f}) – Einstiegsrisiko")
+            if isinstance(rsi,(int,float)) and rsi < 30 and signal in ['SELL','STRONG_SELL']:
+                meta['reasons_negative'].append(f"RSI überverkauft ({rsi:.1f}) – Short-Risiko")
+            if atr_pct and atr_pct > 2.5:
+                meta['reasons_negative'].append(f"Hohe Volatilität (ATR {atr_pct:.2f}%) – erhöhtes Whipsaw-Risiko")
+            # Neutral context
+            if dist_res is not None and dist_sup is not None:
+                range_w = dist_res + dist_sup
+                if range_w < 2.0:
+                    meta['reasons_neutral'].append(f"Sehr schmale Range ({range_w:.2f}%) – Breakout-Wahrscheinlichkeit erhöht")
+            if meta['reliability'] is not None and meta['reliability'] < 45:
+                meta['reasons_negative'].append(f"Niedrige KI Reliability ({meta['reliability']:.1f}%) – Signal vorsichtig interpretieren")
+            if not meta['reasons_positive'] and signal not in ['HOLD', None]:
+                meta['reasons_positive'].append('Keine starken gegenläufigen Faktoren gefunden')
+        except Exception as e:
+            meta['error'] = f'explainability_build_failed: {e}'
+        return meta
     def _calculate_adaptive_risk_targets(self, symbol, current_price, tech_analysis, regime_data, ai_analysis):
         try:
             base_risk_pct=2.0; base_reward_ratio=2.0
@@ -777,36 +973,98 @@ class MasterAnalyzer:
                     score -= 20
                 return max(10, min(95, round(score)))
 
-            def _targets(entry, stop, direction, extra=None):
-                risk_abs = (entry - stop) if direction == 'LONG' else (stop - entry)
-                if risk_abs < min_atr * 1.2:  # ensure sufficiently wide stop
-                    if direction == 'LONG':
-                        stop = entry - min_atr * 1.2
+            # Momentum/Pump Detection (verhindert zu enge SL/TP bei starken Moves)
+            macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral')
+            momentum_flag = (
+                (rsi and rsi > 68) or
+                (atr_perc and atr_perc > 1.6) or
+                (isinstance(macd_curve, str) and 'bullish' in macd_curve) or
+                (regime_data and regime_data.get('regime') in ['trending','expansion'])
+            )
+
+            def _smart_stop(entry, raw_stop, direction, structural_level=None):
+                """Adaptive Stop-Ermittlung mit Momentum-/Regime-Schutz.
+                Ziel: Keine zu engen SL bei hoher Volatilität oder Momentum-Beschleunigung.
+                structural_level: support (LONG) bzw. resistance (SHORT) für strukturelle Distanz."""
+                raw_dist = (entry - raw_stop) if direction == 'LONG' else (raw_stop - entry)
+                # Strukturpuffer
+                if structural_level:
+                    struct_dist = (entry - structural_level) if direction == 'LONG' else (structural_level - entry)
+                    if struct_dist and struct_dist > 0:
+                        struct_dist += min_atr * (1.15 if momentum_flag else 0.7)
                     else:
-                        stop = entry + min_atr * 1.2
-                    risk_abs = (entry - stop) if direction == 'LONG' else (stop - entry)
-                risk_abs = max(risk_abs, min_atr * 1.0)
+                        struct_dist = None
+                else:
+                    struct_dist = None
+                # Dynamische Mindestmultiplikatoren
+                regime = (regime_data or {}).get('regime') if isinstance(regime_data, dict) else None
+                base_mult = 1.2
+                if momentum_flag:
+                    base_mult = 1.7
+                if regime in ['trending','expansion']:
+                    base_mult += 0.25
+                if rsi and ((direction=='LONG' and rsi>70) or (direction=='SHORT' and rsi<30)):
+                    # Extreme RSI -> etwas weiter
+                    base_mult += 0.15
+                # Zusätzliche Ausweitung bei sehr hoher kurzfristiger ATR-%
+                if atr_perc and atr_perc > 2.2:
+                    base_mult += 0.3
+                vol_min = min_atr * base_mult
+                # Mindest absoluter Stop Abstand (Preisprozentsatz) verhindert Mikro-SL
+                abs_min_dist = current_price * 0.0035  # ~0.35%
+                desired = max(vol_min, struct_dist or 0, raw_dist or 0, abs_min_dist)
+                if direction == 'LONG':
+                    return round(entry - desired, 4)
+                return round(entry + desired, 4)
+
+            def _targets(entry, stop, direction, extra=None):
+                structural_ref = support if direction == 'LONG' else resistance
+                adj_stop = _smart_stop(entry, stop, direction, structural_ref)
+                risk_abs = (entry - adj_stop) if direction == 'LONG' else (adj_stop - entry)
+                # Dynamische RR-Leiter: bei Expansion/Trending und Momentum weitere Staffeln
+                regime = (regime_data or {}).get('regime') if isinstance(regime_data, dict) else None
+                if momentum_flag and regime in ['trending','expansion']:
+                    rr_ladder = [2, 3, 5, 8, 12, 16]
+                elif momentum_flag:
+                    rr_ladder = [2, 3, 5, 8, 11]
+                elif regime == 'ranging':
+                    rr_ladder = [1.2, 2, 3.2, 4.5, 6]
+                else:
+                    rr_ladder = [1.5, 2.5, 4, 6, 8]
                 base_targets = []
-                for m in [1.5, 2.5, 4, 6, 8]:
+                for m in rr_ladder:
                     tp = entry + risk_abs * m if direction == 'LONG' else entry - risk_abs * m
                     base_targets.append({'label': f'{m}R', 'price': round(tp, 2), 'rr': float(m)})
                 swing_ext = _structural_targets(direction, entry)
-                base_targets.append({'label': 'Swing', 'price': round(swing_ext, 2), 'rr': round(abs((swing_ext - entry) / risk_abs), 2)})
+                swing_rr = abs((swing_ext - entry) / risk_abs)
+                if swing_rr > (rr_ladder[-1] * 0.65):
+                    base_targets.append({'label': 'Swing', 'price': round(swing_ext, 2), 'rr': round(swing_rr, 2)})
                 if extra:
                     for lbl, lvl in extra:
                         if lvl:
                             rr = (lvl - entry) / risk_abs if direction == 'LONG' else (entry - lvl) / risk_abs
-                            base_targets.append({'label': lbl, 'price': round(lvl, 2), 'rr': round(rr, 2)})
-                base_targets.sort(key=lambda x: x['rr'])
-                filtered = []
-                last_rr = -999
-                for t in base_targets:
-                    if t['rr'] - last_rr >= 0.8:
-                        filtered.append(t)
-                        last_rr = t['rr']
-                    if len(filtered) >= 5:
-                        break
-                return filtered
+                            if rr > 1.05:
+                                base_targets.append({'label': lbl, 'price': round(lvl, 2), 'rr': round(rr, 2)})
+                # Dedup
+                seen = set(); dedup=[]
+                for t in sorted(base_targets, key=lambda x: x['rr']):
+                    pr = round(t['price'],2)
+                    if pr in seen: continue
+                    dedup.append(t); seen.add(pr)
+                # Progression erzwingen
+                filtered=[]; last_rr=0
+                for t in dedup:
+                    if t['rr'] - last_rr >= 0.65:
+                        filtered.append(t); last_rr = t['rr']
+                    if len(filtered) >= 7: break
+                # Mindestabstand absolut
+                min_tp_distance = max(min_atr * (1.15 if momentum_flag else 0.95), current_price * 0.0045)
+                filtered_far = [t for t in filtered if abs(t['price'] - entry) >= min_tp_distance]
+                if filtered_far:
+                    filtered = filtered_far
+                # Sicherstellen, dass erster TP >= 1.3R (sonst entfernen und nachrücken)
+                filtered = [t for t in filtered if t['rr'] >= 1.3] or filtered
+                return filtered, adj_stop
 
             timeframe_weight = {'15m': 0.6, '1h': 1.0, '4h': 1.4, '1d': 1.8}
             all_patterns_rank = []
@@ -837,8 +1095,12 @@ class MasterAnalyzer:
                     trend_validation_passed = True
                 if trend_validation_passed:
                     entry_pb = support * 1.003
-                    stop_pb = support - atr_val * 0.9
-                    risk_pct = round((entry_pb - stop_pb) / entry_pb * 100, 2)
+                    raw_stop_pb = support - atr_val * 0.9
+                    targets_pb, smart_stop_pb = _targets(entry_pb, raw_stop_pb, 'LONG', [
+                        ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
+                    ])
+                    stop_pb = smart_stop_pb
+                    risk_pct = round((entry_pb - stop_pb)/entry_pb*100,2)
                     if risk_pct <= 3.0:
                         base_rationale = 'Multi-validated Einstieg nahe Support mit Professional Risk Management'
                         enhanced_rationale = f"{base_rationale}. {rsi_caution['narrative']}" if rsi_caution['caution_level'] != 'none' else base_rationale
@@ -846,9 +1108,7 @@ class MasterAnalyzer:
                             'id': 'L-PB', 'direction': 'LONG', 'strategy': 'Professional Bullish Pullback',
                             'entry': round(entry_pb, 2), 'stop_loss': round(stop_pb, 2),
                             'risk_percent': risk_pct,
-                            'targets': _targets(entry_pb, stop_pb, 'LONG', [
-                                ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
-                            ]),
+                            'targets': targets_pb,
                             'confidence': _confidence(55, [15 if enterprise_ready else 5, 8 if rsi < 65 else 0, 10 if trend_validation_passed else 0]) - rsi_caution['confidence_penalty'],
                             'conditions': [
                                 {'t': 'Trend validation', 's': 'ok' if trend_validation_passed else 'warn'},
@@ -883,14 +1143,16 @@ class MasterAnalyzer:
                         })
                 # Breakout LONG
                 entry_bo = resistance * 1.0015
-                stop_bo = resistance - atr_val
+                raw_stop_bo = resistance - atr_val
+                targets_bo, smart_stop_bo = _targets(entry_bo, raw_stop_bo, 'LONG', [
+                    ('Fib 0.618', fib.get('fib_618')), ('Fib 0.786', fib.get('fib_786'))
+                ])
+                stop_bo = smart_stop_bo
                 setups.append({
                     'id': 'L-BO', 'direction': 'LONG', 'strategy': 'Resistance Breakout',
                     'entry': round(entry_bo, 2), 'stop_loss': round(stop_bo, 2),
                     'risk_percent': round((entry_bo - stop_bo) / entry_bo * 100, 2),
-                    'targets': _targets(entry_bo, stop_bo, 'LONG', [
-                        ('Fib 0.618', fib.get('fib_618')), ('Fib 0.786', fib.get('fib_786'))
-                    ]),
+                    'targets': targets_bo,
                     'confidence': _confidence(48, [15 if enterprise_ready else 5, 6 if rsi < 70 else -4]),
                     'conditions': [
                         {'t': 'Break über Resistance', 's': 'ok'},
@@ -903,12 +1165,14 @@ class MasterAnalyzer:
                     top_b = bull_ranked[0]
                     tfb = top_b.get('timeframe', '1h')
                     entry_pc = current_price * 1.001 if current_price < resistance else resistance * 1.001
-                    stop_pc = entry_pc - atr_val * 0.8
+                    raw_stop_pc = entry_pc - atr_val * 0.8
+                    targets_pc, smart_stop_pc = _targets(entry_pc, raw_stop_pc, 'LONG', [('Resistance', resistance)])
+                    stop_pc = smart_stop_pc
                     setups.append({
                         'id': 'L-PC', 'direction': 'LONG', 'strategy': 'Pattern Confirmation',
                         'entry': round(entry_pc, 2), 'stop_loss': round(stop_pc, 2),
                         'risk_percent': round((entry_pc - stop_pc) / entry_pc * 100, 2),
-                        'targets': _targets(entry_pc, stop_pc, 'LONG', [('Resistance', resistance)]),
+                        'targets': targets_pc,
                         'confidence': _confidence(52, [min(18, int(top_b.get('confidence', 50) / 3)), 5 if 'bullish' in trend else 0]),
                         'conditions': [
                             {'t': f'Pattern {top_b.get("name", "?")}@{tfb}', 's': 'ok'},
@@ -923,12 +1187,14 @@ class MasterAnalyzer:
                 macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral')
                 if 'bullish' in macd_curve and rsi > 55:
                     entry_momo = current_price * 1.0005
-                    stop_momo = entry_momo - atr_val
+                    raw_stop_momo = entry_momo - atr_val
+                    targets_momo, smart_stop_momo = _targets(entry_momo, raw_stop_momo, 'LONG', [('Resistance', resistance)])
+                    stop_momo = smart_stop_momo
                     setups.append({
                         'id': 'L-MOMO', 'direction': 'LONG', 'strategy': 'Momentum Continuation',
                         'entry': round(entry_momo, 2), 'stop_loss': round(stop_momo, 2),
                         'risk_percent': round((entry_momo - stop_momo) / entry_momo * 100, 2),
-                        'targets': _targets(entry_momo, stop_momo, 'LONG', [('Resistance', resistance)]),
+                        'targets': targets_momo,
                         'confidence': _confidence(50, [10 if rsi > 60 else 5, 6]),
                         'conditions': [
                             {'t': 'MACD Curve bullish', 's': 'ok'},
@@ -942,12 +1208,14 @@ class MasterAnalyzer:
                     top_b2 = bull_ranked[0]
                     tfb2 = top_b2.get('timeframe', '1h')
                     entry_rej = support * 1.004
-                    stop_rej = support - atr_val * 0.7
+                    raw_stop_rej = support - atr_val * 0.7
+                    targets_rej, smart_stop_rej = _targets(entry_rej, raw_stop_rej, 'LONG', [('Resistance', resistance)])
+                    stop_rej = smart_stop_rej
                     setups.append({
                         'id': 'L-REJ', 'direction': 'LONG', 'strategy': 'Support Rejection',
                         'entry': round(entry_rej, 2), 'stop_loss': round(stop_rej, 2),
                         'risk_percent': round((entry_rej - stop_rej) / entry_rej * 100, 2),
-                        'targets': _targets(entry_rej, stop_rej, 'LONG', [('Resistance', resistance)]),
+                        'targets': targets_rej,
                         'confidence': _confidence(48, [8, min(14, int(top_b2.get('confidence', 50) / 4))]),
                         'conditions': [
                             {'t': 'Nahe Support', 's': 'ok'},
@@ -964,12 +1232,14 @@ class MasterAnalyzer:
                 relaxation['relaxed_rsi_bounds'] = True
             if rsi < 35:
                 entry_mr = current_price * 0.998
-                stop_mr = entry_mr - atr_val * 0.9
+                raw_stop_mr = entry_mr - atr_val * 0.9
+                targets_mr, smart_stop_mr = _targets(entry_mr, raw_stop_mr, 'LONG', [('Resistance', resistance)])
+                stop_mr = smart_stop_mr
                 setups.append({
                     'id': 'L-MR', 'direction': 'LONG', 'strategy': 'RSI Mean Reversion',
                     'entry': round(entry_mr, 2), 'stop_loss': round(stop_mr, 2),
                     'risk_percent': round((entry_mr - stop_mr) / entry_mr * 100, 2),
-                    'targets': _targets(entry_mr, stop_mr, 'LONG', [('Resistance', resistance)]),
+                    'targets': targets_mr,
                     'confidence': _confidence(42, [10 if rsi < 28 else 4]),
                     'conditions': [
                         {'t': f'RSI {rsi:.1f}', 's': 'ok'},
@@ -1084,12 +1354,14 @@ class MasterAnalyzer:
                 relaxation['relaxed_rsi_bounds'] = True
             if rsi > 65:
                 entry_mrs = current_price * 1.002
-                stop_mrs = entry_mrs + atr_val * 0.9
+                raw_stop_mrs = entry_mrs + atr_val * 0.9
+                targets_mrs, smart_stop_mrs = _targets(entry_mrs, raw_stop_mrs, 'SHORT', [('Support', support)])
+                stop_mrs = smart_stop_mrs
                 setups.append({
                     'id': 'S-MR', 'direction': 'SHORT', 'strategy': 'RSI Mean Reversion',
                     'entry': round(entry_mrs, 2), 'stop_loss': round(stop_mrs, 2),
                     'risk_percent': round((stop_mrs - entry_mrs) / entry_mrs * 100, 2),
-                    'targets': _targets(entry_mrs, stop_mrs, 'SHORT', [('Support', support)]),
+                    'targets': targets_mrs,
                     'confidence': _confidence(42, [10 if rsi > 72 else 4]),
                     'conditions': [
                         {'t': f'RSI {rsi:.1f}', 's': 'ok'},
@@ -1101,12 +1373,14 @@ class MasterAnalyzer:
             # Pattern injected setups if directional scarcity
             if bullish_pattern_present and len([s for s in setups if s['direction'] == 'LONG']) < 2:
                 entry_pat = current_price * 1.001
-                stop_pat = current_price - atr_val
+                raw_stop_pat = current_price - atr_val
+                targets_pat, smart_stop_pat = _targets(entry_pat, raw_stop_pat, 'LONG', [('Resistance', resistance)])
+                stop_pat = smart_stop_pat
                 setups.append({
                     'id': 'L-PAT', 'direction': 'LONG', 'strategy': 'Pattern Boost Long',
                     'entry': round(entry_pat, 2), 'stop_loss': round(stop_pat, 2),
                     'risk_percent': round((entry_pat - stop_pat) / entry_pat * 100, 2),
-                    'targets': _targets(entry_pat, stop_pat, 'LONG', [('Resistance', resistance)]),
+                    'targets': targets_pat,
                     'confidence': 55,
                     'conditions': [{'t': 'Bullish Pattern', 's': 'ok'}],
                     'rationale': 'Bullish Chart Pattern aktiviert (relaxed)'
@@ -1114,12 +1388,14 @@ class MasterAnalyzer:
                 relaxation['pattern_injected'] = True
             if bearish_pattern_present and len([s for s in setups if s['direction'] == 'SHORT']) < 2:
                 entry_pats = current_price * 0.999
-                stop_pats = current_price + atr_val
+                raw_stop_pats = current_price + atr_val
+                targets_pats, smart_stop_pats = _targets(entry_pats, raw_stop_pats, 'SHORT', [('Support', support)])
+                stop_pats = smart_stop_pats
                 setups.append({
                     'id': 'S-PAT', 'direction': 'SHORT', 'strategy': 'Pattern Boost Short',
                     'entry': round(entry_pats, 2), 'stop_loss': round(stop_pats, 2),
                     'risk_percent': round((stop_pats - entry_pats) / entry_pats * 100, 2),
-                    'targets': _targets(entry_pats, stop_pats, 'SHORT', [('Support', support)]),
+                    'targets': targets_pats,
                     'confidence': 55,
                     'conditions': [{'t': 'Bearish Pattern', 's': 'ok'}],
                     'rationale': 'Bearish Chart Pattern aktiviert (relaxed)'
@@ -1131,23 +1407,27 @@ class MasterAnalyzer:
                 relaxation['fallback_generated'] = True
                 generic_risk = max(atr_val, current_price * 0.003)
                 entry_gl = current_price
-                stop_gl = entry_gl - generic_risk
+                raw_stop_gl = entry_gl - generic_risk
+                targets_gl, smart_stop_gl = _targets(entry_gl, raw_stop_gl, 'LONG', [('Resistance', resistance)])
+                stop_gl = smart_stop_gl
                 setups.append({
                     'id': 'L-FB', 'direction': 'LONG', 'strategy': 'Generic Long',
                     'entry': round(entry_gl, 2), 'stop_loss': round(stop_gl, 2),
                     'risk_percent': round((entry_gl - stop_gl) / entry_gl * 100, 2),
-                    'targets': _targets(entry_gl, stop_gl, 'LONG', [('Resistance', resistance)]),
+                    'targets': targets_gl,
                     'confidence': 45,
                     'conditions': [{'t': 'Fallback', 's': 'info'}],
                     'rationale': 'Fallback Long Setup (relaxed)'
                 })
                 entry_gs = current_price
-                stop_gs = entry_gs + generic_risk
+                raw_stop_gs = entry_gs + generic_risk
+                targets_gs, smart_stop_gs = _targets(entry_gs, raw_stop_gs, 'SHORT', [('Support', support)])
+                stop_gs = smart_stop_gs
                 setups.append({
                     'id': 'S-FB', 'direction': 'SHORT', 'strategy': 'Generic Short',
                     'entry': round(entry_gs, 2), 'stop_loss': round(stop_gs, 2),
                     'risk_percent': round((stop_gs - entry_gs) / entry_gs * 100, 2),
-                    'targets': _targets(entry_gs, stop_gs, 'SHORT', [('Support', support)]),
+                    'targets': targets_gs,
                     'confidence': 45,
                     'conditions': [{'t': 'Fallback', 's': 'info'}],
                     'rationale': 'Fallback Short Setup (relaxed)'
@@ -1194,7 +1474,56 @@ class MasterAnalyzer:
             trimmed = all_setups[:12]
             if trimmed:
                 trimmed[0]['relaxation_meta'] = relaxation
-            return trimmed
+
+            # Zusätzliche Risiko / Reliability Nachfilter
+            ai_rel = 50
+            try:
+                # final_score evtl. enthält validation / ai signal info, fallback aus component scores
+                ai_rel = final_score.get('validation', {}).get('ai_reliability') if isinstance(final_score, dict) else 50
+            except Exception:
+                pass
+            # Falls AI-Analyse Objekt verfügbar, entnehme reliability_score
+            try:
+                # Not available hier lokal -> ignorieren; könnte später injiziert werden
+                pass
+            except Exception:
+                pass
+
+            filtered_post = []
+            for s in trimmed:
+                risk_pct = s.get('risk_percent', 0)
+                # Hard Cap Risk Filter (Echtgeld Vorbereitung): >3% wird entfernt, 2.2-3% nur erlaubt wenn Confidence >=60
+                if risk_pct > 3.0:
+                    s['filtered_reason'] = 'risk_pct_gt_3'
+                    continue
+                if risk_pct > 2.2 and s.get('confidence',0) < 60:
+                    s['filtered_reason'] = 'risk_pct_high_low_conf'
+                    continue
+                filtered_post.append(s)
+            if not filtered_post:
+                filtered_post = trimmed  # Fallback nichts zerstören
+
+            # === Backend Pruning auf max 1 Long & 1 Short ===
+            def _rank(s):
+                rr = s.get('primary_rr') or (s['targets'][0]['rr'] if s.get('targets') else 1)
+                risk_pct = s.get('risk_percent', 2.0)
+                return (s.get('confidence',50)) * rr * (1 - min(risk_pct,5)/100.0)
+            best_long = None; best_short = None
+            for s in filtered_post:
+                if s.get('direction') == 'LONG':
+                    if best_long is None or _rank(s) > _rank(best_long):
+                        best_long = s
+                elif s.get('direction') == 'SHORT':
+                    if best_short is None or _rank(s) > _rank(best_short):
+                        best_short = s
+            pruned = []
+            if best_long: pruned.append(best_long)
+            if best_short: pruned.append(best_short)
+            if not pruned and filtered_post:
+                pruned = [filtered_post[0]]
+            for p in pruned:
+                p['selection_method'] = 'directional_top'
+            return pruned
         except Exception as e:
             self.logger.error(f"Trade setup generation error: {e}")
             return []

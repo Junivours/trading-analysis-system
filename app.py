@@ -153,6 +153,87 @@ def analyze_symbol(symbol):
             log_event('info', 'Cache cleared for analyze', symbol=symbol.upper())
         log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1')
         analysis = master_analyzer.analyze_symbol(symbol.upper())
+
+        # --- Fallback / Repair for position_analysis to avoid dict-float subtraction errors ---
+        try:
+            pa = analysis.get('position_analysis') if isinstance(analysis, dict) else None
+            tech = analysis.get('technical_analysis', {}) if isinstance(analysis, dict) else {}
+            support = tech.get('support')
+            resistance = tech.get('resistance')
+            current_price = tech.get('current_price') or analysis.get('current_price')
+
+            def _to_num(v):
+                if isinstance(v,(int,float)) and not isinstance(v,bool):
+                    return float(v)
+                if isinstance(v, dict):  # try common keys
+                    for k in ('value','price','level'): 
+                        if isinstance(v.get(k),(int,float)):
+                            return float(v[k])
+                return None
+
+            support_n = _to_num(support)
+            resistance_n = _to_num(resistance)
+            price_n = _to_num(current_price)
+
+            invalid = False
+            if not pa or not isinstance(pa, dict):
+                invalid = True
+            else:
+                # if subtraction would break due to dict types or missing numeric fields
+                if not isinstance(pa.get('resistance_potential'), (int,float)) or not isinstance(pa.get('support_risk'), (int,float)):
+                    invalid = True
+
+            if (support is not None and support_n is None) or (resistance is not None and resistance_n is None):
+                invalid = True
+
+            if invalid:
+                # Recompute simple potentials safely
+                if price_n and isinstance(price_n,(int,float)):
+                    if resistance_n and isinstance(resistance_n,(int,float)):
+                        resistance_potential = ((resistance_n - price_n) / price_n) * 100 if resistance_n > 0 else 0
+                    else:
+                        resistance_potential = 0
+                    if support_n and isinstance(support_n,(int,float)):
+                        support_risk = ((price_n - support_n) / price_n) * 100 if support_n > 0 else 0
+                    else:
+                        support_risk = 0
+                else:
+                    resistance_potential = 0
+                    support_risk = 0
+
+                recommendations = []
+                # Simple heuristic recommendations
+                if resistance_potential > 5 and resistance_potential >= support_risk:
+                    recommendations.append({
+                        'type': 'LONG', 'action': 'WATCH / BUILD', 'reason': f'{resistance_potential:.1f}% Up Potential', 'details': 'Basic heuristic (fallback)', 'confidence': 55, 'color': '#28a745'
+                    })
+                if support_risk > 5 and support_risk > resistance_potential:
+                    recommendations.append({
+                        'type': 'SHORT', 'action': 'WATCH / BUILD', 'reason': f'{support_risk:.1f}% Down Potential', 'details': 'Basic heuristic (fallback)', 'confidence': 55, 'color': '#dc3545'
+                    })
+                if not recommendations:
+                    recommendations.append({
+                        'type': 'NEUTRAL', 'action': 'NO ACTION', 'reason': 'Kein klares Setup (Fallback)', 'details': 'Low differential', 'confidence': 40, 'color': '#6c757d'
+                    })
+
+                analysis['position_analysis'] = {
+                    'resistance_potential': round(resistance_potential,2),
+                    'support_risk': round(support_risk,2),
+                    'recommendations': recommendations,
+                    'fallback': True,
+                    'error': pa.get('error') if isinstance(pa, dict) and pa.get('error') else None
+                }
+        except Exception as pe:
+            # Last resort minimal stub
+            analysis.setdefault('position_analysis', {
+                'resistance_potential': 0.0,
+                'support_risk': 0.0,
+                'recommendations': [{
+                    'type': 'NEUTRAL','action':'ERROR','reason':'PositionManager Fehler','details':str(pe),'confidence':0,'color':'#dc3545'
+                }],
+                'fallback': True,
+                'error': str(pe)
+            })
         
         if 'error' in analysis:
             err_id = log_event('error', 'Analyze error', symbol=symbol.upper(), error=analysis['error'], parent=log_id)
@@ -1426,34 +1507,42 @@ DASHBOARD_HTML = """
 
         // Display position management recommendations
         function displayPositionManagement(data) {
-            const positions = data.position_analysis;
-            const recommendations = positions.recommendations || [];
-            
-            let html = `
-                <div class="metrics-grid" style="margin-bottom: 20px;">
+            const positions = data.position_analysis || {};
+            const safeNum = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
+            const resPot = safeNum(positions.resistance_potential).toFixed(1);
+            const supRisk = safeNum(positions.support_risk).toFixed(1);
+            const recommendations = Array.isArray(positions.recommendations) ? positions.recommendations : [];
+            let html = '';
+            if (positions.error) {
+                html += `<div style="background:rgba(220,53,69,0.15); border:1px solid #dc3545; padding:10px; border-radius:8px; font-size:.65rem; margin-bottom:14px;">⚠️ PositionManager-Fehler: ${positions.error}</div>`;
+            } else if (positions.fallback) {
+                html += `<div style="background:rgba(255,193,7,0.12); border:1px solid #ffc107; padding:10px; border-radius:8px; font-size:.6rem; margin-bottom:14px;">Fallback Position Analysis aktiv (vereinfachte Berechnung)</div>`;
+            }
+            html += `
+                <div class="metrics-grid" style="margin-bottom: 16px;">
                     <div class="metric-card">
-                        <div class="metric-value text-success">${positions.resistance_potential.toFixed(1)}%</div>
+                        <div class="metric-value text-success">${resPot}%</div>
                         <div class="metric-label">Resistance Potential</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-value text-danger">${positions.support_risk.toFixed(1)}%</div>
+                        <div class="metric-value text-danger">${supRisk}%</div>
                         <div class="metric-label">Support Risk</div>
                     </div>
-                </div>
-            `;
-
-            html += recommendations.map(rec => `
-                <div class="recommendation fade-in" style="border-left-color: ${rec.color}">
-                    <h4>${rec.type}: ${rec.action}</h4>
-                    <p><strong>Reason:</strong> ${rec.reason}</p>
-                    <p>${rec.details}</p>
-                    <div class="confidence-bar">
-                        <div class="confidence-fill" style="width: ${rec.confidence}%"></div>
-                    </div>
-                    <small style="color: rgba(255,255,255,0.7)">Confidence: ${rec.confidence}%</small>
-                </div>
-            `).join('');
-
+                </div>`;
+            if (!recommendations.length) {
+                html += '<div style="font-size:.6rem; color:var(--text-dim);">Keine Empfehlungen verfügbar.</div>';
+            } else {
+                html += recommendations.map(rec => `
+                    <div class="recommendation fade-in" style="border-left-color:${rec.color || '#6c757d'}">
+                        <h4 style="margin:0 0 6px; font-size:.7rem;">${rec.type}: ${rec.action}</h4>
+                        <p style="margin:0 0 4px; font-size:.55rem;"><strong>Grund:</strong> ${rec.reason}</p>
+                        <p style="margin:0 0 6px; font-size:.55rem; line-height:.7rem;">${rec.details || ''}</p>
+                        <div class="confidence-bar" style="height:4px; margin:4px 0 6px;">
+                            <div class="confidence-fill" style="width:${safeNum(rec.confidence)}%"></div>
+                        </div>
+                        <small style="color: rgba(255,255,255,0.6); font-size:.5rem;">Confidence: ${safeNum(rec.confidence)}%</small>
+                    </div>`).join('');
+            }
             document.getElementById('positionRecommendations').innerHTML = html;
         }
 
@@ -1529,7 +1618,7 @@ DASHBOARD_HTML = """
                  </div>
                  <!-- Advanced Indicators -->
                  <div style="flex:0 0 250px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
-                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#ffc107; margin-bottom:10px;">ðŸ”¬ ERWEITERTE</div>
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#ffc107; margin-bottom:10px;">🔬 ERWEITERTE</div>
                      <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">Bollinger:</span>
@@ -1880,10 +1969,10 @@ DASHBOARD_HTML = """
                     };
                     
                     const sentimentEmojis = {
-                        'buy_pressure': 'ðŸŸ¢',
-                        'sell_pressure': 'ðŸ”´',
+                        'buy_pressure': '🟢',
+                        'sell_pressure': '🔴',
                         'neutral': '⚖️',
-                        'low_liquidity': 'ðŸŸ¡',
+                        'low_liquidity': '🟡',
                         'unknown': '❓'
                     };
                     
@@ -1968,10 +2057,85 @@ DASHBOARD_HTML = """
                         featureContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${features.error}</div>`;
                         return;
                     }
+
+                    // Serverseitige Explainability Meta nutzen (falls vorhanden)
+                    const explainMeta = data.ai_explainability_meta;
+                    let serverExplanation = '';
+                    if (explainMeta && !explainMeta.error) {
+                        function renderReasonGroup(title, items, color) {
+                            if (!Array.isArray(items) || !items.length) return '';
+                            return `<div style="margin-top:8px;">
+                                <div style="font-size:0.58rem; font-weight:600; letter-spacing:.5px; color:${color}; margin:0 0 4px;">${title}</div>
+                                <ul style="margin:0; padding-left:16px; display:flex; flex-direction:column; gap:3px;">
+                                   ${items.map(r=>`<li style='font-size:0.53rem; line-height:1.05rem; color:var(--text-secondary);'>${r}</li>`).join('')}
+                                </ul>
+                            </div>`;
+                        }
+                        const neg = renderReasonGroup('Widersprechende Faktoren', explainMeta.reasons_negative, '#ff4d4f');
+                        const pos = renderReasonGroup('Unterstützende Faktoren', explainMeta.reasons_positive, '#26c281');
+                        const neu = renderReasonGroup('Neutrale Kontextfaktoren', explainMeta.reasons_neutral, '#ffc107');
+                        let debugBlock = '';
+                        if (explainMeta.debug_factors && Object.keys(explainMeta.debug_factors).length) {
+                            const rows = Object.entries(explainMeta.debug_factors).map(([k,v])=>`<div style='display:flex; justify-content:space-between; gap:8px;'><span style="color:var(--text-dim);">${k}</span><span style="color:#8b5cf6;">${(v===null||v===undefined)?'-':v}</span></div>`).join('');
+                            debugBlock = `<div id='debugFactorsBlock' style="display:none; margin-top:10px; padding:8px 10px; border:1px dashed rgba(255,255,255,0.15); border-radius:10px; background:rgba(255,255,255,0.03);">
+                                <div style="font-size:0.55rem; font-weight:600; margin:0 0 6px; letter-spacing:.5px; color:#8b5cf6;">Debug Faktoren</div>
+                                <div style="display:flex; flex-direction:column; gap:4px; font-size:0.5rem;">${rows}</div>
+                            </div>`;
+                        }
+                        serverExplanation = `
+                            <div id='serverExplainBox' style="margin-top:12px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:linear-gradient(135deg, rgba(13,110,253,0.10), rgba(255,255,255,0.02));">
+                                <div style="display:flex; align-items:center; gap:6px; margin:0 0 4px; font-size:0.65rem; font-weight:600; letter-spacing:.5px; color:#0d6efd;">🤖 KI Erklärbarkeit (Server)</div>
+                                <div style="font-size:0.5rem; color:var(--text-dim);">Signal: <span style='color:#fff;'>${explainMeta.signal}</span> • Conf ${explainMeta.confidence?.toFixed?explainMeta.confidence.toFixed(1):explainMeta.confidence}% • Rel ${explainMeta.reliability?.toFixed?explainMeta.reliability.toFixed(1):explainMeta.reliability}%</div>
+                                ${neg}${pos}${neu}${debugBlock}
+                                <div style="margin-top:6px; font-size:0.45rem; color:var(--text-dim);">Serverseitige Meta erklärt warum Modellrichtung gewählt wurde (pos/neg/neutral). Debug optional einblendbar.</div>
+                            </div>`;
+                    }
+                    // Falls kein serverseitiges Meta vorhanden, optional heuristische Fallback-Box (vereinfachte Logik)
+                    let fallbackHeuristic = '';
+                    if (!serverExplanation) {
+                        try {
+                            const aiSignal = data.ai_analysis?.signal;
+                            const tech = data.technical_analysis || {};
+                            const rsiVal = (tech.rsi && tech.rsi.rsi) ? tech.rsi.rsi : 50;
+                            if (['SELL','STRONG_SELL'].includes(aiSignal) && rsiVal < 40) {
+                                fallbackHeuristic = `<div style='margin-top:10px; font-size:0.5rem; color:var(--text-dim);'>Heuristik: KI SELL trotz niedriger RSI Werte – mögliche strukturelle Schwäche.</div>`;
+                            }
+                        } catch(e) { /* silent */ }
+                    }
+                            // Geringer Support-Puffer für Long (Support weit entfernt => schlechtes CRV defensive Sicht?)
+                            if (typeof supportRisk === 'number' && supportRisk > 5) {
+                                reasons.push(`Große Distanz zum Support (~${supportRisk.toFixed(2)}%) erhöht potentiellen Downside bis zur nächsten Nachfragezone.`);
+                            }
+                            // Zu niedrige KI-Zuverlässigkeit
+                            if (typeof reliability === 'number' && reliability < 45) {
+                                reasons.push(`Niedrige KI Reliability (${reliability.toFixed(1)}%) → konservative Ausrichtung (SELL statt HOLD/BUY).`);
+                            }
+                            // Feature-spezifische Hinweise
+                            if (featMap['trend_is_bear'] && featMap['trend_is_bear'].importance > 5) {
+                                reasons.push(`Feature 'trend_is_bear' trägt signifikant zur Modellgewichtung bei (Bear-Bias).`);
+                            }
+                            if (featMap['volatility_atr_pct'] && featMap['volatility_atr_pct'].importance > 4) {
+                                reasons.push(`Volatilitäts-Feature (ATR%) liefert starken Risikobeitrag.`);
+                            }
+                            if (reasons.length) {
+                                extraExplanation = `
+                                    <div style="margin-top:12px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); border-radius:12px; background:linear-gradient(135deg, rgba(255,0,0,0.08), rgba(255,255,255,0.02));">
+                                        <div style="display:flex; align-items:center; gap:6px; margin:0 0 6px; font-size:0.65rem; font-weight:600; letter-spacing:.5px; color:#ff4d4f;">
+                                            🤖 Warum KI ${aiSignal} trotz bullischer Signale
+                                        </div>
+                                        ${ (explainMeta && explainMeta.debug_factors) ? '<button id="toggleDebugBtn" style="background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); color:#8b5cf6; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Debug</button>' : ''}
+                                        <ul style="margin:0; padding-left:16px; display:flex; flex-direction:column; gap:4px;">
+                                            ${reasons.map(r=>`<li style='font-size:0.55rem; color:var(--text-secondary); line-height:1.2;'>${r}</li>`).join('')}
+                                        </ul>
+                                        <div style="margin-top:6px; font-size:0.5rem; color:var(--text-dim); font-style:italic;">Hinweis: Modell aggregiert mehrere normalisierte Einflussgrößen – einzelne bullische Indikatoren reichen nicht, wenn Risiko-/Struktur-Faktoren dagegen stehen.</div>
+                                    </div>`;
+                            }
+                        }
+                    } catch(e) { /* stille Fehler */ }
                     
                     featureContainer.innerHTML = `
                         <div class="feature-contributions-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
-                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">ðŸ” AI Feature Contributions</h5>
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🔍 AI Feature Contributions</h5>
                             
                             <div style="margin:0 0 12px;">
                                 <strong style="color:var(--text-secondary);">Signal Confidence:</strong>
@@ -1986,36 +2150,88 @@ DASHBOARD_HTML = """
                             ${features.top_features && features.top_features.length > 0 ? `
                                 <div class="top-features" style="margin:0 0 12px;">
                                     <strong style="color:var(--text-secondary);">Top Contributing Features:</strong>
-                                    <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-                                        ${features.top_features.map(feature => `
-                                            <div style="display:grid; grid-template-columns:1fr 70px 74px; align-items:center; gap:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:0.6rem;">
-                                                <span style="font-weight:500; color:var(--text-primary);">${feature.feature}</span>
-                                                <span style="text-align:center; color:${feature.impact === 'positive' ? '#26c281' : '#ff4d4f'}; font-weight:600;">${feature.impact === 'positive' ? '+' : '-'}${feature.importance}%</span>
-                                                <span style="font-size:0.55rem; color:var(--text-dim);">val: ${feature.value}</span>
-                                            </div>
-                                        `).join('')}
+                                    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button id="exportFeatJsonBtn" style="background:rgba(13,110,253,0.15); border:1px solid rgba(13,110,253,0.4); color:#0d6efd; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Export JSON</button>
+                                        <button id="toggleExplainBtn" style="background:rgba(255,193,7,0.15); border:1px solid rgba(255,193,7,0.4); color:#ffc107; font-size:0.55rem; padding:5px 10px; border-radius:8px; cursor:pointer; letter-spacing:.5px;">Erklärung ein/aus</button>
                                     </div>
-                                </div>
-                            ` : ''}
-                            
-                            ${features.contextual_interpretations && features.contextual_interpretations.length > 0 ? `
-                                <div class="contextual-interpretations" style="margin-top:10px;">
-                                    <strong style="color:var(--text-secondary);">Key Interpretations:</strong>
-                                    <ul style="margin:6px 0 0; padding-left:16px;">
-                                        ${features.contextual_interpretations.map(interp => `
-                                            <li style="font-size:0.55rem; color:var(--text-secondary); margin:2px 0;">${interp}</li>
-                                        `).join('')}
-                                    </ul>
-                                </div>
-                            ` : ''}
-                            
-                            ${features.note ? `
-                                <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
-                                    💡 ${features.note}
-                                </div>
-                            ` : ''}
-                        </div>
-                    `;
+                                    <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
+                                        ${features.top_features.map(feature => {
+                                            const tip = featureTooltip(feature.feature);
+                                            const barColor = feature.impact === 'positive' ? 'linear-gradient(90deg, rgba(38,194,129,0.55), rgba(38,194,129,0.10))' : 'linear-gradient(90deg, rgba(255,77,79,0.55), rgba(255,77,79,0.10))';
+                            ${serverExplanation || fallbackHeuristic}
+                                            return `
+                                            <div style="position:relative; display:grid; grid-template-columns:1fr 70px 74px; align-items:center; gap:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:0.6rem; overflow:hidden;" title="${tip}">
+                                                <div style="position:absolute; left:0; top:0; bottom:0; width:${Math.min(100, imp)}%; background:${barColor}; opacity:0.55; pointer-events:none;"></div>
+                                                <span style="font-weight:500; color:var(--text-primary); position:relative;" title="${tip}">${feature.feature}</span>
+                    try {
+                        const toggleBtn = document.getElementById('toggleExplainBtn');
+                        if (toggleBtn) {
+                            toggleBtn.addEventListener('click', () => {
+                                const box = document.getElementById('serverExplainBox');
+                                if (box) box.style.display = (box.style.display === 'none') ? '' : 'none';
+                            });
+                        }
+                        const debugBtn = document.getElementById('toggleDebugBtn');
+                        if (debugBtn) {
+                            debugBtn.addEventListener('click', () => {
+                                const d = document.getElementById('debugFactorsBlock');
+                                if (d) d.style.display = (d.style.display === 'none') ? 'block' : 'none';
+                            });
+                        }
+                        const exportBtn = document.getElementById('exportFeatJsonBtn');
+                        if (exportBtn) {
+                            exportBtn.addEventListener('click', () => {
+                                try {
+                                    const payload = {
+                                        timestamp: new Date().toISOString(),
+                                        symbol: data.symbol,
+                                        ai_signal: data.ai_analysis?.signal,
+                                        ai_confidence: data.ai_analysis?.confidence,
+                                        reliability: data.ai_analysis?.reliability_score,
+                                        top_features: features.top_features,
+                                        interpretations: features.contextual_interpretations,
+                                        explainability_meta: explainMeta || null
+                                    };
+                                    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `ai_feature_attribution_${data.symbol || 'symbol'}_${Date.now()}.json`;
+                                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                } catch(e) { console.warn('Export failed', e); }
+                            });
+                        }
+                    } catch(e) { /* silent */ }
+                            toggleBtn.addEventListener('click', () => {
+                                const box = featureContainer.querySelector('div[style*="Warum KI"]');
+                                if (box) { box.style.display = (box.style.display === 'none') ? '' : 'none'; }
+                            });
+                        }
+                        const exportBtn = document.getElementById('exportFeatJsonBtn');
+                        if (exportBtn) {
+                            exportBtn.addEventListener('click', () => {
+                                try {
+                                    const payload = {
+                                        timestamp: new Date().toISOString(),
+                                        symbol: data.symbol,
+                                        ai_signal: data.ai_analysis?.signal,
+                                        ai_confidence: data.ai_analysis?.confidence,
+                                        reliability: data.ai_analysis?.reliability_score,
+                                        top_features: features.top_features,
+                                        interpretations: features.contextual_interpretations
+                                    };
+                                    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `ai_feature_attribution_${data.symbol || 'symbol'}_${Date.now()}.json`;
+                                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                } catch(e) { console.warn('Export failed', e); }
+                            });
+                        }
+                    } catch(e) { /* silent */ }
                 }
                 
                 function displayAdaptiveRiskTargets(data) {
@@ -2038,7 +2254,7 @@ DASHBOARD_HTML = """
                     
                     adaptiveContainer.innerHTML = `
                         <div class="adaptive-risk-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
-                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">ðŸŽ¯ Adaptive Risk Management</h5>
+                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🎯 Adaptive Risk Management</h5>
                             
                             <!-- Risk Overview -->
                             <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px;">
