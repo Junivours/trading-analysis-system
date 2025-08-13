@@ -1,4 +1,4 @@
-import os, time, numpy as np
+import os, time, numpy as np, math
 from datetime import datetime
 try:
     import jax.numpy as jnp
@@ -45,7 +45,13 @@ class AdvancedJAXAI:
             'w1': random.normal(k1,(self.input_dim,96))*0.05,'b1': jnp.zeros(96),
             'w2': random.normal(k2,(96,64))*0.05,'b2': jnp.zeros(64),
             'w3': random.normal(k3,(64,32))*0.05,'b3': jnp.zeros(32),
-            'w4': random.normal(k4,(32,4))*0.05,'b4': jnp.zeros(4)}; self.initialized=True
+            'w4': random.normal(k4,(32,4))*0.05,'b4': jnp.zeros(4)}
+        self.initialized=True
+        # Calibration (Platt scaling) parameters A,B for logistic: 1/(1+exp(A*x+B)) on bullish prob
+        self._calib_samples = []  # list of (raw_bull_prob, label)
+        self._calib_A = 0.0
+        self._calib_B = 0.0
+        self._calib_last_updated = None
     def prepare_advanced_features(self, tech, patterns, ticker, position, extended, regime_data=None):
         """Return raw (unscaled) engineered feature dict.
         Backwards compatible: retains earlier keys, adds new ones.
@@ -143,6 +149,8 @@ class AdvancedJAXAI:
         margin = float(np.sort(probs_np)[-1] - np.sort(probs_np)[-2]) if len(probs_np) >= 2 else 0
         max_entropy = np.log(len(probs_np))
         reliability = (0.6 * (margin) + 0.4 * (1 - entropy / max_entropy)) * 100  # 0..100
+        raw_bull_prob = float(probs_np[2] + probs_np[3])  # BUY + STRONG_BUY mass
+        calibrated_bull_prob = self._apply_calibration(raw_bull_prob)
         # Narrative
         if signal == 'STRONG_BUY' and confidence > 75:
             rec = '🚀 KI sehr bullish'
@@ -163,7 +171,9 @@ class AdvancedJAXAI:
             'mode': self.mode,
             'reliability_score': round(reliability, 2),
             'prob_margin': round(margin, 4),
-            'entropy': round(entropy, 4)
+            'entropy': round(entropy, 4),
+            'bull_probability_raw': round(raw_bull_prob*100,2),
+            'bull_probability_calibrated': round(calibrated_bull_prob*100,2)
         }
     def predict_advanced(self, features):
         if not self.initialized or not JAX_AVAILABLE:
@@ -217,6 +227,15 @@ class AdvancedJAXAI:
         self.training_data.append({'features':features,'outcome':actual_outcome,'timestamp':datetime.now()});
         if len(self.training_data)>1000: self.training_data=self.training_data[-1000:]
         if len(self.training_data)%50==0 and len(self.training_data)>=100: self.auto_train()
+        # If we captured a probability in features dict (optionally) add calibration sample
+        # Expect features can include special key '__bull_prob_raw' injected by caller
+        try:
+            raw_p = features.get('__bull_prob_raw') if isinstance(features, dict) else None
+            if isinstance(raw_p,(int,float)) and actual_outcome in ('profit','loss'):
+                label = 1 if actual_outcome=='profit' else 0
+                self._add_calibration_sample(raw_p, label)
+        except Exception:
+            pass
     def auto_train(self):
         if not JAX_AVAILABLE or len(self.training_data)<50: return
         try:
@@ -245,9 +264,103 @@ class AdvancedJAXAI:
             'last_train': getattr(self,'last_train_info',None),
             'model_version': 'JAX-v2.1' if self.initialized else 'unavailable',
             'mode': self.mode if self.initialized else 'offline',
-            'feature_count': len(self._feature_names_cache or [])
+            'feature_count': len(self._feature_names_cache or []),
+            'calibration': self.get_calibration_status()
         }
     def _encode_outcome(self, outcome):
         if outcome=='profit': return [0,0,1,1]
         if outcome=='loss': return [1,1,0,0]
         return [0.25,0.25,0.25,0.25]
+
+    # ---------------------- Calibration Helpers (Platt Scaling) ---------------------- #
+    def _add_calibration_sample(self, raw_prob, label):
+        raw_prob = float(min(0.999,max(0.001,raw_prob)))
+        self._calib_samples.append((raw_prob,label))
+        if len(self._calib_samples) > 500:  # rolling window
+            self._calib_samples = self._calib_samples[-500:]
+        if len(self._calib_samples) >= 40 and (self._calib_last_updated is None or (time.time()-self._calib_last_updated) > 30):
+            self._update_calibration()
+
+    def _apply_calibration(self, raw_prob: float) -> float:
+        # Platt: p = 1/(1+exp(A*x + B)) ; if insufficient samples, return raw
+        if len(self._calib_samples) < 20:
+            return raw_prob
+        A = self._calib_A; B = self._calib_B
+        try:
+            z = A*raw_prob + B
+            return float(1.0/(1.0+math.exp(z)))
+        except Exception:
+            return raw_prob
+
+    def _update_calibration(self):
+        # Fit A,B by minimizing logistic loss on (raw_prob -> label)
+        try:
+            import math as _m
+            xs = np.array([r for r,_ in self._calib_samples], dtype=float)
+            ys = np.array([l for _,l in self._calib_samples], dtype=float)
+            # Initialize
+            A=0.0; B=0.0; lr=0.5
+            for _ in range(60):
+                z = A*xs + B
+                # Avoid overflow
+                z = np.clip(z, -20, 20)
+                preds = 1/(1+np.exp(z))
+                grad_A = np.mean((preds-ys)*xs)
+                grad_B = np.mean(preds-ys)
+                A -= lr*grad_A
+                B -= lr*grad_B
+                lr *= 0.98  # decay
+            self._calib_A = float(A); self._calib_B = float(B); self._calib_last_updated = time.time()
+        except Exception:
+            pass
+
+    def get_calibration_status(self):
+        return {
+            'samples': len(self._calib_samples),
+            'A': round(self._calib_A,4),
+            'B': round(self._calib_B,4),
+            'last_update_age_s': None if self._calib_last_updated is None else round(time.time()-self._calib_last_updated,1)
+        }
+
+    # ---------------------- Persistence Helpers ---------------------- #
+    def save_calibration_state(self, path: str):
+        try:
+            import json, os
+            state = {
+                'A': self._calib_A,
+                'B': self._calib_B,
+                'last_updated': self._calib_last_updated,
+                'samples_tail': self._calib_samples[-120:]  # keep tail for warm start
+            }
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(state, f)
+            return True
+        except Exception:
+            return False
+
+    def load_calibration_state(self, path: str):
+        try:
+            import json, os
+            if not os.path.exists(path):
+                return False
+            with open(path,'r',encoding='utf-8') as f:
+                st = json.load(f)
+            self._calib_A = float(st.get('A',0.0))
+            self._calib_B = float(st.get('B',0.0))
+            self._calib_last_updated = st.get('last_updated')
+            tail = st.get('samples_tail') or []
+            if isinstance(tail,list):
+                self._calib_samples.extend([tuple(x) for x in tail if isinstance(x,(list,tuple)) and len(x)==2])
+            return True
+        except Exception:
+            return False
+
+    # Public shortcut for external outcome ingestion
+    def add_calibration_observation(self, raw_prob: float, success: bool):
+        try:
+            label = 1 if success else 0
+            self._add_calibration_sample(raw_prob, label)
+            return True
+        except Exception:
+            return False

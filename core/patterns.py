@@ -1,6 +1,31 @@
 import numpy as np
 
 class AdvancedPatternDetector:
+    # Primitive in-memory calibration stats (können später mit echten Outcomes gefüttert werden)
+    _pattern_stats = {}
+    _max_window = 500
+
+    @classmethod
+    def record_pattern_outcome(cls, pattern_type: str, success: bool):
+        if not pattern_type:
+            return
+        st = cls._pattern_stats.setdefault(pattern_type, {'observed': 0, 'success': 0})
+        st['observed'] += 1
+        if success:
+            st['success'] += 1
+        # Fenster begrenzen – einfache proportionale Reduktion falls groß
+        if st['observed'] > cls._max_window:
+            st['observed'] = int(st['observed'] * 0.8)
+            st['success'] = int(st['success'] * 0.8)
+
+    @classmethod
+    def get_pattern_adjustment(cls, pattern_type: str):
+        st = cls._pattern_stats.get(pattern_type)
+        if not st or st['observed'] < 15:
+            return 1.0  # keine Anpassung bis genügend Stichprobe
+        rate = st['success'] / max(1, st['observed'])
+        # leichte Kalibrierung: 0.8 .. 1.15
+        return max(0.8, min(1.15, 0.8 + rate * 0.35))
     @staticmethod
     def detect_advanced_patterns(candles):
         if len(candles) < 30:
@@ -36,6 +61,8 @@ class AdvancedPatternDetector:
             overall='NEUTRAL'; summary='Gemischte Pattern-Signale'
         # Enhanced quality & reliability scoring
         last_price = closes[-1]
+        grade_counts = {'A':0,'B':0,'C':0,'D':0}
+        distance_acc = []
         for p in patterns:
             base = p.get('confidence',0)/100.0
             # Distance factor: how far price is from breakout/neckline (closer => more reliable until triggered)
@@ -52,12 +79,41 @@ class AdvancedPatternDetector:
                     except Exception:
                         pass
             reliability = base * dist_factor * volume_factor
-            p['quality_score'] = round(reliability*100,2)
-            p['reliability_score'] = p['quality_score']
+            # Kalibrierungsanpassung je Pattern-Typ (leicht, nicht signal-killend)
+            try:
+                adj = AdvancedPatternDetector.get_pattern_adjustment(p.get('type',''))
+            except Exception:
+                adj = 1.0
+            reliability *= adj
+            q_score = round(reliability*100,2)
+            grade = 'A' if reliability>0.82 else 'B' if reliability>0.68 else 'C' if reliability>0.52 else 'D'
+            p['quality_score'] = q_score
+            p['reliability_score'] = q_score
             p['distance_to_trigger_pct'] = round(dist_pct*100,3)
-            p['quality_grade'] = 'A' if reliability>0.82 else 'B' if reliability>0.68 else 'C' if reliability>0.52 else 'D'
+            p['quality_grade'] = grade
+            # Validierungsflags (rein informativ)
+            p['validation_flags'] = {
+                'close_to_trigger': dist_pct < 0.01,
+                'very_close_to_trigger': dist_pct < 0.005,
+                'volume_supportive': volume_factor > 1.0,
+                'high_grade': grade in ('A','B'),
+                'calibration_adjustment': round(adj,3)
+            }
+            grade_counts[grade] = grade_counts.get(grade,0)+1
+            distance_acc.append(dist_pct*100)
         avg_quality = round(sum(p.get('quality_score',0) for p in patterns)/len(patterns),1) if patterns else 0
-        return {'patterns':patterns,'pattern_summary':summary,'visual_signals':visual_signals,'overall_signal':overall,'confidence_score': np.mean([p.get('confidence',0) for p in patterns]) if patterns else 0,'patterns_count':len(patterns),'average_quality_score':avg_quality}
+        distance_avg = round(np.mean(distance_acc),3) if distance_acc else 0
+        return {
+            'patterns':patterns,
+            'pattern_summary':summary,
+            'visual_signals':visual_signals,
+            'overall_signal':overall,
+            'confidence_score': np.mean([p.get('confidence',0) for p in patterns]) if patterns else 0,
+            'patterns_count':len(patterns),
+            'average_quality_score':avg_quality,
+            'grade_distribution': grade_counts,
+            'avg_distance_to_trigger_pct': distance_avg
+        }
 
     @staticmethod
     def _detect_enhanced_triangle(highs, lows, volumes, lookback=20):

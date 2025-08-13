@@ -607,22 +607,63 @@ class MasterAnalyzer:
         elif final_score<=25: signal='STRONG_SELL'; signal_color='#dc3545'
         elif final_score<=40: signal='SELL'; signal_color='#fd7e14'
         else: signal='HOLD'; signal_color='#6c757d'
+        # Legacy heuristic probability from final score
         calibrated_prob = 1/(1+math.exp(-(final_score-50)*0.09))
         bullish_prob = calibrated_prob
-        if signal in ['SELL','STRONG_SELL']: bullish_prob = 1-bullish_prob
+        if signal in ['SELL','STRONG_SELL']:
+            bullish_prob = 1-bullish_prob
+        # Prefer AI calibrated probability if provided by AI module
+        prob_source = 'score_logistic'
+        ai_bull_cal = ai_analysis.get('bull_probability_calibrated')
+        if isinstance(ai_bull_cal,(int,float)):
+            # ai_bull_cal already percent (0-100)
+            ai_bull_cal_val = ai_bull_cal/100.0 if ai_bull_cal > 1 else ai_bull_cal
+            if 0 <= ai_bull_cal_val <= 1:
+                bullish_prob = ai_bull_cal_val
+                prob_source = 'ai_calibrated'
         ai_reason=None
         if dyn_weights.get('ai',0)==0 and self.weights.get('ai',0)>0:
-            if ai_analysis.get('mode')=='offline' or not ai_analysis.get('signal'): ai_reason='AI offline/initialization failed'
-            elif ai_analysis.get('confidence',0)<40: ai_reason=f"AI low confidence {ai_analysis.get('confidence',0)} < 40"
-            else: ai_reason='AI weight dynamically suppressed'
-        return {'score': round(final_score,1),'probability_bullish': round(bullish_prob*100,2),'calibrated_probability': round(calibrated_prob*100,2),'probability_note': 'Heuristische Kalibrierung – keine echte statistische Eintrittswahrscheinlichkeit','signal': signal,'signal_color': signal_color,'technical_weight': f"{dyn_weights['technical']*100:.1f}%",'pattern_weight': f"{dyn_weights['patterns']*100:.1f}%",'ai_weight': f"{dyn_weights.get('ai',0)*100:.1f}%",'ai_disable_reason': ai_reason,'component_scores': {'technical': round(tech_score,1),'patterns': round(pattern_score,1),'ai': round(ai_score,1)},'validation': self._validate_signals(tech_analysis, pattern_analysis, ai_analysis, signal)}
+            if ai_analysis.get('mode')=='offline' or not ai_analysis.get('signal'):
+                ai_reason='AI offline/initialization failed'
+            elif ai_analysis.get('confidence',0)<40:
+                ai_reason=f"AI low confidence {ai_analysis.get('confidence',0)} < 40"
+            else:
+                ai_reason='AI weight dynamically suppressed'
+        return {
+            'score': round(final_score,1),
+            'probability_bullish': round(bullish_prob*100,2),
+            'probability_bullish_source': prob_source,
+            'ai_bull_probability_calibrated': ai_analysis.get('bull_probability_calibrated'),
+            'ai_bull_probability_raw': ai_analysis.get('bull_probability_raw'),
+            'calibrated_probability': round(calibrated_prob*100,2),
+            'probability_note': 'Probability source: ' + prob_source + (' (AI Platt scaled)' if prob_source=='ai_calibrated' else ' (score heuristic)'),
+            'signal': signal,
+            'signal_color': signal_color,
+            'technical_weight': f"{dyn_weights['technical']*100:.1f}%",
+            'pattern_weight': f"{dyn_weights['patterns']*100:.1f}%",
+            'ai_weight': f"{dyn_weights.get('ai',0)*100:.1f}%",
+            'ai_disable_reason': ai_reason,
+            'component_scores': {'technical': round(tech_score,1),'patterns': round(pattern_score,1),'ai': round(ai_score,1)},
+            'validation': self._validate_signals(tech_analysis, pattern_analysis, ai_analysis, signal),
+            'confidence_attribution': {
+                'technical_contribution': round((tech_score*dyn_weights['technical'])/final_score*100,2) if final_score else 0,
+                'pattern_contribution': round((pattern_score*dyn_weights['patterns'])/final_score*100,2) if final_score else 0,
+                'ai_contribution': round((ai_score*dyn_weights.get('ai',0))/final_score*100,2) if final_score else 0,
+                'uncertainty_damping_applied': entropy is not None or avg_std is not None,
+                'prob_source': prob_source
+            }
+        }
 
     def _validate_signals(self, tech_analysis, pattern_analysis, ai_analysis, final_signal, multi_timeframe=None):
         warnings=[]; contradictions=[]; confidence_factors=[]
         macd_signal = tech_analysis.get('macd', {}).get('curve_direction','neutral')
         if 'bearish' in macd_signal and final_signal in ['BUY','STRONG_BUY']:
             contradictions.append({'type':'MACD_CONTRADICTION','message': f'MACD {macd_signal} vs {final_signal}','severity':'HIGH','recommendation':'Warte auf besseren Einstieg'})
-        if 'bullish' in macd_signal and final_signal in ['SELL','STRONG_SELL']:
+        ai_reliability = ai_analysis.get('reliability_score') if isinstance(ai_analysis, dict) else None
+        if isinstance(ai_reliability,(int,float)) and ai_reliability < 40:
+            warnings.append({'type':'LOW_AI_RELIABILITY','message': f'KI Zuverlässigkeit niedrig ({ai_reliability:.1f})','recommendation':'Zusätzliche Bestätigung abwarten'})
+        if isinstance(ai_reliability,(int,float)) and ai_reliability < 25 and final_signal in ['STRONG_BUY','STRONG_SELL']:
+            contradictions.append({'type':'AI_RELIABILITY_CONTRADICTION','message': f'Starkes Signal aber Reliability {ai_reliability:.1f}','severity':'MEDIUM','recommendation':'Signal abschwächen / Bestätigung suchen'})
             contradictions.append({'type':'MACD_CONTRADICTION','message': f'MACD {macd_signal} vs {final_signal}','severity':'HIGH','recommendation':'Warte auf besseren Einstieg'})
         rsi_data = tech_analysis.get('rsi', {}); rsi = rsi_data.get('rsi',50) if isinstance(rsi_data,dict) else (rsi_data if isinstance(rsi_data,(int,float)) else 50)
         if rsi>80 and final_signal in ['BUY','STRONG_BUY']:
@@ -638,10 +679,25 @@ class MasterAnalyzer:
             if d_sup < 2 and final_signal in ['SELL','STRONG_SELL']:
                 warnings.append({'type':'NEAR_SUPPORT','message': f'Preis {d_sup:.1f}% über Support','recommendation':'Riskanter SHORT'})
         patterns = pattern_analysis.get('patterns', [])
+        # Pattern quality heuristics (nicht blockierend)
+        try:
+            high_grade = sum(1 for p in patterns if p.get('quality_grade') in ('A','B'))
+            low_grade = sum(1 for p in patterns if p.get('quality_grade') in ('D',))
+            avg_dist = pattern_analysis.get('avg_distance_to_trigger_pct')
+            if isinstance(avg_dist,(int,float)) and avg_dist > 1.2:
+                warnings.append({'type':'PATTERN_DISTANCE','message': f'Pattern weit vom Trigger (~{avg_dist:.2f}%)','recommendation':'Bestätigung abwarten'})
+            if low_grade and high_grade==0:
+                warnings.append({'type':'LOW_QUALITY_PATTERNS','message': 'Nur niedrige Pattern-Qualität gefunden','recommendation':'Signal konservativ interpretieren'})
+            if high_grade>=2:
+                confidence_factors.append(f'{high_grade} hochwertige Pattern stützen Signal')
+        except Exception:
+            pass
         bearish_patterns = sum(1 for p in patterns if p.get('signal')=='bearish')
         bullish_patterns = sum(1 for p in patterns if p.get('signal')=='bullish')
         if bearish_patterns > bullish_patterns and final_signal in ['BUY','STRONG_BUY']:
             contradictions.append({'type':'PATTERN_CONTRADICTION','message': f'{bearish_patterns} bearish vs {bullish_patterns} bullish','severity':'MEDIUM','recommendation':'Muster widersprechen LONG'})
+        elif bullish_patterns > bearish_patterns and final_signal in ['SELL','STRONG_SELL']:
+            contradictions.append({'type':'PATTERN_CONTRADICTION','message': f'{bullish_patterns} bullish vs {bearish_patterns} bearish','severity':'MEDIUM','recommendation':'Muster widersprechen SHORT'})
         ai_confidence = ai_analysis.get('confidence',50); ai_signal = ai_analysis.get('signal','HOLD')
         if ai_confidence < 60:
             warnings.append({'type':'LOW_AI_CONFIDENCE','message': f'KI Confidence {ai_confidence}%','recommendation':'Auf klarere Signale warten'})
@@ -1111,8 +1167,15 @@ class MasterAnalyzer:
                     else:
                         p = (1 - base_prob) + (conf_v - 0.5) * 0.35
                     p = max(0.02, min(0.98, p))
-                    s['probability_estimate_pct'] = round(p * 100, 2)
-                    s['probability_note'] = 'Heuristisch (Score + Confidence). Nicht kalibriert.'
+                    # Leichte zusätzliche Kalibrierung durch Setup-spezifische Qualität (nicht signal-killend)
+                    quality_adj = 1.0
+                    if 'Pattern' in s.get('strategy',''):
+                        quality_adj += 0.03
+                    if any(c.get('s')=='bad' for c in s.get('conditions', [])):
+                        quality_adj -= 0.04
+                    p_adj = max(0.01, min(0.99, p * quality_adj))
+                    s['probability_estimate_pct'] = round(p_adj * 100, 2)
+                    s['probability_note'] = 'Heuristisch kalibriert (Score+Confidence+Qualität).'
             except Exception:
                 pass
 

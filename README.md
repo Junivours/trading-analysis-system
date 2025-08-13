@@ -12,6 +12,7 @@ Professional AI-powered trading analysis system with:
 - NEW: AI v2.1 feature engineering (trend, volatility, regime one-hot, pattern quality aggregates)
 - NEW: Reliability score (probability margin + entropy) & adaptive temperature
 - NEW: Refined pattern detection (distance-to-trigger, reliability, stricter breakout confirmation)
+- NEW: Probability calibration layer (Platt scaling) with raw vs calibrated bullish probability
 
 ## Quick Start (Local)
 ```bash
@@ -116,12 +117,19 @@ Initial pytest smoke tests added (`tests/test_master_analyzer_basic.py`) verifyi
 - Position risk calculations
 - Backtest engine sanity vs synthetic data
 
+## Calibration & Reliability
+The AI outputs both raw and calibrated bullish probabilities:
+- bull_probability_raw: direct sum of BUY + STRONG_BUY class probabilities
+- bull_probability_calibrated: Platt-scaled version using logistic parameters A,B fit on rolling (max 500) outcome samples
+
+Calibration automatically updates every 30s when >=40 labeled samples exist. Until at least 20 samples, raw probability is used. The final scoring layer prefers the AI calibrated probability over the legacy score-derived heuristic when available (field: probability_bullish_source = 'ai_calibrated'). Reliability (probability margin + entropy) feeds into validation warnings.
+
 ## Roadmap
 - (In Progress) Broaden unit test coverage
 - Optional CI workflow (GitHub Actions) once token workflow permissions available
 - Expand pattern library & dynamic regime weighting
 - WebSocket real-time streaming prices (Binance) with incremental indicator updates
-- Calibration layer for AI probabilities (Platt / isotonic)
 - Persist feature standardization stats for restart consistency
 - (Done) Extract MasterAnalyzer into `core/orchestration/master_analyzer.py`
 - (Done) AI v2.1 reliability + pattern precision upgrade
+- (Done) Probability calibration (Platt) integrated into final scoring

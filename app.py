@@ -40,6 +40,44 @@ app = Flask(__name__)
 
 # Initialize the master analyzer (single global instance used by routes)
 master_analyzer = MasterAnalyzer()
+CALIBRATION_STATE_PATH = os.getenv('CALIBRATION_STATE_PATH','data/calibration_state.json')
+PATTERN_STATE_PATH = os.getenv('PATTERN_STATE_PATH','data/pattern_stats.json')
+
+def _load_persistent_state():
+    # AI calibration
+    try:
+        master_analyzer.ai_system.load_calibration_state(CALIBRATION_STATE_PATH)
+    except Exception:
+        pass
+    # Pattern stats
+    try:
+        import json
+        if os.path.exists(PATTERN_STATE_PATH):
+            with open(PATTERN_STATE_PATH,'r',encoding='utf-8') as f:
+                data=json.load(f)
+            if isinstance(data,dict):
+                from core.patterns import AdvancedPatternDetector
+                AdvancedPatternDetector._pattern_stats.update(data)
+    except Exception:
+        pass
+
+def _save_persistent_state():
+    # AI calibration
+    try:
+        master_analyzer.ai_system.save_calibration_state(CALIBRATION_STATE_PATH)
+    except Exception:
+        pass
+    # Pattern stats
+    try:
+        from core.patterns import AdvancedPatternDetector
+        import json
+        os.makedirs(os.path.dirname(PATTERN_STATE_PATH), exist_ok=True)
+        with open(PATTERN_STATE_PATH,'w',encoding='utf-8') as f:
+            json.dump(AdvancedPatternDetector._pattern_stats, f)
+    except Exception:
+        pass
+
+_load_persistent_state()
 
 # ========================================================================================
 # ðŸ§¾ STRUCTURED LOGGING (in-memory ring buffer + stdout)
@@ -231,6 +269,64 @@ def backtest(symbol):
     except Exception as e:
         err_id = log_event('error', 'Backtest exception', symbol=symbol.upper(), interval=interval, limit=limit, error=str(e))
         return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
+
+@app.route('/api/version')
+def api_version():
+    commit = 'unknown'
+    try:
+        for env_var in ['GIT_REV','RAILWAY_GIT_COMMIT_SHA','SOURCE_VERSION','SOURCE_COMMIT','COMMIT_HASH','RAILWAY_BUILD']:
+            val = os.getenv(env_var)
+            if val:
+                commit = val[:12]
+                break
+        if commit == 'unknown' and os.path.exists('version.txt'):
+            with open('version.txt','r',encoding='utf-8') as f:
+                line = f.readline().strip()
+                if line:
+                    commit = line[:12]
+    except Exception:
+        pass
+    return jsonify({'success':True,'version':commit,'ts': int(time.time()*1000)})
+
+@app.route('/health')
+def health():
+    return jsonify({'ok':True,'ts': int(time.time()*1000)})
+
+@app.route('/api/outcome/pattern', methods=['POST'])
+def pattern_outcome():
+    try:
+        from core.patterns import AdvancedPatternDetector
+        payload = request.get_json(force=True) or {}
+        ptype = payload.get('pattern_type')
+        success = bool(payload.get('success'))
+        if not ptype:
+            return jsonify({'success':False,'error':'pattern_type required'}),400
+        AdvancedPatternDetector.record_pattern_outcome(ptype, success)
+        _save_persistent_state()
+        stats = AdvancedPatternDetector._pattern_stats.get(ptype, {})
+        return jsonify({'success':True,'stats':stats,'pattern_type':ptype})
+    except Exception as e:
+        return jsonify({'success':False,'error':str(e)}),500
+
+@app.route('/api/outcome/ai', methods=['POST'])
+def ai_outcome():
+    try:
+        payload = request.get_json(force=True) or {}
+        raw_prob = payload.get('raw_prob')
+        success = payload.get('success')
+        if raw_prob is None or success is None:
+            return jsonify({'success':False,'error':'raw_prob & success required'}),400
+        ok = master_analyzer.ai_system.add_calibration_observation(float(raw_prob), bool(success))
+        if ok:
+            _save_persistent_state()
+        return jsonify({'success':ok,'calibration': master_analyzer.ai_system.get_calibration_status()})
+    except Exception as e:
+        return jsonify({'success':False,'error':str(e)}),500
+
+@app.route('/admin/save-state', methods=['POST'])
+def admin_save_state():
+    _save_persistent_state()
+    return jsonify({'success':True,'saved':True})
 
 @app.route('/api/logs/recent')
 def recent_logs():
@@ -1383,7 +1479,7 @@ DASHBOARD_HTML = """
                              <div class="metric-label" style="font-size:.5rem;">MACD-SIGNAL</div>
                          </div>
                          <div class="metric-card" style="min-height:92px;">
-                             <div class="metric-value ${getIndicatorColor(extended.stochastic.signal)}" style="font-size:1.05rem;">${extended.stochastic.signal.toUpperCase()}</div>
+                             <div class="metric-value ${getIndicatorColor(extended?.stochastic?.signal)}" style="font-size:1.05rem;">${(extended?.stochastic?.signal||'neutral').toUpperCase()}</div>
                              <div class="metric-label" style="font-size:.5rem;">STOCHASTISCH</div>
                          </div>
                          <div class="metric-card" style="min-height:92px;">
@@ -2149,6 +2245,7 @@ DASHBOARD_HTML = """
         }
 
         function getIndicatorColor(signal) {
+            if(!signal || typeof signal !== 'string') return '#6c757d';
             switch(signal.toLowerCase()) {
                 case 'bullish': return '#28a745';
                 case 'bearish': return '#dc3545';
