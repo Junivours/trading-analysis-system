@@ -58,6 +58,7 @@ You can use `/api/version` as a health endpoint. It returns JSON fast.
 |----------|--------|-------------|
 | /api/analyze/<symbol> | GET | Full multi-timeframe + AI + patterns + setups analysis |
 | /api/analyze/<symbol>?refresh=1 | GET | Force cache bypass for live recomputation |
+| /api/analyze/<symbol>?validate=1 | GET | Include enterprise validation block in response |
 | /api/backtest/<symbol>?interval=1h&limit=500 | GET | RSI mean reversion backtest (interval: 1m/5m/15m/1h/4h/1d) |
 | /api/backtest/<symbol>?...&refresh=1 | GET | Backtest with data refresh bypassing cache |
 | /api/search/<query> | GET | Lightweight symbol search (Binance) |
@@ -69,6 +70,7 @@ You can use `/api/version` as a health endpoint. It returns JSON fast.
 | /api/outcome/pattern | POST | Report pattern trade success for rolling calibration (Body: pattern_type, success) |
 | /admin/save-state | POST | Force persistence save to disk (manual checkpoint) |
 | /api/logs/recent?limit=100&level=INFO | GET | Recent in-memory logs (filterable) |
+| /api/validate/<symbol>?refresh=1 | GET | Return a concise enterprise validation report only |
 | /api/version | GET | Version & commit hash (also sets X-App-Version header) |
 | /health | GET | Simple uptime/health probe |
 

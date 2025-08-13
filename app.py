@@ -33,6 +33,7 @@ from core.orchestration.master_analyzer import MasterAnalyzer
 from core.diagnostics import run_symbol_diagnostics
 from collections import deque
 import json, hashlib, logging, uuid
+import math
 
 # Orchestration (scoring/validation/trade setups) fully migrated to core.orchestration.master_analyzer
 
@@ -240,6 +241,24 @@ def analyze_symbol(symbol):
                 'fallback': True,
                 'error': str(pe)
             })
+
+        # Optional: inject enterprise validation when requested or missing
+        try:
+            want_validation = request.args.get('validate') == '1'
+            fs = analysis.get('final_score', {}) if isinstance(analysis, dict) else {}
+            if want_validation or not isinstance(fs.get('validation'), dict):
+                validation = _compute_enterprise_validation(analysis)
+                analysis.setdefault('final_score', {})['validation'] = validation
+        except Exception as _ve:
+            # Never break analyze on validation errors; expose as soft warning in validation field
+            try:
+                analysis.setdefault('final_score', {})['validation'] = {
+                    'trading_action': 'WAIT', 'risk_level': 'UNKNOWN', 'enterprise_ready': False,
+                    'contradictions': [], 'warnings': [{'type':'validation_error','message': str(_ve), 'recommendation': 'Review data fields & ranges.'}],
+                    'confidence_factors': []
+                }
+            except Exception:
+                pass
         
         if 'error' in analysis:
             err_id = log_event('error', 'Analyze error', symbol=symbol.upper(), error=analysis['error'], parent=log_id)
@@ -264,6 +283,164 @@ def analyze_symbol(symbol):
             'log_id': err_id,
             'symbol': symbol.upper()
         }), 500
+
+def _safe_num(x):
+    try:
+        if isinstance(x, bool):
+            return None
+        if isinstance(x, (int, float)) and math.isfinite(float(x)):
+            return float(x)
+        return None
+    except Exception:
+        return None
+
+def _compute_enterprise_validation(analysis: dict) -> dict:
+    """Sanity-check numeric ranges and detect contradictions for enterprise readiness.
+    Returns a compact validation dict consumed by UI.
+    """
+    contradictions = []
+    warnings = []
+    confidence_factors = []
+
+    # Extract key sections safely
+    fs = analysis.get('final_score') or {}
+    tech = analysis.get('technical_analysis') or {}
+    ext = analysis.get('extended_analysis') or {}
+    ai = analysis.get('ai_analysis') or {}
+    mt = (analysis.get('multi_timeframe') or {}).get('consensus') or {}
+    setups = analysis.get('trade_setups') or []
+
+    # Score and weights sanity
+    score = _safe_num((fs or {}).get('score'))
+    tw = _safe_num((fs or {}).get('technical_weight')) or 0.0
+    pw = _safe_num((fs or {}).get('pattern_weight')) or 0.0
+    aw = _safe_num((fs or {}).get('ai_weight')) or 0.0
+    weights_sum = tw + pw + aw
+    if score is None or not (0 <= score <= 100):
+        warnings.append({'type':'score_range','message':'Final score out of [0,100]','recommendation':'Clamp or review scoring pipeline.'})
+    if not (0 <= weights_sum <= 100.5):  # allow tiny drift
+        warnings.append({'type':'weights_sum','message':f'Weights sum {weights_sum:.1f} not in [0,100]','recommendation':'Normalize weights to 100.'})
+    else:
+        confidence_factors.append(f'Weights sum ok: {weights_sum:.1f}')
+
+    # Technicals
+    rsi = _safe_num(((tech.get('rsi') or {}).get('rsi')))
+    if rsi is None or not (0 <= rsi <= 100):
+        warnings.append({'type':'rsi_range','message':f'RSI out of range: {rsi}','recommendation':'Ensure RSI calculation returns [0,100].'})
+    else:
+        confidence_factors.append(f'RSI in range: {rsi:.1f}')
+    support = _safe_num(tech.get('support'))
+    resistance = _safe_num(tech.get('resistance'))
+    price = _safe_num(analysis.get('current_price') or (tech.get('current_price') if isinstance(tech.get('current_price'), (int,float)) else None))
+    if price is None or price <= 0:
+        contradictions.append({'type':'price_invalid','message':'Current price missing/invalid','recommendation':'Refresh data source; enforce positive price.'})
+    if support is not None and resistance is not None and support > resistance:
+        warnings.append({'type':'levels_inverted','message':'Support above resistance','recommendation':'Recompute levels or check timeframe.'})
+
+    # AI section
+    ai_signal = str(ai.get('signal') or '').upper()
+    ai_conf = _safe_num(ai.get('confidence'))
+    if ai_conf is not None and not (0 <= ai_conf <= 100):
+        warnings.append({'type':'ai_conf_range','message':f'AI confidence out of [0,100]: {ai_conf}','recommendation':'Calibrate/clip confidence.'})
+    # Ensemble alignment if present
+    ens = ai.get('ensemble') or {}
+    if ens and isinstance(ens, dict) and ens.get('alignment') == 'conflict':
+        contradictions.append({'type':'ensemble_conflict','message':'Rule vs AI conflict','recommendation':'Prefer higher reliability path or WAIT.'})
+
+    # Directional conflicts
+    fs_sig = str((fs.get('signal') or '')).upper()
+    mt_primary = str(mt.get('primary') or '').upper()
+    if ai_signal and fs_sig and ai_signal != fs_sig and (ai_conf or 0) >= 55:
+        contradictions.append({'type':'ai_vs_final','message':f'AI {ai_signal} vs Final {fs_sig}','recommendation':'Defer to consensus or WAIT; check inputs.'})
+    if mt_primary and fs_sig and ((mt_primary == 'BULLISH' and 'SELL' in fs_sig) or (mt_primary == 'BEARISH' and 'BUY' in fs_sig)):
+        warnings.append({'type':'mtf_vs_final','message':f'MTF {mt_primary} vs Final {fs_sig}','recommendation':'Reduce size or require stronger confluence.'})
+
+    # Setups sanity
+    long_hi = max((s.get('confidence') or 0) for s in setups if s.get('direction') == 'LONG') if setups else 0
+    short_hi = max((s.get('confidence') or 0) for s in setups if s.get('direction') == 'SHORT') if setups else 0
+    if long_hi >= 60 and short_hi >= 60:
+        contradictions.append({'type':'setup_conflict','message':'High-confidence LONG and SHORT present','recommendation':'Favor MTF/AI direction; limit to 1 side.'})
+
+    # Basic SL/TP monotonicity for first few setups
+    def _check_setup(s):
+        direction = s.get('direction')
+        entry = _safe_num(s.get('entry') or s.get('entry_price'))
+        stop = _safe_num(s.get('stop_loss'))
+        tps = s.get('targets') or s.get('take_profits') or []
+        tp_prices = []
+        for t in tps:
+            tp_prices.append(_safe_num(t.get('price') or t.get('level')))
+        if entry is None or stop is None:
+            return 'missing_fields'
+        if direction == 'LONG':
+            if stop >= entry:
+                return 'long_stop_not_below_entry'
+            if any((tp is not None and tp <= entry) for tp in tp_prices):
+                return 'long_tp_not_above_entry'
+        elif direction == 'SHORT':
+            if stop <= entry:
+                return 'short_stop_not_above_entry'
+            if any((tp is not None and tp >= entry) for tp in tp_prices):
+                return 'short_tp_not_below_entry'
+        return None
+
+    for s in (setups or [])[:5]:
+        err = _check_setup(s)
+        if err:
+            warnings.append({'type':'setup_validation', 'message': f"Setup invalid: {err}", 'recommendation':'Fix stop/targets monotonicity.'})
+
+    # Risk assessment from ATR
+    vola = ((ext.get('atr') or {}).get('volatility')) or 'unknown'
+    risk_level = 'MEDIUM'
+    if isinstance(vola, str):
+        v = vola.lower()
+        if v in ('very_high','high'):
+            risk_level = 'HIGH'
+        elif v in ('low',):
+            risk_level = 'LOW'
+
+    # Trading action suggestion
+    action = 'TRADE'
+    if contradictions:
+        action = 'WAIT'
+    elif risk_level == 'HIGH' and (ai_conf or 0) < 55 and (score or 0) < 60:
+        action = 'WAIT'
+
+    enterprise_ready = (action != 'WAIT') and not contradictions
+    # Confidence factors (compact)
+    if ai_conf is not None:
+        confidence_factors.append(f'AI conf: {ai_conf:.1f}%')
+    if fs_sig:
+        confidence_factors.append(f'Final: {fs_sig}')
+    if mt_primary:
+        confidence_factors.append(f'MTF: {mt_primary}')
+
+    return {
+        'trading_action': action,
+        'risk_level': risk_level,
+        'enterprise_ready': bool(enterprise_ready),
+        'contradictions': contradictions,
+        'warnings': warnings,
+        'confidence_factors': confidence_factors
+    }
+
+@app.route('/api/validate/<symbol>')
+def validate_symbol(symbol):
+    """Return a concise enterprise validation report for a symbol.
+    Optional: ?refresh=1 to bypass cached data.
+    """
+    try:
+        if request.args.get('refresh') == '1':
+            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
+            log_event('info', 'Cache cleared for validate', symbol=symbol.upper())
+        log_id = log_event('info', 'Validate request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1')
+        analysis = master_analyzer.analyze_symbol(symbol.upper())
+        validation = _compute_enterprise_validation(analysis)
+        log_event('info', 'Validate success', symbol=symbol.upper(), parent=log_id)
+        return jsonify({'success': True, 'symbol': symbol.upper(), 'validation': validation, 'log_id': log_id})
+    except Exception as e:
+        err_id = log_event('error', 'Validate exception', symbol=symbol.upper(), error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'symbol': symbol.upper(), 'log_id': err_id}), 500
 
 @app.route('/api/liquidation/<symbol>/<float:entry_price>/<position_type>')
 def calculate_liquidation(symbol, entry_price, position_type):
@@ -1289,7 +1466,7 @@ DASHBOARD_HTML = """
             currentSymbol = query.toUpperCase();
 
             try {
-                const response = await fetch(`/api/analyze/${currentSymbol}?diag=1`);
+                const response = await fetch(`/api/analyze/${currentSymbol}?diag=1&validate=1`);
                 const result = await response.json();
 
                 if (result.success) {
