@@ -132,6 +132,33 @@ class ChartPatternTrader:
         """Generiert konkrete Entry/TP/SL für erkannte Chart-Muster"""
         pattern_trades = []
         
+        def _justify(base_trade, pattern_obj):
+            # Einheitliche professionelle Begründung
+            ptype = pattern_obj.get('type','Pattern')
+            signal = pattern_obj.get('signal','neutral')
+            conf = pattern_obj.get('confidence',50)
+            direction = base_trade.get('direction')
+            risk_rr = base_trade.get('risk_reward_ratio') or base_trade.get('take_profits',[{'price':base_trade['entry_price']}])[0]['price']
+            thesis = f"{ptype} liefert {'bullishes' if signal=='bullish' else 'bearishes' if signal=='bearish' else 'neutrales'} Signal mit {conf}% Konfidenz."
+            confluence_parts = []
+            if support and direction=='LONG' and base_trade['entry_price']>support: confluence_parts.append('über lokalem Support')
+            if resistance and direction=='SHORT' and base_trade['entry_price']<resistance: confluence_parts.append('unter lokalem Widerstand')
+            if atr_value:
+                vol_note = 'moderater Volatilität' if atr_value/current_price < 0.02 else 'erhöhter Volatilität'
+                confluence_parts.append(vol_note)
+            confluence = ', '.join(confluence_parts) if confluence_parts else 'Basis-Signal'
+            risk_model = f"RR zentriert auf Kern-Ziel(e)." if risk_rr else 'Mehrstufige R-Multiple Struktur.'
+            invalid = 'Pattern invalid bei Close jenseits des Stop-Niveaus.'
+            exec_plan = f"Warte auf Bestätigung (Volumen/Breakout) und nutze Teilgewinnnahme auf TP1/TP2." 
+            base_trade['justification'] = {
+                'core_thesis': thesis,
+                'confluence': confluence,
+                'risk_model': risk_model,
+                'invalidations': invalid,
+                'execution_plan': exec_plan
+            }
+            return base_trade
+
         for pattern in patterns:
             pattern_type = pattern.get('type', '')
             signal = pattern.get('signal', 'neutral')
@@ -162,7 +189,32 @@ class ChartPatternTrader:
                 trades = ChartPatternTrader._breakout_trades(pattern, current_price, atr_value)
                 if trades: pattern_trades.extend(trades)
         
-        return pattern_trades
+        # Justification + Live Preis Validierung
+        enriched = []
+        for t in pattern_trades:
+            try:
+                # Find original pattern (by name heuristic)
+                src = None
+                for p in patterns:
+                    if p.get('type') and p.get('type').split()[0] in t.get('pattern_name',''):
+                        src = p; break
+                t = _justify(t, src or {})
+                diff_pct = abs(t['entry_price'] - current_price)/current_price*100 if current_price else 0
+                if diff_pct > 6:  # zu weit vom Live Preis -> Hinweis & Anpassung anbieten
+                    t['price_desync_pct'] = round(diff_pct,2)
+                    t['adjusted_entry'] = round(current_price,4)
+                    # Stop & TPs prozentual verschieben
+                    if t.get('stop_loss'):
+                        entry_old = t['entry_price']
+                        ratio = current_price/entry_old if entry_old else 1
+                        t['adjusted_stop_loss'] = round(t['stop_loss']*ratio,4)
+                        for tp in t.get('take_profits', []):
+                            tp['adjusted_price'] = round(tp['price']*ratio,4)
+                    t['justification']['core_thesis'] += ' (Level neu skaliert an Live-Preis)'
+                enriched.append(t)
+            except Exception:
+                enriched.append(t)
+        return enriched
     
     @staticmethod
     def _triangle_trades(pattern, current_price, atr_value):
@@ -934,7 +986,8 @@ class AdvancedPatternDetector:
                 'patterns': [],
                 'pattern_summary': 'Nicht genug Daten für Pattern-Analyse',
                 'visual_signals': [],
-                'confidence_score': 0
+                'confidence_score': 0,
+                'average_quality_score': 0
             }
         
         patterns = []
@@ -997,13 +1050,51 @@ class AdvancedPatternDetector:
             pattern_summary = "Keine klaren Patterns erkannt"
             visual_signals.append("👀 Weiter beobachten...")
         
+        # 🔎 Pattern Quality Scoring (add lightweight quality heuristic without duplicating detection logic)
+        # Factors considered:
+        # - Base confidence (scaled 0-100)
+        # - Strength label weighting (VERY_STRONG > STRONG > MEDIUM)
+        # - Volume confirmation hint ("✅" symbol in description)
+        # - Presence of explicit target/breakout levels (actionability)
+        strength_weights = {
+            'VERY_STRONG': 1.15,
+            'STRONG': 1.05,
+            'MEDIUM': 0.95,
+            'WEAK': 0.85
+        }
+        total_quality = 0.0
+        for p in patterns:
+            base = float(p.get('confidence', 0)) / 100.0
+            strength = p.get('strength', 'MEDIUM')
+            mult = strength_weights.get(strength, 1.0)
+            desc = p.get('description', '') or ''
+            volume_bonus = 0.05 if '✅' in desc else 0.0
+            actionable_bonus = 0.05 if any(k in p for k in ('target','target_level','breakout_level')) else 0.0
+            quality = (base * mult) + volume_bonus + actionable_bonus
+            # Clamp & scale to 0-100
+            quality_score = max(0, min(100, round(quality * 100, 1)))
+            p['quality_score'] = quality_score
+            # Quality label buckets
+            if quality_score >= 80:
+                ql = 'A'
+            elif quality_score >= 65:
+                ql = 'B'
+            elif quality_score >= 50:
+                ql = 'C'
+            else:
+                ql = 'D'
+            p['quality_grade'] = ql
+            total_quality += quality_score
+        avg_quality = round(total_quality/len(patterns),1) if patterns else 0
+
         return {
             'patterns': patterns,
             'pattern_summary': pattern_summary,
             'visual_signals': visual_signals,
             'overall_signal': overall_signal,
             'confidence_score': avg_confidence,
-            'patterns_count': len(patterns)
+            'patterns_count': len(patterns),
+            'average_quality_score': avg_quality
         }
     
     @staticmethod
@@ -2655,6 +2746,14 @@ class MasterAnalyzer:
                 pattern_analysis
             )
             
+            # 📊 Order Flow Analysis (Enhanced Market Context)
+            order_flow_data = self._analyze_order_flow(
+                symbol, 
+                current_price, 
+                tech_analysis.get('volume_analysis', {}),
+                multi_timeframe
+            )
+            
             # AI Analysis (10% weight)
             t_phase = time.time()
             ai_features = self.ai_system.prepare_advanced_features(
@@ -2669,6 +2768,16 @@ class MasterAnalyzer:
             ai_analysis = self.ai_system.predict_advanced(ai_features)
             ai_analysis['feature_hash'] = feature_hash
             ai_analysis['feature_count'] = len(ai_features) if isinstance(ai_features, dict) else 0
+            
+            # 🔍 Feature Contribution Analysis (AI Explainability)
+            feature_contributions = self._analyze_feature_contributions(
+                ai_features, 
+                ai_analysis, 
+                tech_analysis, 
+                pattern_analysis
+            )
+            ai_analysis['feature_contributions'] = feature_contributions
+            
             timings['ai_ms'] = round((time.time()-t_phase)*1000,2)
             
             # Calculate weighted final score
@@ -2680,6 +2789,15 @@ class MasterAnalyzer:
             liquidation_long = self.liquidation_calc.calculate_liquidation_levels(current_price, 'long')
             liquidation_short = self.liquidation_calc.calculate_liquidation_levels(current_price, 'short')
 
+            # 🎯 Regime Detection (market classification)
+            regime_data = self._detect_market_regime(
+                candles,
+                tech_analysis,
+                extended_analysis,
+                pattern_analysis,
+                multi_timeframe
+            )
+
             # Trade Setups (basic R/R framework)
             t_phase = time.time()
             trade_setups = self._generate_trade_setups(
@@ -2688,7 +2806,8 @@ class MasterAnalyzer:
                 extended_analysis,
                 pattern_analysis,
                 final_score,
-                multi_timeframe
+                multi_timeframe,
+                regime_data  # Pass regime context to setups
             )
             # Enrich trade setup rationales with multi-timeframe consensus & pattern counts
             try:
@@ -2773,6 +2892,25 @@ class MasterAnalyzer:
             except Exception:
                 pass
 
+            # Data Freshness & Timing augmentation
+            try:
+                price_ts = None
+                # Binance ticker has 'closeTime' or 'closeTime' like field? Use eventTime if available, else derive from last candle
+                for k in ('closeTime','close_time','eventTime','E','close'):  # attempt common keys
+                    if k in ticker_data and isinstance(ticker_data.get(k), (int,float)) and ticker_data.get(k) > 0:
+                        price_ts = int(ticker_data.get(k))
+                        break
+                if price_ts is None and candles:
+                    price_ts = candles[-1].get('time') or candles[-1].get('timestamp')
+                now_ms = int(time.time()*1000)
+                freshness_ms = int(now_ms - price_ts) if price_ts else None
+            except Exception:
+                price_ts = None
+                freshness_ms = None
+
+            # 📊 Adaptive Risk & Target Sizing
+            adaptive_risk = self._calculate_adaptive_risk_targets(symbol, current_price, tech_analysis, regime_data, ai_analysis)
+
             result = make_json_safe({
                 'symbol': symbol,
                 'current_price': float(current_price),
@@ -2784,14 +2922,20 @@ class MasterAnalyzer:
                 'position_analysis': position_analysis,
                 'ai_analysis': ai_analysis,
                 'ai_feature_hash': ai_analysis.get('feature_hash'),
+                'order_flow_analysis': order_flow_data,
+                'adaptive_risk_targets': adaptive_risk,
                 'market_bias': market_bias,
+                'regime_analysis': regime_data,
                 'liquidation_long': liquidation_long,
                 'liquidation_short': liquidation_short,
                 'trade_setups': trade_setups,
                 'weights': self.weights,
                 'final_score': safe_final_score,
                 'phase_timings_ms': timings,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'server_time_ms': int(time.time()*1000),
+                'price_timestamp_ms': price_ts,
+                'data_freshness_ms': freshness_ms
             })
             
             print("✅ Return data prepared successfully")
@@ -2803,6 +2947,514 @@ class MasterAnalyzer:
             print(f"Analysis error: {e}")
             print(f"Full traceback: {error_trace}")
             return {'error': f'Analysis failed: {str(e)}', 'traceback': error_trace}
+    
+    def _detect_market_regime(self, candles, tech_analysis, extended_analysis, pattern_analysis, multi_timeframe):
+        """🎯 Market Regime Classification: Trend, Range, Expansion, Volatility Crush"""
+        try:
+            if len(candles) < 50:
+                return {'regime': 'unknown', 'confidence': 0, 'rationale': 'Insufficient data'}
+
+            closes = np.array([c['close'] for c in candles])
+            highs = np.array([c['high'] for c in candles])
+            lows = np.array([c['low'] for c in candles])
+            volumes = np.array([c['volume'] for c in candles])
+            
+            # Get ATR for volatility assessment
+            atr_data = extended_analysis.get('atr', {})
+            volatility_level = atr_data.get('volatility', 'medium')
+            atr_pct = atr_data.get('percentage', 2.0)
+            
+            # Trend Assessment
+            trend_data = tech_analysis.get('trend', {})
+            trend_strength = trend_data.get('strength', 'weak')
+            trend_direction = trend_data.get('trend', 'neutral')
+            
+            # Range Detection (price bounded within support/resistance)
+            support = tech_analysis.get('support', 0)
+            resistance = tech_analysis.get('resistance', 0)
+            current_price = closes[-1]
+            range_pct = ((resistance - support) / current_price * 100) if resistance > support else 0
+            
+            # Multi-timeframe consensus
+            mt_consensus = multi_timeframe.get('consensus', {}).get('primary', 'NEUTRAL')
+            
+            # Volume Analysis
+            vol_trend = tech_analysis.get('volume_analysis', {}).get('trend', 'normal')
+            
+            # Pattern Momentum
+            patterns = pattern_analysis.get('patterns', [])
+            breakout_patterns = [p for p in patterns if 'breakout' in p.get('type', '').lower()]
+            consolidation_patterns = [p for p in patterns if any(x in p.get('type', '').lower() for x in ['triangle', 'flag', 'pennant'])]
+            
+            # Decision Logic
+            regime_scores = {
+                'trending': 0,
+                'ranging': 0,
+                'expansion': 0,
+                'volatility_crush': 0
+            }
+            
+            # Trending signals
+            if trend_strength in ['strong', 'very_strong'] and trend_direction != 'neutral':
+                regime_scores['trending'] += 30
+            if mt_consensus in ['BULLISH', 'BEARISH']:
+                regime_scores['trending'] += 20
+            if atr_pct > 2.5 and vol_trend in ['high', 'very_high']:
+                regime_scores['trending'] += 15
+            
+            # Ranging signals
+            if range_pct < 8 and current_price > support * 1.02 and current_price < resistance * 0.98:
+                regime_scores['ranging'] += 35
+            if trend_direction in ['neutral', 'sideways']:
+                regime_scores['ranging'] += 25
+            if len(consolidation_patterns) > 0:
+                regime_scores['ranging'] += 15
+                
+            # Expansion signals (high volatility + breakouts)
+            if atr_pct > 4.0:
+                regime_scores['expansion'] += 25
+            if len(breakout_patterns) > 0:
+                regime_scores['expansion'] += 30
+            if vol_trend == 'very_high':
+                regime_scores['expansion'] += 20
+                
+            # Volatility Crush signals (low volatility + compression)
+            if atr_pct < 1.5:
+                regime_scores['volatility_crush'] += 30
+            if volatility_level == 'low':
+                regime_scores['volatility_crush'] += 25
+            if vol_trend in ['low', 'below_average']:
+                regime_scores['volatility_crush'] += 20
+            
+            # Determine regime
+            primary_regime = max(regime_scores, key=regime_scores.get)
+            confidence = regime_scores[primary_regime]
+            
+            # Rationale construction
+            if primary_regime == 'trending':
+                rationale = f"Strong directional movement detected. Trend: {trend_direction} ({trend_strength}), MTF: {mt_consensus}, ATR: {atr_pct:.1f}%"
+            elif primary_regime == 'ranging':
+                rationale = f"Price bounded in range. S/R spread: {range_pct:.1f}%, Trend: {trend_direction}, Consolidation patterns: {len(consolidation_patterns)}"
+            elif primary_regime == 'expansion':
+                rationale = f"High volatility expansion phase. ATR: {atr_pct:.1f}%, Breakouts: {len(breakout_patterns)}, Volume: {vol_trend}"
+            else:  # volatility_crush
+                rationale = f"Low volatility compression. ATR: {atr_pct:.1f}%, Vol trend: {vol_trend}, Squeeze conditions present"
+            
+            # Secondary regime (if close scores)
+            sorted_scores = sorted(regime_scores.items(), key=lambda x: x[1], reverse=True)
+            secondary = None
+            if len(sorted_scores) > 1 and sorted_scores[1][1] > confidence * 0.7:
+                secondary = sorted_scores[1][0]
+            
+            return {
+                'regime': primary_regime,
+                'secondary_regime': secondary,
+                'confidence': min(100, confidence),
+                'rationale': rationale,
+                'regime_scores': regime_scores,
+                'volatility_level': volatility_level,
+                'atr_percentage': atr_pct,
+                'range_percentage': range_pct,
+                'trend_classification': f"{trend_direction} ({trend_strength})"
+            }
+            
+        except Exception as e:
+            return {
+                'regime': 'error', 
+                'confidence': 0, 
+                'rationale': f'Regime detection failed: {str(e)}'
+            }
+    
+    def _generate_rsi_caution_narrative(self, rsi, trend):
+        """🚨 Generate RSI-based caution narrative and confidence penalties"""
+        caution_level = 'none'
+        narrative = ''
+        confidence_penalty = 0
+        signal_quality = 'ok'
+        
+        if rsi >= 80:
+            caution_level = 'extreme'
+            narrative = '⚠️ EXTREME ÜBERKAUFT: RSI sehr hoch - Pullback-Risiko erhöht, reduzierte Position empfohlen'
+            confidence_penalty = 25
+            signal_quality = 'bad'
+        elif rsi >= 70:
+            caution_level = 'high'
+            narrative = '⚠️ ÜBERKAUFT-WARNUNG: RSI über 70 - Vorsicht bei LONG-Einstiegen, enge Stops verwenden'
+            confidence_penalty = 15
+            signal_quality = 'warn'
+        elif rsi <= 20:
+            caution_level = 'extreme_oversold'
+            narrative = '💡 EXTREME ÜBERVERKAUFT: RSI sehr niedrig - Bounce-Potential hoch, aber weitere Schwäche möglich'
+            confidence_penalty = 0  # Oversold can be opportunity
+            signal_quality = 'ok'
+        elif rsi <= 30:
+            caution_level = 'oversold_opportunity'
+            narrative = '💡 ÜBERVERKAUFT: RSI unter 30 - Potentielle Einstiegschance für LONG bei Bestätigung'
+            confidence_penalty = -5  # Small bonus for oversold
+            signal_quality = 'ok'
+        elif rsi >= 60 and 'bearish' in trend:
+            caution_level = 'trend_conflict'
+            narrative = '⚠️ TREND-KONFLIKT: RSI erhöht in bearischem Trend - kurzfristige Rallye könnte enden'
+            confidence_penalty = 10
+            signal_quality = 'warn'
+        elif rsi <= 40 and 'bullish' in trend:
+            caution_level = 'healthy_pullback'
+            narrative = '✅ GESUNDER PULLBACK: RSI moderat in bullischem Trend - Einstiegschance bei Support'
+            confidence_penalty = -3  # Small bonus
+            signal_quality = 'ok'
+            
+        return {
+            'caution_level': caution_level,
+            'narrative': narrative,
+            'confidence_penalty': confidence_penalty,
+            'signal_quality': signal_quality,
+            'rsi_value': rsi,
+            'recommendation': self._get_rsi_recommendation(rsi, trend)
+        }
+    
+    def _get_rsi_recommendation(self, rsi, trend):
+        """Get specific RSI-based trading recommendation"""
+        if rsi >= 80:
+            return 'Avoid new LONG positions, consider profit-taking'
+        elif rsi >= 70:
+            return 'Use tight stops on LONG positions, monitor for reversal signals'
+        elif rsi <= 20:
+            return 'Monitor for reversal confirmation before entering LONG'
+        elif rsi <= 30:
+            return 'Good LONG entry zone if trend supports'
+        elif 40 <= rsi <= 60:
+            return 'Neutral RSI - rely on other indicators'
+        else:
+            return 'RSI in normal range - standard trade management'
+    
+    def _analyze_order_flow(self, symbol, current_price, volume_analysis, multi_timeframe):
+        """📊 Order Flow & Market Microstructure Analysis"""
+        try:
+            # Simulated Order Flow (placeholder for real orderbook integration)
+            # In production, this would fetch actual orderbook data
+            order_flow = {
+                'bid_ask_spread': 0,
+                'order_book_imbalance': 0,
+                'delta_momentum': 0,
+                'volume_profile_poc': current_price,
+                'liquidity_zones': [],
+                'flow_sentiment': 'neutral'
+            }
+            
+            # Volume-based flow estimation
+            vol_ratio = volume_analysis.get('ratio', 1.0)
+            vol_trend = volume_analysis.get('trend', 'normal')
+            
+            # Estimate bid/ask spread based on volatility
+            if vol_ratio > 2.0:
+                spread_estimate = current_price * 0.001  # 0.1% in high vol
+            elif vol_ratio > 1.5:
+                spread_estimate = current_price * 0.0005  # 0.05%
+            else:
+                spread_estimate = current_price * 0.0002  # 0.02% normal
+            
+            order_flow['bid_ask_spread'] = round(spread_estimate, 6)
+            order_flow['spread_bps'] = round((spread_estimate / current_price) * 10000, 2)
+            
+            # Estimate order imbalance from volume pattern
+            if vol_trend == 'very_high' and vol_ratio > 1.8:
+                # High volume suggests imbalance
+                imbalance = min(0.7, (vol_ratio - 1) * 0.3)  # Cap at 70%
+                order_flow['order_book_imbalance'] = round(imbalance, 3)
+                order_flow['flow_sentiment'] = 'buy_pressure' if imbalance > 0.3 else 'sell_pressure'
+            elif vol_trend == 'below_average':
+                order_flow['order_book_imbalance'] = round(-(1 - vol_ratio) * 0.2, 3)
+                order_flow['flow_sentiment'] = 'low_liquidity'
+            else:
+                order_flow['order_book_imbalance'] = round((vol_ratio - 1) * 0.1, 3)
+            
+            # Multi-timeframe delta estimation
+            mt_consensus = multi_timeframe.get('consensus', {}).get('primary', 'NEUTRAL')
+            if mt_consensus == 'BULLISH':
+                order_flow['delta_momentum'] = round(0.3 + vol_ratio * 0.2, 3)
+            elif mt_consensus == 'BEARISH':
+                order_flow['delta_momentum'] = round(-0.3 - vol_ratio * 0.2, 3)
+            else:
+                order_flow['delta_momentum'] = round((vol_ratio - 1) * 0.1, 3)
+            
+            # Volume Profile Point of Control estimation
+            order_flow['volume_profile_poc'] = round(current_price * (1 + order_flow['delta_momentum'] * 0.01), 4)
+            
+            # Liquidity zones (approximate based on volume)
+            if vol_ratio > 1.5:
+                zones = [
+                    {'level': round(current_price * 0.995, 4), 'type': 'support', 'strength': 'medium'},
+                    {'level': round(current_price * 1.005, 4), 'type': 'resistance', 'strength': 'medium'}
+                ]
+                if vol_ratio > 2.0:
+                    zones.extend([
+                        {'level': round(current_price * 0.99, 4), 'type': 'support', 'strength': 'strong'},
+                        {'level': round(current_price * 1.01, 4), 'type': 'resistance', 'strength': 'strong'}
+                    ])
+                order_flow['liquidity_zones'] = zones
+            
+            # Flow strength assessment
+            imb_abs = abs(order_flow['order_book_imbalance'])
+            delta_abs = abs(order_flow['delta_momentum'])
+            
+            if imb_abs > 0.4 or delta_abs > 0.5:
+                flow_strength = 'strong'
+            elif imb_abs > 0.2 or delta_abs > 0.3:
+                flow_strength = 'moderate'
+            else:
+                flow_strength = 'weak'
+            
+            order_flow['flow_strength'] = flow_strength
+            order_flow['analysis_note'] = f"Estimated flow from volume patterns (spread: {order_flow['spread_bps']}bps, imbalance: {order_flow['order_book_imbalance']:.1%})"
+            
+            return order_flow
+            
+        except Exception as e:
+            return {
+                'error': f'Order flow analysis failed: {str(e)}',
+                'flow_sentiment': 'unknown',
+                'flow_strength': 'unknown'
+            }
+    
+    def _analyze_feature_contributions(self, features, ai_analysis, tech_analysis, pattern_analysis):
+        """🔍 AI Feature Contribution Analysis (Explainability)"""
+        try:
+            if not isinstance(features, (list, np.ndarray)) or len(features) == 0:
+                return {'error': 'No features available for contribution analysis'}
+            
+            # Convert to numpy array if needed
+            if isinstance(features, list):
+                features = np.array(features)
+            
+            # Feature importance heuristic (simplified attribution)
+            # In production, this would use actual gradient-based attribution
+            
+            feature_names = [
+                'RSI', 'RSI_Overbought', 'RSI_Oversold', 'MACD', 'MACD_Hist', 
+                'MACD_Bull_Curve', 'MACD_Bear_Curve', 'MACD_Bull_Rev', 'MACD_Bear_Rev',
+                'SMA_9', 'SMA_20', 'Support_Strength', 'Resistance_Strength'
+            ]
+            
+            # Extend feature names for all 128 features
+            for i in range(len(feature_names), 50):
+                feature_names.append(f'Tech_{i}')
+            for i in range(50, 80):
+                feature_names.append(f'Pattern_{i-50}')
+            for i in range(80, 100):
+                feature_names.append(f'Market_{i-80}')
+            for i in range(100, 120):
+                feature_names.append(f'Position_{i-100}')
+            for i in range(120, 128):
+                feature_names.append(f'Time_{i-120}')
+            
+            # Ensure we have enough names
+            while len(feature_names) < len(features):
+                feature_names.append(f'Feature_{len(feature_names)}')
+            
+            # Calculate pseudo-importance (magnitude * activation)
+            feature_magnitudes = np.abs(features)
+            feature_activations = np.where(features > 0, features, -features * 0.5)  # Positive bias
+            importance_scores = feature_magnitudes * feature_activations
+            
+            # Normalize to percentages
+            total_importance = np.sum(importance_scores)
+            if total_importance > 0:
+                normalized_importance = (importance_scores / total_importance) * 100
+            else:
+                normalized_importance = np.zeros_like(importance_scores)
+            
+            # Get top contributing features
+            top_indices = np.argsort(normalized_importance)[-10:][::-1]  # Top 10
+            
+            contributions = []
+            for idx in top_indices:
+                if idx < len(feature_names) and normalized_importance[idx] > 0.5:  # Only meaningful contributions
+                    contributions.append({
+                        'feature': feature_names[idx],
+                        'importance': round(float(normalized_importance[idx]), 2),
+                        'value': round(float(features[idx]), 4),
+                        'impact': 'positive' if features[idx] > 0 else 'negative'
+                    })
+            
+            # Add contextual interpretations
+            interpretations = []
+            rsi_val = tech_analysis.get('rsi', {}).get('rsi', 50)
+            if rsi_val > 70:
+                interpretations.append('RSI overbought condition reducing BUY confidence')
+            elif rsi_val < 30:
+                interpretations.append('RSI oversold condition increasing BUY potential')
+            
+            pattern_count = len(pattern_analysis.get('patterns', []))
+            if pattern_count > 0:
+                bull_patterns = sum(1 for p in pattern_analysis.get('patterns', []) if p.get('signal') == 'bullish')
+                if bull_patterns > 0:
+                    interpretations.append(f'{bull_patterns} bullish patterns supporting upside')
+            
+            ai_signal = ai_analysis.get('signal', 'HOLD')
+            ai_conf = ai_analysis.get('confidence', 0)
+            if ai_conf > 70:
+                interpretations.append(f'High AI confidence ({ai_conf:.1f}%) in {ai_signal} signal')
+            
+            return {
+                'top_features': contributions[:5],  # Top 5 for display
+                'total_features_analyzed': len(features),
+                'ai_signal_confidence': ai_conf,
+                'contextual_interpretations': interpretations,
+                'analysis_method': 'magnitude_activation_heuristic',
+                'note': 'Simplified feature attribution - production systems use gradient-based methods'
+            }
+            
+        except Exception as e:
+            return {
+                'error': f'Feature contribution analysis failed: {str(e)}',
+                'top_features': [],
+                'analysis_method': 'error'
+            }
+    
+    def _calculate_adaptive_risk_targets(self, symbol, current_price, tech_analysis, regime_data, ai_analysis):
+        """📊 Adaptive Risk & Target Sizing based on Market Conditions"""
+        try:
+            # Base parameters
+            base_risk_pct = 2.0  # 2% base risk
+            base_reward_ratio = 2.0  # 1:2 risk/reward base
+            
+            # Volatility adjustment from ATR
+            atr = tech_analysis.get('atr', {}).get('atr', current_price * 0.02)
+            atr_pct = (atr / current_price) * 100
+            
+            # Volatility risk scaling
+            if atr_pct > 5.0:  # Very high volatility
+                vol_multiplier = 0.6  # Reduce risk
+                reward_multiplier = 3.0  # Increase reward ratio
+            elif atr_pct > 3.0:  # High volatility
+                vol_multiplier = 0.8
+                reward_multiplier = 2.5
+            elif atr_pct > 1.5:  # Normal volatility
+                vol_multiplier = 1.0
+                reward_multiplier = 2.0
+            elif atr_pct > 0.8:  # Low volatility
+                vol_multiplier = 1.2  # Increase risk slightly
+                reward_multiplier = 1.8
+            else:  # Very low volatility
+                vol_multiplier = 1.4
+                reward_multiplier = 1.5
+            
+            # Regime-based adjustments
+            regime_multiplier = 1.0
+            regime_reward_adj = 1.0
+            
+            if regime_data and 'regime_type' in regime_data:
+                regime_type = regime_data['regime_type']
+                regime_confidence = regime_data.get('confidence', 50)
+                
+                if regime_type == 'trending':
+                    # Higher confidence in trends = more aggressive
+                    if regime_confidence > 70:
+                        regime_multiplier = 1.3
+                        regime_reward_adj = 2.5
+                    else:
+                        regime_multiplier = 1.1
+                        regime_reward_adj = 2.2
+                        
+                elif regime_type == 'ranging':
+                    # Ranging markets = smaller targets, tighter stops
+                    regime_multiplier = 0.8
+                    regime_reward_adj = 1.5
+                    
+                elif regime_type == 'expansion':
+                    # Expansion = potential for larger moves
+                    regime_multiplier = 1.2
+                    regime_reward_adj = 3.0
+                    
+                elif regime_type == 'volatility_crush':
+                    # Low vol environment
+                    regime_multiplier = 0.7
+                    regime_reward_adj = 1.3
+            
+            # AI confidence adjustment
+            ai_confidence = ai_analysis.get('confidence', 50)
+            ai_signal = ai_analysis.get('signal', 'HOLD')
+            
+            if ai_confidence > 80 and ai_signal != 'HOLD':
+                confidence_multiplier = 1.4  # High confidence = more aggressive
+            elif ai_confidence > 60:
+                confidence_multiplier = 1.2
+            elif ai_confidence > 40:
+                confidence_multiplier = 1.0
+            else:
+                confidence_multiplier = 0.7  # Low confidence = conservative
+            
+            # Calculate final risk percentage
+            adaptive_risk_pct = base_risk_pct * vol_multiplier * regime_multiplier * confidence_multiplier
+            adaptive_risk_pct = max(0.5, min(5.0, adaptive_risk_pct))  # Cap between 0.5% and 5%
+            
+            # Calculate reward ratio
+            adaptive_reward_ratio = base_reward_ratio * reward_multiplier * regime_reward_adj
+            adaptive_reward_ratio = max(1.2, min(4.0, adaptive_reward_ratio))  # Cap between 1.2:1 and 4:1
+            
+            # Position sizing (assuming $10,000 account)
+            account_size = 10000
+            risk_amount = account_size * (adaptive_risk_pct / 100)
+            
+            # Stop loss distance
+            stop_distance_pct = atr_pct * 0.8  # Use 80% of ATR for stop
+            stop_distance = current_price * (stop_distance_pct / 100)
+            
+            # Position size calculation
+            position_size = risk_amount / stop_distance if stop_distance > 0 else 0
+            
+            # Target levels
+            target_1_distance = stop_distance * (adaptive_reward_ratio * 0.6)  # 60% of full target
+            target_2_distance = stop_distance * adaptive_reward_ratio  # Full target
+            target_3_distance = stop_distance * (adaptive_reward_ratio * 1.5)  # Extended target
+            
+            if ai_signal == 'BUY':
+                stop_loss = current_price - stop_distance
+                target_1 = current_price + target_1_distance
+                target_2 = current_price + target_2_distance
+                target_3 = current_price + target_3_distance
+            else:  # SELL
+                stop_loss = current_price + stop_distance
+                target_1 = current_price - target_1_distance
+                target_2 = current_price - target_2_distance
+                target_3 = current_price - target_3_distance
+            
+            # Risk assessment
+            risk_category = 'low'
+            if adaptive_risk_pct > 3.5:
+                risk_category = 'high'
+            elif adaptive_risk_pct > 2.5:
+                risk_category = 'medium'
+            
+            return {
+                'adaptive_risk_pct': round(adaptive_risk_pct, 2),
+                'adaptive_reward_ratio': round(adaptive_reward_ratio, 1),
+                'position_size': round(position_size, 4),
+                'stop_loss': round(stop_loss, 4),
+                'targets': {
+                    'target_1': round(target_1, 4),
+                    'target_2': round(target_2, 4), 
+                    'target_3': round(target_3, 4)
+                },
+                'risk_amount_usd': round(risk_amount, 2),
+                'stop_distance_pct': round(stop_distance_pct, 3),
+                'atr_pct': round(atr_pct, 3),
+                'risk_category': risk_category,
+                'adjustments': {
+                    'volatility_multiplier': round(vol_multiplier, 2),
+                    'regime_multiplier': round(regime_multiplier, 2),
+                    'confidence_multiplier': round(confidence_multiplier, 2),
+                    'reward_multiplier': round(reward_multiplier, 1)
+                },
+                'reasoning': f"Risk adjusted for {regime_data.get('regime_type', 'normal')} regime, {atr_pct:.1f}% volatility, {ai_confidence:.0f}% AI confidence"
+            }
+            
+        except Exception as e:
+            return {
+                'error': f'Adaptive risk calculation failed: {str(e)}',
+                'adaptive_risk_pct': 2.0,
+                'adaptive_reward_ratio': 2.0
+            }
     
     def _calculate_weighted_score(self, tech_analysis, pattern_analysis, ai_analysis):
         """Calculate weighted final trading score"""
@@ -3129,7 +3781,7 @@ class MasterAnalyzer:
             'enterprise_ready': len(contradictions) == 0 and risk_level in ['LOW', 'MEDIUM']
         }
 
-    def _generate_trade_setups(self, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe=None):
+    def _generate_trade_setups(self, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe=None, regime_data=None):
         """Generate structured long & short trade setups based on technicals, volatility and validation.
         Returns list of up to 8 setups sorted by confidence."""
         setups = []
@@ -3244,8 +3896,11 @@ class MasterAnalyzer:
                 'trend_alignment_required': True
             }
             
+            # 🚨 RSI CAUTION NARRATIVE INJECTION
+            rsi_caution = self._generate_rsi_caution_narrative(rsi, trend)
+            
             # Relaxed trend rule: allow LONG setups if not strongly bearish
-            # 🚨 ABER mit zusätzlicher Validierung
+            # 🚨 ABER mit zusätzlicher Validierung + RSI CAUTION
             trend_validation_passed = False
             if 'bullish' in trend or trend in ['neutral','weak','moderate']:
                 if 'bullish' not in trend:
@@ -3262,6 +3917,10 @@ class MasterAnalyzer:
                     
                     # 🔍 ZUSÄTZLICHE RISK VALIDIERUNG
                     if risk_pct <= setup_quality_filters['maximum_risk_percent']:
+                        # Apply RSI caution to rationale
+                        base_rationale = 'Multi-validated Einstieg nahe Support mit Professional Risk Management'
+                        enhanced_rationale = f"{base_rationale}. {rsi_caution['narrative']}" if rsi_caution['caution_level'] != 'none' else base_rationale
+                        
                         setups.append({
                             'id':'L-PB', 'direction':'LONG', 'strategy':'Professional Bullish Pullback',
                             'entry': round(entry_pb,2), 'stop_loss': round(stop_pb,2),
@@ -3269,10 +3928,10 @@ class MasterAnalyzer:
                             'targets': _targets(entry_pb, stop_pb,'LONG', [
                                 ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
                             ]),
-                            'confidence': _confidence(55,[15 if enterprise_ready else 5, 8 if rsi<65 else 0, 10 if trend_validation_passed else 0]),
+                            'confidence': _confidence(55,[15 if enterprise_ready else 5, 8 if rsi<65 else 0, 10 if trend_validation_passed else 0]) - rsi_caution['confidence_penalty'],
                             'conditions': [
                                 {'t':'Trend validation','s':'ok' if trend_validation_passed else 'warn'},
-                                {'t':f'RSI {rsi:.1f}','s':'ok' if rsi<70 else 'warn'},
+                                {'t':f'RSI {rsi:.1f}','s':rsi_caution['signal_quality']},
                                 {'t':f'Risk {risk_pct:.1f}%','s':'ok' if risk_pct<=2.0 else 'warn'},
                                 {'t':'Enterprise Ready','s':'ok' if enterprise_ready else 'warn'},
                                 {'t':'Low Contradictions','s':'ok' if contradiction_count<=1 else 'bad'}
@@ -3280,7 +3939,9 @@ class MasterAnalyzer:
                             'validation_score': 'PROFESSIONAL' if all([
                                 trend_validation_passed, enterprise_ready, contradiction_count==0, risk_pct<=2.0
                             ]) else 'STANDARD',
-                            'rationale':'Multi-validated Einstieg nahe Support mit Professional Risk Management',
+                            'rationale': enhanced_rationale,
+                            'rsi_caution': rsi_caution,
+                            'regime_context': regime_data.get('regime', 'unknown') if regime_data else 'unknown',
                             'justification': {
                                 'core_thesis': 'Pullback in intaktem Aufwärtstrend zurück in Nachfragezone (Support Re-Test).',
                                 'confluence': [
@@ -4622,6 +5283,30 @@ DASHBOARD_HTML = """
                     </div>
                 </div>
 
+                <!-- Market Regime -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">🎯</span> Market Regime <span class="tag">BETA</span></div>
+                    <div id="regimeAnalysis">
+                        <!-- Regime analysis -->
+                    </div>
+                </div>
+
+                <!-- Adaptive Risk & Targets -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">🎯</span> Adaptive Risk Management <span class="tag">NEW</span></div>
+                    <div id="adaptiveRiskTargets">
+                        <!-- Adaptive risk and targets -->
+                    </div>
+                </div>
+
+                <!-- Order Flow Analysis -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">📊</span> Order Flow <span class="tag">NEW</span></div>
+                    <div id="orderFlowAnalysis">
+                        <!-- Order flow analysis -->
+                    </div>
+                </div>
+
                 <!-- AI Analysis -->
                 <div class="glass-card">
                     <div class="section-title"><span class="icon">🤖</span> JAX Neural Network</div>
@@ -4630,6 +5315,14 @@ DASHBOARD_HTML = """
                     </div>
                     <div id="aiStatus" style="margin-top:14px; font-size:0.65rem; color:var(--text-dim); line-height:1rem;">
                         <!-- AI status -->
+                    </div>
+                </div>
+
+                <!-- Feature Contributions -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">🔍</span> AI Explainability <span class="tag">NEW</span></div>
+                    <div id="featureContributions">
+                        <!-- Feature contributions analysis -->
                     </div>
                 </div>
 
@@ -4735,8 +5428,12 @@ DASHBOARD_HTML = """
             displayTechnicalAnalysis(data);
             displayPatternAnalysis(data);
             displayMultiTimeframe(data);
+            displayRegimeAnalysis(data);
+            displayAdaptiveRiskTargets(data);
+            displayOrderFlowAnalysis(data);
             displayMarketBias(data);
             displayAIAnalysis(data);
+            displayFeatureContributions(data);
             displayLiquidationTables(data);
         }
 
@@ -4914,8 +5611,10 @@ DASHBOARD_HTML = """
                         <div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>
                         ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color: #28a745;">${s.risk_reward_ratio}</span></div>` : ''}
                         ${s.key_level ? `<div class="setup-line"><span>Key Level</span><span style="color: #FFD700;">${s.key_level}</span></div>` : ''}
+                        ${s.regime_context ? `<div class="setup-line"><span>Regime</span><span style="color: #17a2b8;">${s.regime_context}</span></div>` : ''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
+                        ${s.rsi_caution && s.rsi_caution.caution_level !== 'none' ? `<div style="margin-top:6px; font-size:.5rem; color:#ffc107; line-height:0.75rem;"><strong>RSI:</strong> ${s.rsi_caution.narrative}</div>` : ''}
                         ${s.trade_plan ? `<div style="margin-top:8px; font-size:.55rem; color:#FFD700; line-height:0.75rem;"><strong>Plan:</strong> ${s.trade_plan}</div>` : ''}
                         ${s.market_structure ? `<div style="margin-top:4px; font-size:.55rem; color:rgba(255,255,255,0.7); line-height:0.75rem;"><strong>Structure:</strong> ${s.market_structure}</div>` : ''}
                         <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale || s.trade_plan}</div>
@@ -5227,7 +5926,7 @@ DASHBOARD_HTML = """
                     <div class=\"pattern-item fade-in\" style=\"border-left:4px solid ${getSignalColor(p.signal)}\">
                         <div class=\"pattern-header\">
                             <span class=\"pattern-type\">${p.type || p.name}<span style=\"margin-left:6px; font-size:0.5rem; background:rgba(255,255,255,0.12); padding:3px 6px; border-radius:6px; letter-spacing:.5px;\">${p.timeframe||'1h'}</span></span>
-                            <span class=\"pattern-confidence\">${p.confidence}%</span>
+                            <span class=\"pattern-confidence\">${p.confidence}% | Q:${p.quality_grade || '-'} ${p.quality_score ? '('+p.quality_score+')' : ''}</span>
                         </div>
                         <div style=\"font-size:0.55rem; color:var(--text-secondary); margin-bottom:4px;\">Signal: <span style=\"color:${p.signal==='bullish'?'#28a745':p.signal==='bearish'?'#dc3545':'#ffc107'}\">${p.signal}</span></div>
                         ${p.description?`<div style=\"font-size:0.55rem; color:rgba(255,255,255,0.55); line-height:0.85rem;\">${p.description}</div>`:''}
@@ -5307,6 +6006,329 @@ DASHBOARD_HTML = """
                                     </div>
                                 </div>`;
                         if(existing){ existing.outerHTML = html; } else { container.insertAdjacentHTML('beforeend', html); }
+                }
+
+                function displayRegimeAnalysis(data) {
+                    const regime = data.regime_analysis;
+                    const el = document.getElementById('regimeAnalysis');
+                    if (!regime || regime.regime === 'error') {
+                        el.innerHTML = `<small style="color:#dc3545">${regime?.rationale || 'Regime analysis failed'}</small>`;
+                        return;
+                    }
+                    
+                    const regimeColors = {
+                        'trending': '#0d6efd',
+                        'ranging': '#6f42c1', 
+                        'expansion': '#fd7e14',
+                        'volatility_crush': '#20c997'
+                    };
+                    
+                    const regimeIcons = {
+                        'trending': '📈',
+                        'ranging': '↔️',
+                        'expansion': '💥',
+                        'volatility_crush': '🤐'
+                    };
+                    
+                    const color = regimeColors[regime.regime] || '#6c757d';
+                    const icon = regimeIcons[regime.regime] || '❓';
+                    
+                    let html = `
+                        <div class="metric-card" style="margin-bottom: 15px; border-left: 4px solid ${color};">
+                            <div class="metric-value" style="color: ${color}">
+                                ${icon} ${regime.regime.toUpperCase()}
+                            </div>
+                            <div class="metric-label">Market Regime (${regime.confidence}%)</div>
+                        </div>
+                        
+                        <div style="font-size: 0.65rem; color: var(--text-secondary); margin-bottom: 10px;">
+                            ${regime.rationale}
+                        </div>
+                    `;
+                    
+                    if (regime.secondary_regime) {
+                        const secColor = regimeColors[regime.secondary_regime] || '#6c757d';
+                        const secIcon = regimeIcons[regime.secondary_regime] || '❓';
+                        html += `
+                            <div style="font-size: 0.6rem; color: ${secColor}; margin: 5px 0;">
+                                Secondary: ${secIcon} ${regime.secondary_regime}
+                            </div>
+                        `;
+                    }
+                    
+                    html += `
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
+                            <div style="background: rgba(255,255,255,0.05); padding: 6px 8px; border-radius: 8px; font-size: 0.55rem;">
+                                <div style="color: var(--text-dim);">ATR</div>
+                                <div style="color: white; font-weight: 600;">${regime.atr_percentage?.toFixed(1) || 'N/A'}%</div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.05); padding: 6px 8px; border-radius: 8px; font-size: 0.55rem;">
+                                <div style="color: var(--text-dim);">Volatility</div>
+                                <div style="color: white; font-weight: 600;">${regime.volatility_level || 'N/A'}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    if (regime.regime_scores) {
+                        html += `
+                            <div style="margin-top: 10px; font-size: 0.5rem;">
+                                <div style="color: var(--text-dim); margin-bottom: 4px;">Regime Scores:</div>
+                                <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                        `;
+                        Object.entries(regime.regime_scores).forEach(([key, score]) => {
+                            const color = regimeColors[key] || '#6c757d';
+                            html += `<span style="background: ${color}20; color: ${color}; padding: 2px 5px; border-radius: 4px;">${key}: ${score}</span>`;
+                        });
+                        html += `</div></div>`;
+                    }
+                    
+                    el.innerHTML = html;
+                }
+                
+                function displayOrderFlowAnalysis(data) {
+                    const orderFlowContainer = document.getElementById('orderFlowAnalysis');
+                    if (!orderFlowContainer || !data.order_flow_analysis) return;
+                    
+                    const flow = data.order_flow_analysis;
+                    if (flow.error) {
+                        orderFlowContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${flow.error}</div>`;
+                        return;
+                    }
+                    
+                    const sentimentColors = {
+                        'buy_pressure': '#28a745',
+                        'sell_pressure': '#dc3545', 
+                        'neutral': '#6c757d',
+                        'low_liquidity': '#ffc107',
+                        'unknown': '#6c757d'
+                    };
+                    
+                    const sentimentEmojis = {
+                        'buy_pressure': '🟢',
+                        'sell_pressure': '🔴',
+                        'neutral': '⚪',
+                        'low_liquidity': '🟡',
+                        'unknown': '❓'
+                    };
+                    
+                    const imbalancePercent = (flow.order_book_imbalance * 100).toFixed(1);
+                    const deltaPercent = (flow.delta_momentum * 100).toFixed(1);
+                    
+                    orderFlowContainer.innerHTML = `
+                        <div class="order-flow-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
+                            <h5 style="margin-bottom: 15px; color: #495057;">📊 Order Flow Analysis</h5>
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                                <div class="flow-metric">
+                                    <strong>Flow Sentiment:</strong>
+                                    <span style="color: ${sentimentColors[flow.flow_sentiment]};">
+                                        ${sentimentEmojis[flow.flow_sentiment]} ${flow.flow_sentiment.replace('_', ' ').toUpperCase()}
+                                    </span>
+                                </div>
+                                
+                                <div class="flow-metric">
+                                    <strong>Flow Strength:</strong>
+                                    <span style="color: ${flow.flow_strength === 'strong' ? '#28a745' : flow.flow_strength === 'moderate' ? '#ffc107' : '#6c757d'};">
+                                        ${flow.flow_strength.toUpperCase()}
+                                    </span>
+                                </div>
+                                
+                                <div class="flow-metric">
+                                    <strong>Spread:</strong>
+                                    <span>${flow.spread_bps || 0} bps</span>
+                                </div>
+                                
+                                <div class="flow-metric">
+                                    <strong>Order Imbalance:</strong>
+                                    <span style="color: ${flow.order_book_imbalance > 0 ? '#28a745' : flow.order_book_imbalance < 0 ? '#dc3545' : '#6c757d'};">
+                                        ${imbalancePercent}%
+                                    </span>
+                                </div>
+                                
+                                <div class="flow-metric">
+                                    <strong>Delta Momentum:</strong>
+                                    <span style="color: ${flow.delta_momentum > 0 ? '#28a745' : flow.delta_momentum < 0 ? '#dc3545' : '#6c757d'};">
+                                        ${deltaPercent}%
+                                    </span>
+                                </div>
+                                
+                                <div class="flow-metric">
+                                    <strong>Volume POC:</strong>
+                                    <span>${flow.volume_profile_poc || 'N/A'}</span>
+                                </div>
+                            </div>
+                            
+                            ${flow.liquidity_zones && flow.liquidity_zones.length > 0 ? `
+                                <div class="liquidity-zones" style="margin-top: 10px;">
+                                    <strong>Liquidity Zones:</strong>
+                                    <div style="margin-top: 5px;">
+                                        ${flow.liquidity_zones.map(zone => `
+                                            <span style="display: inline-block; margin: 2px 5px; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; 
+                                                  background: ${zone.type === 'support' ? '#d4edda' : '#f8d7da'}; 
+                                                  color: ${zone.type === 'support' ? '#155724' : '#721c24'};">
+                                                ${zone.type.toUpperCase()} @ ${zone.level} (${zone.strength})
+                                            </span>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            ${flow.analysis_note ? `
+                                <div style="margin-top: 10px; font-size: 0.85em; color: #666; font-style: italic;">
+                                    💡 ${flow.analysis_note}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                function displayFeatureContributions(data) {
+                    const featureContainer = document.getElementById('featureContributions');
+                    if (!featureContainer || !data.ai_analysis?.feature_contributions) return;
+                    
+                    const features = data.ai_analysis.feature_contributions;
+                    if (features.error) {
+                        featureContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${features.error}</div>`;
+                        return;
+                    }
+                    
+                    featureContainer.innerHTML = `
+                        <div class="feature-contributions-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
+                            <h5 style="margin-bottom: 15px; color: #495057;">🔍 AI Feature Contributions</h5>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <strong>Signal Confidence:</strong>
+                                <span style="color: ${features.ai_signal_confidence > 70 ? '#28a745' : features.ai_signal_confidence > 50 ? '#ffc107' : '#dc3545'}; font-weight: bold;">
+                                    ${features.ai_signal_confidence?.toFixed(1) || 0}%
+                                </span>
+                                <span style="margin-left: 10px; color: #666; font-size: 0.9em;">
+                                    (${features.total_features_analyzed || 0} features analyzed)
+                                </span>
+                            </div>
+                            
+                            ${features.top_features && features.top_features.length > 0 ? `
+                                <div class="top-features" style="margin-bottom: 15px;">
+                                    <strong>Top Contributing Features:</strong>
+                                    <div style="margin-top: 8px;">
+                                        ${features.top_features.map(feature => `
+                                            <div style="display: flex; align-items: center; margin: 5px 0; padding: 5px; background: white; border-radius: 3px;">
+                                                <span style="flex: 1; font-weight: 500;">${feature.feature}</span>
+                                                <span style="margin: 0 10px; color: ${feature.impact === 'positive' ? '#28a745' : '#dc3545'};">
+                                                    ${feature.impact === 'positive' ? '+' : '-'}${feature.importance}%
+                                                </span>
+                                                <span style="font-size: 0.85em; color: #666;">
+                                                    val: ${feature.value}
+                                                </span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            ${features.contextual_interpretations && features.contextual_interpretations.length > 0 ? `
+                                <div class="contextual-interpretations" style="margin-top: 15px;">
+                                    <strong>Key Interpretations:</strong>
+                                    <ul style="margin-top: 5px; margin-bottom: 0;">
+                                        ${features.contextual_interpretations.map(interp => `
+                                            <li style="font-size: 0.9em; color: #495057; margin: 3px 0;">${interp}</li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            
+                            ${features.note ? `
+                                <div style="margin-top: 10px; font-size: 0.8em; color: #666; font-style: italic;">
+                                    💡 ${features.note}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                function displayAdaptiveRiskTargets(data) {
+                    const adaptiveContainer = document.getElementById('adaptiveRiskTargets');
+                    if (!adaptiveContainer || !data.adaptive_risk_targets) return;
+                    
+                    const risk = data.adaptive_risk_targets;
+                    if (risk.error) {
+                        adaptiveContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${risk.error}</div>`;
+                        return;
+                    }
+                    
+                    const riskColors = {
+                        'low': '#28a745',
+                        'medium': '#ffc107',
+                        'high': '#dc3545'
+                    };
+                    
+                    const targets = risk.targets || {};
+                    
+                    adaptiveContainer.innerHTML = `
+                        <div class="adaptive-risk-display" style="border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f8f9fa;">
+                            <h5 style="margin-bottom: 15px; color: #495057;">🎯 Adaptive Risk Management</h5>
+                            
+                            <!-- Risk Overview -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                                <div class="risk-metric">
+                                    <strong>Risk %:</strong>
+                                    <span style="color: ${riskColors[risk.risk_category]}; font-weight: bold;">
+                                        ${risk.adaptive_risk_pct}%
+                                    </span>
+                                </div>
+                                
+                                <div class="risk-metric">
+                                    <strong>Reward Ratio:</strong>
+                                    <span style="color: #007bff; font-weight: bold;">
+                                        1:${risk.adaptive_reward_ratio}
+                                    </span>
+                                </div>
+                                
+                                <div class="risk-metric">
+                                    <strong>Position Size:</strong>
+                                    <span>${risk.position_size}</span>
+                                </div>
+                                
+                                <div class="risk-metric">
+                                    <strong>Risk Amount:</strong>
+                                    <span style="color: ${riskColors[risk.risk_category]};">
+                                        $${risk.risk_amount_usd}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <!-- Stop Loss & Targets -->
+                            <div class="stop-targets" style="margin-bottom: 15px;">
+                                <h6 style="margin-bottom: 10px; color: #495057;">📍 Stop Loss & Targets</h6>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
+                                    <div style="padding: 8px; background: #fff3cd; border-radius: 4px; text-align: center;">
+                                        <div style="font-size: 0.8em; color: #856404;">Stop Loss</div>
+                                        <div style="font-weight: bold; color: #dc3545;">${risk.stop_loss}</div>
+                                    </div>
+                                    
+                                    <div style="padding: 8px; background: #d1ecf1; border-radius: 4px; text-align: center;">
+                                        <div style="font-size: 0.8em; color: #0c5460;">Target 1</div>
+                                        <div style="font-weight: bold; color: #155724;">${targets.target_1}</div>
+                                    </div>
+                                    
+                                    <div style="padding: 8px; background: #d4edda; border-radius: 4px; text-align: center;">
+                                        <div style="font-size: 0.8em; color: #155724;">Target 2</div>
+                                        <div style="font-weight: bold; color: #155724;">${targets.target_2}</div>
+                                    </div>
+                                    
+                                    <div style="padding: 8px; background: #c3e6cb; border-radius: 4px; text-align: center;">
+                                        <div style="font-size: 0.8em; color: #155724;">Target 3</div>
+                                        <div style="font-weight: bold; color: #28a745;">${targets.target_3}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            ${risk.reasoning ? `
+                                <div style="margin-top: 10px; font-size: 0.8em; color: #666; font-style: italic; padding: 8px; background: white; border-radius: 4px;">
+                                    💡 ${risk.reasoning}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
                 }
 
         // Fetch AI status
