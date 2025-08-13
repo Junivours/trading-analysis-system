@@ -133,4 +133,54 @@ class AdvancedPatternDetector:
 class ChartPatternTrader:
     @staticmethod
     def generate_pattern_trades(symbol, pattern_analysis, tech_analysis, extended_analysis, current_price):
-        return []
+        trades = []
+        if not pattern_analysis or not isinstance(pattern_analysis, dict):
+            return trades
+        patterns = pattern_analysis.get('patterns', [])
+        support = tech_analysis.get('support') if isinstance(tech_analysis, dict) else None
+        resistance = tech_analysis.get('resistance') if isinstance(tech_analysis, dict) else None
+        atr = extended_analysis.get('atr') if isinstance(extended_analysis, dict) else None
+        if isinstance(atr, dict):
+            atr_value = atr.get('atr') or atr.get('value')
+        else:
+            atr_value = atr
+        risk_unit = atr_value if atr_value and atr_value > 0 else (current_price * 0.01)
+        for p in patterns:
+            ptype = p.get('type','')
+            signal = p.get('signal','neutral')
+            conf = p.get('confidence',50)
+            strength = p.get('strength','MEDIUM')
+            if signal == 'bullish':
+                entry = p.get('breakout_level') or p.get('target_level') or (resistance if resistance else current_price*1.01)
+                stop = p.get('stop_level') or (support if support else current_price * 0.95)
+                target = p.get('target') or (entry + risk_unit*2)
+                r = (target-entry)/(entry-stop) if entry!=stop else 0
+                trades.append({
+                    'symbol': symbol,
+                    'pattern': ptype,
+                    'direction': 'LONG',
+                    'entry': round(entry,6),
+                    'stop': round(stop,6),
+                    'target': round(target,6),
+                    'rr': round(r,2),
+                    'confidence': conf,
+                    'strength': strength
+                })
+            elif signal == 'bearish':
+                entry = p.get('breakdown_level') or p.get('target_level') or (support if support else current_price*0.99)
+                stop = p.get('stop_level') or (resistance if resistance else current_price * 1.05)
+                target = p.get('target') or (entry - risk_unit*2)
+                r = (entry-target)/(stop-entry) if stop!=entry else 0
+                trades.append({
+                    'symbol': symbol,
+                    'pattern': ptype,
+                    'direction': 'SHORT',
+                    'entry': round(entry,6),
+                    'stop': round(stop,6),
+                    'target': round(target,6),
+                    'rr': round(r,2),
+                    'confidence': conf,
+                    'strength': strength
+                })
+        trades.sort(key=lambda x: (x['confidence'], x['rr']), reverse=True)
+        return trades[:5]

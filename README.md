@@ -74,3 +74,36 @@ Ensures AI, analyze, backtest, logs endpoints work before pushing.
 - All responses have `X-App-Version` header for deployment freshness.
 
 Live Demo: (set after deployment)
+
+## Architecture Overview
+Core modules (all under `core/`):
+| Module | Purpose |
+|--------|---------|
+| technical_analysis.py | Base indicators (RSI, MACD, MAs, support/resistance, volume, trend, momentum) |
+| advanced_technical.py | Extended indicators (Bollinger, Stoch, Williams %R, CCI, ATR, Fibonacci, Ichimoku, Pivots) |
+| patterns.py | Pattern detection & pattern-based trade generation (ChartPatternTrader) |
+| ai.py | JAX neural network (probabilistic, MC dropout uncertainty) |
+| position.py | PositionManager (risk/potential evaluation) |
+| binance_client.py | Cached market data accessor |
+| liquidation.py | Leverage liquidation level calculator |
+| profiling.py | SymbolBehaviorProfiler (per-symbol volatility & bias) |
+
+`app.py` contains the Flask routes and the MasterAnalyzer orchestrating all modules.
+
+## Pattern-Based Trade Ideas
+`ChartPatternTrader.generate_pattern_trades` returns up to 5 high-confidence RR-filtered pattern setups (LONG/SHORT) using detected breakout/target/stop metadata and ATR-based fallback risk sizing.
+
+## Testing (Planned)
+Upcoming `tests/` suite will cover:
+- Indicator correctness (edge cases, insufficient data)
+- Pattern detection sample fixtures
+- AI feature vector integrity
+- Position risk calculations
+- Backtest engine sanity vs synthetic data
+
+## Roadmap
+- Add unit tests (pytest)
+- Optional CI workflow (GitHub Actions) once token workflow permissions available
+- Expand pattern library & dynamic regime weighting
+- WebSocket real-time streaming prices (Binance) with incremental indicator updates
+- Extract MasterAnalyzer into `core/orchestrator.py`
