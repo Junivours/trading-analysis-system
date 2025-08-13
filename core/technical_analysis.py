@@ -43,7 +43,8 @@ class TechnicalAnalysis:
         sma_20 = TechnicalAnalysis._sma(closes, 20)
         ema_12 = TechnicalAnalysis._ema(closes, 12)
         ema_26 = TechnicalAnalysis._ema(closes, 26)
-        support, resistance = TechnicalAnalysis._calculate_support_resistance(highs, lows, closes)
+        # Enhanced Support/Resistance with zones and strength
+        support, resistance, sr_meta = TechnicalAnalysis._calculate_support_resistance_zones(highs, lows, closes)
         volume_analysis = TechnicalAnalysis._analyze_volume(volumes, closes)
         trend_analysis = TechnicalAnalysis._analyze_trend(closes, sma_9, sma_20)
         momentum = TechnicalAnalysis._calculate_momentum(closes)
@@ -56,8 +57,13 @@ class TechnicalAnalysis:
             'ema_26': ema_26[-1] if len(ema_26) > 0 else closes[-1],
             'support': support,
             'resistance': resistance,
-            'support_strength': TechnicalAnalysis._calculate_level_strength(lows, support),
-            'resistance_strength': TechnicalAnalysis._calculate_level_strength(highs, resistance),
+            'support_strength': sr_meta.get('support_strength', TechnicalAnalysis._calculate_level_strength(lows, support)),
+            'resistance_strength': sr_meta.get('resistance_strength', TechnicalAnalysis._calculate_level_strength(highs, resistance)),
+            # New: richer zone metadata (non-breaking addition)
+            'support_zones': sr_meta.get('support_zones', []),
+            'resistance_zones': sr_meta.get('resistance_zones', []),
+            'support_distance_pct': sr_meta.get('support_distance_pct'),
+            'resistance_distance_pct': sr_meta.get('resistance_distance_pct'),
             'volume_analysis': volume_analysis,
             'trend': trend_analysis,
             'momentum': momentum,
@@ -168,15 +174,172 @@ class TechnicalAnalysis:
         }
 
     @staticmethod
-    def _calculate_support_resistance(highs, lows, closes):
-        recent_highs = highs[-20:] if len(highs) >= 20 else highs
-        recent_lows = lows[-20:] if len(lows) >= 20 else lows
-        current_price = closes[-1]
-        resistance_candidates = [h for h in recent_highs if h > current_price * 1.001]
-        resistance = min(resistance_candidates) if resistance_candidates else current_price * 1.05
-        support_candidates = [l for l in recent_lows if l < current_price * 0.999]
-        support = max(support_candidates) if support_candidates else current_price * 0.95
-        return support, resistance
+    def _calculate_support_resistance_zones(highs, lows, closes):
+        """Detect pivot-based support/resistance zones with ATR-aware clustering.
+        Returns (support_price, resistance_price, meta_dict)
+        meta_dict includes zones arrays and strengths."""
+        try:
+            H = np.asarray(highs, dtype=float)
+            L = np.asarray(lows, dtype=float)
+            C = np.asarray(closes, dtype=float)
+            n = len(C)
+            current_price = C[-1]
+            # ATR% for dynamic tolerances
+            atr_pct = TechnicalAnalysis._atr_percent(H, L, C, period=14)
+            # Find swing pivots
+            piv_hi = TechnicalAnalysis._find_pivots(H, mode='high', left=3, right=3)
+            piv_lo = TechnicalAnalysis._find_pivots(L, mode='low', left=3, right=3)
+            # Candidates: prices + indices
+            highs_list = [(H[i], i) for i in piv_hi]
+            lows_list = [(L[i], i) for i in piv_lo]
+            # Cluster tolerance: tighter in calm, wider in high vol
+            base_tol_pct = 0.003  # 0.30%
+            if atr_pct is not None:
+                # between 0.20% and 0.80% scaled by ATR
+                base_tol_pct = float(min(0.008, max(0.002, (atr_pct/100.0) * 0.35)))
+            res_clusters = TechnicalAnalysis._cluster_levels(highs_list, tolerance_pct=base_tol_pct)
+            sup_clusters = TechnicalAnalysis._cluster_levels(lows_list, tolerance_pct=base_tol_pct)
+            # Sort by distance to current price on correct side
+            res_above = [z for z in res_clusters if z['center'] > current_price]
+            sup_below = [z for z in sup_clusters if z['center'] < current_price]
+            res_above.sort(key=lambda z: z['center'] - current_price)
+            sup_below.sort(key=lambda z: current_price - z['center'])
+            # Primary levels default fallbacks if missing
+            resistance = res_above[0]['center'] if res_above else current_price * 1.05
+            support = sup_below[0]['center'] if sup_below else current_price * 0.95
+            # Strengths (1-10) from clusters
+            res_strength = res_above[0]['strength'] if res_above else TechnicalAnalysis._calculate_level_strength(highs, resistance)
+            sup_strength = sup_below[0]['strength'] if sup_below else TechnicalAnalysis._calculate_level_strength(lows, support)
+            meta = {
+                'resistance_zones': res_clusters,
+                'support_zones': sup_clusters,
+                'resistance_strength': int(res_strength),
+                'support_strength': int(sup_strength),
+                'resistance_distance_pct': float(((resistance - current_price) / current_price) * 100.0),
+                'support_distance_pct': float(((current_price - support) / current_price) * 100.0),
+            }
+            return float(support), float(resistance), meta
+        except Exception:
+            # Fallback to simple heuristic
+            recent_highs = highs[-20:] if len(highs) >= 20 else highs
+            recent_lows = lows[-20:] if len(lows) >= 20 else lows
+            current_price = closes[-1]
+            resistance_candidates = [h for h in recent_highs if h > current_price * 1.001]
+            resistance = min(resistance_candidates) if resistance_candidates else current_price * 1.05
+            support_candidates = [l for l in recent_lows if l < current_price * 0.999]
+            support = max(support_candidates) if support_candidates else current_price * 0.95
+            return float(support), float(resistance), {
+                'resistance_zones': [], 'support_zones': [],
+                'resistance_strength': TechnicalAnalysis._calculate_level_strength(highs, resistance),
+                'support_strength': TechnicalAnalysis._calculate_level_strength(lows, support),
+                'resistance_distance_pct': ((resistance - current_price) / current_price) * 100.0,
+                'support_distance_pct': ((current_price - support) / current_price) * 100.0,
+            }
+
+    @staticmethod
+    def _find_pivots(series, mode='high', left=3, right=3):
+        """Return indices of swing highs/lows using left/right window pivots."""
+        idxs = []
+        n = len(series)
+        if n == 0:
+            return idxs
+        for i in range(left, n - right):
+            window_left = series[i-left:i]
+            window_right = series[i+1:i+1+right]
+            if mode == 'high':
+                if series[i] >= np.max(window_left) and series[i] > np.max(window_right):
+                    idxs.append(i)
+            else:
+                if series[i] <= np.min(window_left) and series[i] < np.min(window_right):
+                    idxs.append(i)
+        # Keep last ~200 bars pivots for performance
+        cutoff = max(0, n - 200)
+        return [i for i in idxs if i >= cutoff]
+
+    @staticmethod
+    def _cluster_levels(points, tolerance_pct=0.003):
+        """Cluster price levels with a proximity tolerance.
+        points: list of (price, index). Returns list of zones with center/low/high/strength/count.
+        Strength weights recent touches more."""
+        if not points:
+            return []
+        pts = sorted(points, key=lambda x: x[0])
+        clusters = []
+        for price, idx in pts:
+            if not clusters:
+                clusters.append({'prices': [price], 'indices': [idx]})
+                continue
+            center = np.average(clusters[-1]['prices'], weights=TechnicalAnalysis._recency_weights(clusters[-1]['indices']))
+            tol = center * tolerance_pct
+            if abs(price - center) <= tol:
+                clusters[-1]['prices'].append(price)
+                clusters[-1]['indices'].append(idx)
+            else:
+                clusters.append({'prices': [price], 'indices': [idx]})
+        # Build zones
+        zones = []
+        for c in clusters:
+            prices = np.array(c['prices'], dtype=float)
+            indices = np.array(c['indices'], dtype=int)
+            w = TechnicalAnalysis._recency_weights(indices)
+            center = float(np.average(prices, weights=w)) if np.sum(w) > 0 else float(np.mean(prices))
+            low = float(np.min(prices))
+            high = float(np.max(prices))
+            count = int(len(prices))
+            # Strength: touches weighted by recency, scaled 1..10
+            raw_strength = float(np.sum(w))
+            strength = TechnicalAnalysis._scale_strength(raw_strength, count)
+            zones.append({'center': round(center, 6), 'low': round(low, 6), 'high': round(high, 6), 'count': count, 'strength': strength})
+        # Sort by center price
+        zones.sort(key=lambda z: z['center'])
+        return zones
+
+    @staticmethod
+    def _recency_weights(indices):
+        if len(indices) == 0:
+            return np.array([1.0])
+        # Normalize to 0..1 then map to 1..2 weight
+        i = np.asarray(indices, dtype=float)
+        if i.size == 0:
+            return np.array([1.0])
+        m = np.max(i) if np.max(i) > 0 else 1.0
+        norm = i / m
+        return 1.0 + norm  # recent touches ~2x weight
+
+    @staticmethod
+    def _scale_strength(raw, count):
+        # Convert to a 1..10 bucket with mild emphasis on touch count
+        score = raw * 0.7 + count * 0.6
+        # Normalize by a reasonable cap
+        cap = 12.0
+        val = max(1.0, min(10.0, (score / cap) * 10.0))
+        return int(round(val))
+
+    @staticmethod
+    def _atr_percent(highs, lows, closes, period=14):
+        try:
+            H = np.asarray(highs, dtype=float)
+            L = np.asarray(lows, dtype=float)
+            C = np.asarray(closes, dtype=float)
+            if len(C) < period + 2:
+                return None
+            prev_close = C[:-1]
+            tr1 = H[1:] - L[1:]
+            tr2 = np.abs(H[1:] - prev_close)
+            tr3 = np.abs(L[1:] - prev_close)
+            tr = np.maximum.reduce([tr1, tr2, tr3])
+            # RMA
+            rma = np.zeros_like(tr)
+            rma[period-1] = np.mean(tr[:period])
+            for i in range(period, len(tr)):
+                rma[i] = (rma[i-1]*(period-1) + tr[i]) / period
+            atr = rma[-1]
+            price = C[-1]
+            if price <= 0:
+                return None
+            return float((atr / price) * 100.0)
+        except Exception:
+            return None
 
     @staticmethod
     def _calculate_level_strength(prices, level):
