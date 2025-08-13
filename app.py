@@ -5694,7 +5694,7 @@ DASHBOARD_HTML = """
         }
 
         // Display technical analysis
-        function displayTechnicalAnalysis(data) {
+    function displayTechnicalAnalysis(data) {
             const tech = data.technical_analysis;
             const extended = data.extended_analysis || {}; // Safety check
             
@@ -5705,142 +5705,131 @@ DASHBOARD_HTML = """
                 return;
             }
             
+            // Horizontal compact layout (scrollable row of groups)
             const html = `
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <div class="metric-value ${getTrendColor(tech.trend.trend)}">${tech.trend.trend.toUpperCase()}</div>
-                        <div class="metric-label">Trend</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${tech.macd.curve_direction.replace('_', ' ').toUpperCase()}</div>
-                        <div class="metric-label">MACD Signal</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value ${getIndicatorColor(extended.stochastic.signal)}">${extended.stochastic.signal.toUpperCase()}</div>
-                        <div class="metric-label">Stochastic</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value ${getVolatilityColor(extended.atr.volatility)}">${extended.atr.volatility.toUpperCase()}</div>
-                        <div class="metric-label">Volatility (ATR)</div>
-                    </div>
-                </div>
-                
-                <!-- Core Indicators -->
-                <div class="indicator-section">
-                    <h4 style="color: #17a2b8; margin: 15px 0 10px 0;">📊 CORE INDICATORS</h4>
-                    <div class="indicator-grid">
-                        <div class="indicator-item">
-                            <span class="indicator-name">RSI:</span>
-                            <span class="indicator-value ${getRsiColor(tech.rsi.rsi)}">${tech.rsi.rsi.toFixed(1)}</span>
-                            <span class="indicator-signal">(${tech.rsi.trend})</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">MACD:</span>
-                            <span class="indicator-value">${tech.macd.macd.toFixed(4)}</span>
-                            <span class="indicator-signal">(${tech.macd.curve_direction})</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">Volume:</span>
-                            <span class="indicator-value">${tech.volume_analysis.ratio.toFixed(2)}x</span>
-                            <span class="indicator-signal">(${tech.volume_analysis.trend})</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">Momentum:</span>
-                            <span class="indicator-value ${getMomentumColor(tech.momentum.value)}">${tech.momentum.value.toFixed(2)}%</span>
-                            <span class="indicator-signal">(${tech.momentum.trend})</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Extended Indicators -->
-                <div class="indicator-section">
-                    <h4 style="color: #ffc107; margin: 15px 0 10px 0;">🔬 ADVANCED INDICATORS</h4>
-                    <div class="indicator-grid">
-                        <div class="indicator-item">
-                            <span class="indicator-name">Bollinger Bands:</span>
-                            <span class="indicator-value">${extended.bollinger_bands.signal.toUpperCase()}</span>
-                            <span class="indicator-signal">(${(extended.bollinger_bands.position * 100).toFixed(0)}%)</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">Stochastic %K:</span>
-                            <span class="indicator-value ${getStochasticColor(extended.stochastic.k)}">${extended.stochastic.k.toFixed(1)}</span>
-                            <span class="indicator-signal">%D: ${extended.stochastic.d.toFixed(1)}</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">Williams %R:</span>
-                            <span class="indicator-value ${getWilliamsColor(extended.williams_r.value)}">${extended.williams_r.value.toFixed(1)}</span>
-                            <span class="indicator-signal">(${extended.williams_r.signal})</span>
-                        </div>
-                        <div class="indicator-item">
-                            <span class="indicator-name">CCI:</span>
-                            <span class="indicator-value ${getCciColor(extended.cci.value)}">${extended.cci.value.toFixed(1)}</span>
-                            <span class="indicator-signal ${extended.cci.extreme ? 'extreme-signal' : ''}">${extended.cci.signal}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Volatility & Risk -->
-                <div class="indicator-section">
-                    <h4 style="color: #dc3545; margin: 15px 0 10px 0;">⚠️ VOLATILITY & RISK</h4>
-                    <div class="risk-indicators">
-                        <div class="risk-item">
-                            <span class="risk-label">ATR (Volatility):</span>
-                            <span class="risk-value ${getVolatilityColor(extended.atr.volatility)}">${extended.atr.percentage.toFixed(2)}%</span>
-                            <span class="risk-level">(${extended.atr.risk_level} risk)</span>
-                        </div>
-                        <div class="risk-item">
-                            <span class="risk-label">Trend Strength:</span>
-                            <span class="risk-value ${getTrendStrengthColor(extended.trend_strength.strength)}">${extended.trend_strength.strength.toUpperCase()}</span>
-                            <span class="risk-level">(${extended.trend_strength.direction})</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Support & Resistance -->
-                <div class="indicator-section">
-                    <h4 style="color: #28a745; margin: 15px 0 10px 0;">📈 LEVELS & TARGETS</h4>
-                    <div class="levels-grid">
-                        <div class="level-item">
-                            <span class="level-name">Resistance:</span>
-                            <span class="level-value">${tech.resistance.toFixed(4)}</span>
-                            <span class="level-distance">+${(((tech.resistance - tech.current_price) / tech.current_price) * 100).toFixed(2)}%</span>
-                        </div>
-                        <div class="level-item">
-                            <span class="level-name">Support:</span>
-                            <span class="level-value">${tech.support.toFixed(4)}</span>
-                            <span class="level-distance">${(((tech.support - tech.current_price) / tech.current_price) * 100).toFixed(2)}%</span>
-                        </div>
-                        <div class="level-item">
-                            <span class="level-name">Pivot Point:</span>
-                            <span class="level-value">${extended.pivot_points.pivot.toFixed(4)}</span>
-                            <span class="level-distance">R1: ${extended.pivot_points.r1.toFixed(4)}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Fibonacci Levels -->
-                <div class="indicator-section">
-                    <h4 style="color: #6f42c1; margin: 15px 0 10px 0;">🌀 FIBONACCI RETRACEMENTS</h4>
-                    <div class="fib-levels">
-                        <div class="fib-item">
-                            <span class="fib-label">23.6%:</span>
-                            <span class="fib-value">${extended.fibonacci.fib_236.toFixed(4)}</span>
-                        </div>
-                        <div class="fib-item">
-                            <span class="fib-label">38.2%:</span>
-                            <span class="fib-value">${extended.fibonacci.fib_382.toFixed(4)}</span>
-                        </div>
-                        <div class="fib-item">
-                            <span class="fib-label">50.0%:</span>
-                            <span class="fib-value">${extended.fibonacci.fib_500.toFixed(4)}</span>
-                        </div>
-                        <div class="fib-item">
-                            <span class="fib-label">61.8%:</span>
-                            <span class="fib-value">${extended.fibonacci.fib_618.toFixed(4)}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
+              <div style="display:flex; gap:18px; overflow-x:auto; padding-bottom:6px; scrollbar-width:thin;" class="ta-horizontal">
+                 <!-- Snapshot Cards -->
+                 <div style="flex:0 0 260px; display:flex; flex-direction:column; gap:12px;">
+                     <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
+                         <div class="metric-card" style="min-height:92px;">
+                             <div class="metric-value ${getTrendColor(tech.trend.trend)}" style="font-size:1.1rem;">${tech.trend.trend.toUpperCase()}</div>
+                             <div class="metric-label" style="font-size:.5rem;">TREND</div>
+                         </div>
+                         <div class="metric-card" style="min-height:92px;">
+                             <div class="metric-value" style="font-size:1.05rem;">${tech.macd.curve_direction.replace('_',' ').toUpperCase()}</div>
+                             <div class="metric-label" style="font-size:.5rem;">MACD-SIGNAL</div>
+                         </div>
+                         <div class="metric-card" style="min-height:92px;">
+                             <div class="metric-value ${getIndicatorColor(extended.stochastic.signal)}" style="font-size:1.05rem;">${extended.stochastic.signal.toUpperCase()}</div>
+                             <div class="metric-label" style="font-size:.5rem;">STOCHASTISCH</div>
+                         </div>
+                         <div class="metric-card" style="min-height:92px;">
+                             <div class="metric-value ${getVolatilityColor(extended.atr.volatility)}" style="font-size:1.05rem;">${extended.atr.volatility.toUpperCase()}</div>
+                             <div class="metric-label" style="font-size:.5rem;">VOLATILITÄT (ATR)</div>
+                         </div>
+                     </div>
+                 </div>
+                 <!-- Core Indicators -->
+                 <div style="flex:0 0 230px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px; backdrop-filter:blur(4px);">
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#17a2b8; margin-bottom:10px; display:flex; align-items:center; gap:4px;">📊 KERNINDIKATOREN</div>
+                     <div style="display:flex; flex-direction:column; gap:6px;">
+                         <div style="display:flex; justify-content:space-between; font-size:.6rem;">
+                             <span style="color:var(--text-secondary);">RSI:</span>
+                             <span style="font-weight:600;" class="${getRsiColor(tech.rsi.rsi)}">${tech.rsi.rsi.toFixed(1)}</span>
+                             <span style="opacity:.55;">(${tech.rsi.trend})</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between; font-size:.6rem;">
+                             <span style="color:var(--text-secondary);">MACD:</span>
+                             <span style="font-weight:600;">${tech.macd.macd.toFixed(4)}</span>
+                             <span style="opacity:.55;">(${tech.macd.curve_direction})</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between; font-size:.6rem;">
+                             <span style="color:var(--text-secondary);">Volumen:</span>
+                             <span style="font-weight:600;">${tech.volume_analysis.ratio.toFixed(2)}x</span>
+                             <span style="opacity:.55;">(${tech.volume_analysis.trend})</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between; font-size:.6rem;">
+                             <span style="color:var(--text-secondary);">Schwung:</span>
+                             <span style="font-weight:600;" class="${getMomentumColor(tech.momentum.value)}">${tech.momentum.value.toFixed(2)}%</span>
+                             <span style="opacity:.55;">(${tech.momentum.trend})</span>
+                         </div>
+                     </div>
+                 </div>
+                 <!-- Advanced Indicators -->
+                 <div style="flex:0 0 250px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#ffc107; margin-bottom:10px;">🔬 ERWEITERTE</div>
+                     <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">Bollinger:</span>
+                             <span style="font-weight:600;">${extended.bollinger_bands.signal.toUpperCase()}</span>
+                             <span style="opacity:.55;">(${(extended.bollinger_bands.position*100).toFixed(0)}%)</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">Stoch %K:</span>
+                             <span style="font-weight:600;" class="${getStochasticColor(extended.stochastic.k)}">${extended.stochastic.k.toFixed(1)}</span>
+                             <span style="opacity:.55;">%D ${extended.stochastic.d.toFixed(1)}</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">Williams %R:</span>
+                             <span style="font-weight:600;" class="${getWilliamsColor(extended.williams_r.value)}">${extended.williams_r.value.toFixed(1)}</span>
+                             <span style="opacity:.55;">(${extended.williams_r.signal})</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">CCI:</span>
+                             <span style="font-weight:600;" class="${getCciColor(extended.cci.value)}">${extended.cci.value.toFixed(1)}</span>
+                             <span style="opacity:.55;" class="${extended.cci.extreme ? 'extreme-signal' : ''}">${extended.cci.signal}</span>
+                         </div>
+                     </div>
+                 </div>
+                 <!-- Volatility & Risk -->
+                 <div style="flex:0 0 230px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#dc3545; margin-bottom:10px;">⚠️ VOLA & RISK</div>
+                     <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">ATR %:</span>
+                             <span style="font-weight:600;" class="${getVolatilityColor(extended.atr.volatility)}">${extended.atr.percentage.toFixed(2)}%</span>
+                             <span style="opacity:.55;">(${extended.atr.risk_level})</span>
+                         </div>
+                         <div style="display:flex; justify-content:space-between;">
+                             <span style="color:var(--text-secondary);">Trend Strength:</span>
+                             <span style="font-weight:600;" class="${getTrendStrengthColor(extended.trend_strength.strength)}">${extended.trend_strength.strength.toUpperCase()}</span>
+                             <span style="opacity:.55;">(${extended.trend_strength.direction})</span>
+                         </div>
+                     </div>
+                 </div>
+                 <!-- Levels & Fib -->
+                 <div style="flex:0 0 310px; display:flex; flex-direction:column; gap:12px;">
+                     <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
+                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#28a745; margin-bottom:10px;">📈 LEVELS</div>
+                         <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
+                             <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-secondary);">Resistance:</span>
+                                <span style="font-weight:600;">${tech.resistance.toFixed(4)}</span>
+                                <span style="opacity:.55; color:#dc3545;">+${(((tech.resistance - tech.current_price)/tech.current_price)*100).toFixed(2)}%</span>
+                             </div>
+                             <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-secondary);">Support:</span>
+                                <span style="font-weight:600;">${tech.support.toFixed(4)}</span>
+                                <span style="opacity:.55; color:#26c281;">${(((tech.support - tech.current_price)/tech.current_price)*100).toFixed(2)}%</span>
+                             </div>
+                             <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-secondary);">Pivot:</span>
+                                <span style="font-weight:600;">${extended.pivot_points.pivot.toFixed(4)}</span>
+                                <span style="opacity:.55;">R1 ${extended.pivot_points.r1.toFixed(4)}</span>
+                             </div>
+                         </div>
+                     </div>
+                     <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
+                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#6f42c1; margin-bottom:10px;">🌀 FIBONACCI</div>
+                         <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:6px; font-size:.6rem;">
+                             <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">23.6%:</span><span style="font-weight:600;">${extended.fibonacci.fib_236.toFixed(4)}</span></div>
+                             <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">38.2%:</span><span style="font-weight:600;">${extended.fibonacci.fib_382.toFixed(4)}</span></div>
+                             <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">50%:</span><span style="font-weight:600;">${extended.fibonacci.fib_500.toFixed(4)}</span></div>
+                             <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">61.8%:</span><span style="font-weight:600;">${extended.fibonacci.fib_618.toFixed(4)}</span></div>
+                         </div>
+                     </div>
+                 </div>
+              </div>`;
 
             document.getElementById('technicalAnalysis').innerHTML = html;
         }
