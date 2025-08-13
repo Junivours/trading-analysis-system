@@ -135,6 +135,17 @@ class AdvancedTechnicalAnalysis:
             '0.786': float(high - diff * 0.786),
             '1.0': float(low)
         }
+        # Provide alias keys expected by frontend (fib_236 etc.) without duplicating computation
+        alias = {
+            'fib_236': levels['0.236'],
+            'fib_382': levels['0.382'],
+            'fib_500': levels['0.5'],
+            'fib_618': levels['0.618'],
+            'fib_786': levels['0.786'],
+            'fib_high': levels['0.0'],
+            'fib_low': levels['1.0']
+        }
+        levels.update(alias)
         return levels
     @staticmethod
     def _calculate_ichimoku(highs, lows, closes):

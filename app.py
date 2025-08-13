@@ -1025,6 +1025,12 @@ DASHBOARD_HTML = """
                 </div>
             </div>
 
+            <!-- Diagnostics Panel -->
+            <div class="glass-card" id="diagnosticsCard">
+                <div class="section-title">Diagnostics <span class="tag">BETA</span></div>
+                <div id="diagnosticsPanel" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
             <!-- Key Metrics -->
             <div class="glass-card">
                 <div class="section-title">Key Metrics <span class="tag">LIVE</span></div>
@@ -1236,7 +1242,7 @@ DASHBOARD_HTML = """
             currentSymbol = query.toUpperCase();
 
             try {
-                const response = await fetch(`/api/analyze/${currentSymbol}`);
+                const response = await fetch(`/api/analyze/${currentSymbol}?diag=1`);
                 const result = await response.json();
 
                 if (result.success) {
@@ -1284,7 +1290,32 @@ DASHBOARD_HTML = """
             displayMarketBias(data);
             displayAIAnalysis(data);
             displayFeatureContributions(data);
+            displayDiagnostics(data);
             displayLiquidationTables(data);
+        }
+
+        function displayDiagnostics(data){
+            const diag = data.diagnostics;
+            const root = document.getElementById('diagnosticsPanel');
+            if(!root){return;}
+            if(!diag){ root.innerHTML = '<div style="font-size:.55rem; color:var(--text-dim);">Keine Diagnostics Daten.</div>'; return; }
+            if(diag.status==='error'){ root.innerHTML = `<div class='alert alert-danger' style='font-size:.55rem;'>Diagnostics Fehler: ${diag.error||'unknown'}</div>`; return; }
+            const badgeColor = diag.readiness==='GOOD' ? '#26c281' : diag.readiness==='ATTENTION' ? '#ffc107' : '#ff4d4f';
+            const findingsHtml = (diag.findings||[]).slice(0,12).map(f=>`<div style='display:flex; justify-content:space-between; gap:6px; padding:6px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-left:3px solid ${f.severity==='error'?'#ff4d4f':f.severity==='warn'?'#ffc107':'#0d6efd'}; border-radius:10px;'>
+                <span style='font-size:.52rem; color:var(--text-secondary); line-height:1.1;'>${f.message}</span>
+                <span style='font-size:.45rem; opacity:.55;'>${f.type}</span>
+            </div>`).join('');
+            const ideasHtml = (diag.ideas||[]).slice(0,6).map(i=>`<li style='font-size:.5rem; line-height:.9rem;'>${i}</li>`).join('');
+            root.innerHTML = `
+                <div style='display:flex; align-items:center; justify-content:space-between; margin:0 0 10px;'>
+                    <h4 style='margin:0; font-size:.7rem; letter-spacing:.5px; display:flex; align-items:center; gap:6px;'>🩺 Diagnostics <span style="background:${badgeColor};color:#000;font-size:.55rem;padding:2px 8px;border-radius:12px;">${diag.readiness}</span></h4>
+                    <span style='font-size:.45rem; color:var(--text-dim);'>${diag.latency_ms}ms</span>
+                </div>
+                <div style='display:flex; flex-direction:column; gap:6px; margin-bottom:10px;'>${findingsHtml || '<div style="font-size:.55rem; color:var(--text-dim);">Keine Findings</div>'}</div>
+                <div style='margin-top:4px;'>
+                    <div style='font-size:.55rem; font-weight:600; color:#0d6efd; letter-spacing:.5px; margin:0 0 4px;'>IDEEN</div>
+                    <ul style='margin:0; padding-left:16px; display:flex; flex-direction:column; gap:2px;'>${ideasHtml || '<li style="font-size:.5rem; color:var(--text-dim);">Keine Ideen</li>'}</ul>
+                </div>`;
         }
 
         // Display main trading signal
