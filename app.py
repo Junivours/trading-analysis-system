@@ -10,6 +10,7 @@ import subprocess
 import requests
 import numpy as np
 import json
+import math
 import time
 import uuid
 import logging
@@ -39,6 +40,16 @@ except ImportError:
     def logsumexp(x): return np.log(np.sum(np.exp(x)))
 
 app = Flask(__name__)
+
+# =============================================================
+# 🔧 LEAN MODE (set LEAN_MODE=1 env var for simplified engine)
+# Reduces: multi-timeframe scans, extended indicators, advanced patterns,
+# Monte-Carlo uncertainty, feature attribution, heavy AI features.
+# Keeps: core technicals (RSI, MACD, S/R), basic patterns, simple scoring.
+# =============================================================
+LEAN_MODE = os.getenv('LEAN_MODE','0') in ('1','true','TRUE','yes','on')
+if LEAN_MODE:
+    print("⚡ Running in LEAN_MODE: advanced modules disabled for performance & stability")
 
 # ========================================================================================
 # 🔢 VERSION / BUILD METADATA
@@ -118,7 +129,11 @@ def api_version_refresh():
 @app.route('/health')
 def health():
     # Lightweight health signal (no external API calls)
-    return jsonify({'ok': True, 'version': APP_VERSION, 'time': datetime.utcnow().isoformat()+"Z"})
+    return jsonify({'ok': True, 'version': APP_VERSION, 'time': datetime.utcnow().isoformat()+"Z", 'lean_mode': LEAN_MODE})
+
+@app.route('/api/mode')
+def api_mode():
+    return jsonify({'lean_mode': LEAN_MODE, 'hint': 'Set env LEAN_MODE=1 to enable / 0 to disable before starting app'})
 
 # ========================================================================================
 # 🧠 INTELLIGENT POSITION MANAGEMENT ENGINE
@@ -2887,6 +2902,36 @@ class MasterAnalyzer:
             tech_analysis = self.technical_analysis.calculate_advanced_indicators(candles)
             timings['technical_ms'] = round((time.time()-t_phase)*1000,2)
             print("✅ Technical analysis complete")
+
+            # -------- LEAN MODE FAST PATH --------
+            if LEAN_MODE:
+                # Minimal AI: simple rule-based signal
+                rsi_val = tech_analysis.get('rsi', {}).get('rsi',50)
+                macd_hist = tech_analysis.get('macd', {}).get('histogram',0)
+                trend = tech_analysis.get('trend', {}).get('trend','neutral') if isinstance(tech_analysis.get('trend'), dict) else 'neutral'
+                base_signal = 'HOLD'
+                if rsi_val < 32 and macd_hist > 0: base_signal = 'BUY'
+                if rsi_val > 68 and macd_hist < 0: base_signal = 'SELL'
+                if trend.startswith('strong_bull') and rsi_val < 60: base_signal = 'BUY'
+                if trend.startswith('strong_bear') and rsi_val > 40: base_signal = 'SELL'
+                lean_result = {
+                    'symbol': symbol.upper(),
+                    'mode': 'LEAN',
+                    'price': current_price,
+                    'technical': {
+                        'rsi': tech_analysis.get('rsi',{}),
+                        'macd': tech_analysis.get('macd',{}),
+                        'support': tech_analysis.get('support'),
+                        'resistance': tech_analysis.get('resistance'),
+                        'trend': tech_analysis.get('trend',{})
+                    },
+                    'signal': base_signal,
+                    'confidence': 55 if base_signal=='HOLD' else 65,
+                    'risk_note': 'Lean mode active: advanced analytics disabled',
+                    'timings_ms': timings,
+                    'lean_disabled_modules': ['extended_indicators','multi_timeframe','advanced_patterns','monte_carlo_ai','feature_attribution','order_flow','adaptive_risk']
+                }
+                return lean_result
             
             # Extended Technical Analysis (Enterprise Level) - Temporarily with error handling
             try:
@@ -3780,6 +3825,34 @@ class MasterAnalyzer:
     
     def _calculate_weighted_score(self, tech_analysis, pattern_analysis, ai_analysis):
         """Calculate weighted final trading score"""
+        if LEAN_MODE:
+            # In lean mode we don't compute full weighted model; use simplified heuristic
+            rsi = tech_analysis.get('rsi', {}).get('rsi',50)
+            macd_hist = tech_analysis.get('macd', {}).get('histogram',0)
+            score = 50
+            if rsi < 35: score += (35-rsi)*0.6
+            if rsi > 65: score -= (rsi-65)*0.6
+            score += np.tanh(macd_hist/50.0)*10
+            score = max(0,min(100,score))
+            signal = 'HOLD'
+            if score >= 70: signal='BUY'
+            if score >= 82: signal='STRONG_BUY'
+            if score <= 30: signal='SELL'
+            if score <= 18: signal='STRONG_SELL'
+            return {
+                'score': round(score,1),
+                'probability_bullish': None,
+                'calibrated_probability': None,
+                'probability_note': 'Lean mode heuristic – probabilities disabled',
+                'signal': signal,
+                'signal_color': '#6c757d',
+                'technical_weight': '100%',
+                'pattern_weight': '0%',
+                'ai_weight': '0%',
+                'ai_disable_reason': 'LEAN_MODE',
+                'component_scores': {'technical': round(score,1), 'patterns': 0, 'ai': 0},
+                'validation': []
+            }
         # Technical score (70%)
         tech_score = 50  # Neutral base
         
