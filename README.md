@@ -53,17 +53,49 @@ echo $RAILWAY_GIT_COMMIT_SHA > version.txt
 ### Health Check (optional)
 You can use `/api/version` as a health endpoint. It returns JSON fast.
 
-## Backtest & Analysis Endpoints
-| Endpoint | Description |
-|----------|-------------|
-| /api/analyze/<symbol> | Full multi-timeframe + AI analysis |
-| /api/analyze/<symbol>?refresh=1 | Forces cache bypass |
-| /api/backtest/<symbol>?interval=1h&limit=500 | RSI mean reversion backtest |
-| /api/backtest/<symbol>?...&refresh=1 | Force fresh data |
-| /api/position/dca | POST DCA ladder |
-| /api/ai/status | AI init & model status |
-| /api/logs/recent | Recent in-memory logs |
-| /api/version | Version & commit hash |
+## API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| /api/analyze/<symbol> | GET | Full multi-timeframe + AI + patterns + setups analysis |
+| /api/analyze/<symbol>?refresh=1 | GET | Force cache bypass for live recomputation |
+| /api/backtest/<symbol>?interval=1h&limit=500 | GET | RSI mean reversion backtest (interval: 1m/5m/15m/1h/4h/1d) |
+| /api/backtest/<symbol>?...&refresh=1 | GET | Backtest with data refresh bypassing cache |
+| /api/search/<query> | GET | Lightweight symbol search (Binance) |
+| /api/quick-price/<symbol> | GET | Fast current price lookup (cached) |
+| /api/liquidation/<symbol>/<entry_price>/<position_type> | GET | Approx. liquidation price calculator (isolated assumptions) |
+| /api/position/dca | POST | Build DCA ladder (Body: symbol,total_capital,entries,spacing_pct,max_risk_pct) |
+| /api/ai/status | GET | AI initialization & calibration status |
+| /api/outcome/ai | POST | Provide a labeled outcome for a prior AI probability (Body: raw_prob, success) |
+| /api/outcome/pattern | POST | Report pattern trade success for rolling calibration (Body: pattern_type, success) |
+| /admin/save-state | POST | Force persistence save to disk (manual checkpoint) |
+| /api/logs/recent?limit=100&level=INFO | GET | Recent in-memory logs (filterable) |
+| /api/version | GET | Version & commit hash (also sets X-App-Version header) |
+| /health | GET | Simple uptime/health probe |
+
+### Outcome / Calibration Payloads
+Pattern outcome example:
+```json
+POST /api/outcome/pattern
+{ "pattern_type": "ascending_triangle", "success": true }
+```
+
+AI outcome example:
+```json
+POST /api/outcome/ai
+{ "raw_prob": 0.67, "success": false }
+```
+`raw_prob` is the bullish probability originally returned (`bull_probability_raw`). `success` is `true` if a bullish continuation materialized within your evaluation window; otherwise `false`.
+
+### Persistence
+On startup the system loads persisted calibration & pattern statistics if present:
+```
+ai_calibration_state.json
+pattern_stats_state.json
+```
+They are updated automatically after successful outcome submissions and can be checkpointed manually via `/admin/save-state`.
+
+### Confidence Attribution
+Analyses include `confidence_attribution` breaking down how pattern reliability, AI calibrated probability, technical consensus, and contradictions contribute to final confidence. This aids explainability and auditability.
 
 ## Local Self-Test
 ```bash
@@ -119,10 +151,10 @@ Initial pytest smoke tests added (`tests/test_master_analyzer_basic.py`) verifyi
 
 ## Calibration & Reliability
 The AI outputs both raw and calibrated bullish probabilities:
-- bull_probability_raw: direct sum of BUY + STRONG_BUY class probabilities
-- bull_probability_calibrated: Platt-scaled version using logistic parameters A,B fit on rolling (max 500) outcome samples
+- `bull_probability_raw`: direct sum of BUY + STRONG_BUY class probabilities
+- `bull_probability_calibrated`: Platt-scaled version using logistic parameters A,B fit on rolling (max 500) outcome samples
 
-Calibration automatically updates every 30s when >=40 labeled samples exist. Until at least 20 samples, raw probability is used. The final scoring layer prefers the AI calibrated probability over the legacy score-derived heuristic when available (field: probability_bullish_source = 'ai_calibrated'). Reliability (probability margin + entropy) feeds into validation warnings.
+Calibration automatically updates every 30s (or on sufficient new samples) when >= 40 labeled samples exist. Prior to 20 samples, raw probability is used. The scoring layer prefers the calibrated probability (field: `probability_bullish_source = 'ai_calibrated'`). Reliability (probability margin + entropy) feeds into validation warnings, and pattern reliability contributes via dynamic weighting.
 
 ## Roadmap
 - (In Progress) Broaden unit test coverage
