@@ -9,6 +9,9 @@ Professional AI-powered trading analysis system with:
 - Phase timing metrics per analysis request
 - JAX neural network (strict mode; if unavailable AI weight -> 0)
 - Professional glassmorphism UI
+- NEW: AI v2.1 feature engineering (trend, volatility, regime one-hot, pattern quality aggregates)
+- NEW: Reliability score (probability margin + entropy) & adaptive temperature
+- NEW: Refined pattern detection (distance-to-trigger, reliability, stricter breakout confirmation)
 
 ## Quick Start (Local)
 ```bash
@@ -88,7 +91,7 @@ Core modules (all under `core/`):
 | liquidation.py | Leverage liquidation level calculator |
 | profiling.py | SymbolBehaviorProfiler (per-symbol volatility & bias) |
 
-`app.py` now only provides the Flask routes & global initialization. The orchestration logic (multi-phase analysis, scoring, validation, adaptive risk, advanced trade setup generation) lives in `core/orchestration/master_analyzer.py` (migrated from the original monolith for maintainability and testability).
+`app.py` now only provides the Flask routes & global initialization. The orchestration logic (multi-phase analysis, scoring, validation, adaptive risk, advanced trade setup generation) lives in `core/orchestration/master_analyzer.py` (migrated from the original monolith for maintainability and testability). AI upgraded to v2.1 (extended feature vector, online standardization, reliability scoring). Pattern engine adds distance-based reliability & stricter breakout rules.
 
 ## Trade Setups & Pattern-Based Ideas
 Advanced setup generation is handled inside `MasterAnalyzer._generate_trade_setups` (now modular). It produces structured strategies:
@@ -103,19 +106,22 @@ Advanced setup generation is handled inside `MasterAnalyzer._generate_trade_setu
 
 Each setup includes: normalized risk %, dynamic multi-R targets (1.5R .. 8R + swing extension), probability heuristic, confidence (contradiction & volatility aware), rationale and justification blocks.
 
-`ChartPatternTrader.generate_pattern_trades` adds up to 5 supplemental pattern-centric trades (entry / stop / target / RR) which are merged & ranked with core strategies.
+`ChartPatternTrader.generate_pattern_trades` adds up to 5 supplemental pattern-centric trades (entry / stop / target / RR) which are merged & ranked with core strategies. Pattern objects include: `quality_grade`, `reliability_score`, `distance_to_trigger_pct` to help filter premature signals.
 
-## Testing (Planned)
-Upcoming `tests/` suite will cover:
+## Testing
+Initial pytest smoke tests added (`tests/test_master_analyzer_basic.py`) verifying structure of analysis & backtest. Planned expansions:
 - Indicator correctness (edge cases, insufficient data)
-- Pattern detection sample fixtures
-- AI feature vector integrity
+- Pattern detection sample fixtures & reliability scoring thresholds
+- AI feature vector integrity & determinism (hash / length / schema)
 - Position risk calculations
 - Backtest engine sanity vs synthetic data
 
 ## Roadmap
-- Add unit tests (pytest)
+- (In Progress) Broaden unit test coverage
 - Optional CI workflow (GitHub Actions) once token workflow permissions available
 - Expand pattern library & dynamic regime weighting
 - WebSocket real-time streaming prices (Binance) with incremental indicator updates
+- Calibration layer for AI probabilities (Platt / isotonic)
+- Persist feature standardization stats for restart consistency
 - (Done) Extract MasterAnalyzer into `core/orchestration/master_analyzer.py`
+- (Done) AI v2.1 reliability + pattern precision upgrade
