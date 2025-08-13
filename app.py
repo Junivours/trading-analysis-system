@@ -4,7 +4,7 @@
 # Professional Trading Dashboard mit intelligenter Position Management
 # Basierend auf deinem schönen Backup + erweiterte Features
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import os
 import time
 import requests
@@ -312,6 +312,11 @@ def favicon():
     data = base64.b64decode(ico_b64)
     return app.response_class(data, mimetype='image/x-icon')
 
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    base_path = os.path.join(os.path.dirname(__file__), 'static')
+    return send_from_directory(base_path, filename)
+
 @app.route('/api/ai/status')
 def ai_status():
     try:
@@ -489,6 +494,7 @@ DASHBOARD_HTML = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ultimate Trading System V5</title>
+    <link rel="stylesheet" href="/static/css/main.css">
     <style>
         :root {
             --bg: #0b0f17;
@@ -822,41 +828,7 @@ DASHBOARD_HTML = """
         }
 
         /* Enhanced Metric Cards */
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .metric-card {
-            background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-
-        .metric-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            border-color: rgba(255,255,255,0.4);
-        }
-
-        .metric-value {
-            font-size: 1.4em;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .metric-label {
-            color: rgba(255,255,255,0.7);
-            font-size: 0.9em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+    /* Duplicate metric styles moved to static/css/main.css */
 
         /* Liquidation Tables */
         .liquidation-table {
