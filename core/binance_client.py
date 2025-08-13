@@ -2,8 +2,9 @@ import time, requests
 
 class BinanceClient:
     BASE_URL = "https://api.binance.com/api/v3"
-    _cache = {'ticker': {}, 'price': {}, 'klines': {}}
+    _cache = {'ticker': {}, 'price': {}, 'klines': {}, 'exchangeInfo': {}}
     TICKER_TTL = 10; PRICE_TTL = 3; KLINES_TTL = 45
+    EXINFO_TTL = 60*60  # 1 hour
     @staticmethod
     def clear_symbol_cache(symbol: str):
         try:
@@ -45,3 +46,43 @@ class BinanceClient:
             r=requests.get(f"{BinanceClient.BASE_URL}/ticker/price",params={'symbol':symbol},timeout=10); data=r.json(); price=float(data['price'])
             BinanceClient._cache['price'][symbol]=(now,price); return price
         except Exception as e: print(f"Error getting current price: {e}"); return 0
+
+    @staticmethod
+    def get_symbol_filters(symbol: str):
+        """Return important exchange filters and precisions for a given symbol.
+        Keys: tickSize, stepSize, minNotional, minQty, maxQty, baseAssetPrecision, quoteAssetPrecision
+        """
+        try:
+            symbol = symbol.upper()
+            now = time.time()
+            cache = BinanceClient._cache['exchangeInfo'].get(symbol)
+            if cache and now - cache[0] < BinanceClient.EXINFO_TTL:
+                return cache[1]
+            # Fetch full exchangeInfo once, then find symbol
+            resp = requests.get(f"{BinanceClient.BASE_URL}/exchangeInfo", timeout=15)
+            data = resp.json()
+            filters = {}
+            for s in data.get('symbols', []):
+                if s.get('symbol') == symbol:
+                    filt_map = {f.get('filterType'): f for f in s.get('filters', [])}
+                    price_filter = filt_map.get('PRICE_FILTER', {})
+                    lot_filter = filt_map.get('LOT_SIZE', {})
+                    min_notional = filt_map.get('MIN_NOTIONAL', {})
+                    filters = {
+                        'symbol': symbol,
+                        'tickSize': float(price_filter.get('tickSize', '0.00000001')) if price_filter else 0.0,
+                        'minPrice': float(price_filter.get('minPrice', '0')) if price_filter else 0.0,
+                        'maxPrice': float(price_filter.get('maxPrice', '0')) if price_filter else 0.0,
+                        'stepSize': float(lot_filter.get('stepSize', '0.00000001')) if lot_filter else 0.0,
+                        'minQty': float(lot_filter.get('minQty', '0')) if lot_filter else 0.0,
+                        'maxQty': float(lot_filter.get('maxQty', '0')) if lot_filter else 0.0,
+                        'minNotional': float(min_notional.get('minNotional', '0')) if min_notional else 0.0,
+                        'baseAssetPrecision': s.get('baseAssetPrecision', 8),
+                        'quoteAssetPrecision': s.get('quoteAssetPrecision', 8)
+                    }
+                    break
+            BinanceClient._cache['exchangeInfo'][symbol] = (now, filters)
+            return filters
+        except Exception as e:
+            print(f"Error getting symbol filters: {e}")
+            return {}

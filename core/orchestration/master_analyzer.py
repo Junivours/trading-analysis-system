@@ -22,11 +22,45 @@ class MasterAnalyzer:
         self.symbol_profiler = SymbolBehaviorProfiler()
         self.weights = {'technical':0.70,'patterns':0.20,'ai':0.10}
         self.logger = logging.getLogger("master_analyzer")
+        # Default execution model
+        self.default_fee_bps = float(os.getenv('DEFAULT_FEE_BPS', '6'))  # 0.06% per side
+        self.default_slip_bps = float(os.getenv('DEFAULT_SLIP_BPS', '2'))  # 0.02% slippage per side
+
+    # ======== Exchange precision helpers ========
+    def _get_symbol_filters(self, symbol: str):
+        try:
+            f = self.binance_client.get_symbol_filters(symbol)
+            return f or {}
+        except Exception:
+            return {}
+    def _round_to_step(self, value: float, step: float) -> float:
+        try:
+            if not step or step <= 0:
+                return float(value)
+            return float(round(value / step) * step)
+        except Exception:
+            return float(value)
+    def _round_price(self, symbol: str, price: float) -> float:
+        f = self._get_symbol_filters(symbol)
+        tick = float(f.get('tickSize') or 0.0)
+        if tick and tick > 0:
+            return round(self._round_to_step(price, tick), 8)
+        # Fallback: round to 2 decimals for USD quotes
+        try:
+            return round(float(price), 2)
+        except Exception:
+            return float(price)
 
     # ============================= PUBLIC API METHODS ============================= #
-    def run_backtest(self, symbol, interval='1h', limit=500):
+    def run_backtest(self, symbol, interval='1h', limit=500, fee_bps=None, slip_bps=None):
         """Lightweight RSI mean-reversion backtest (educational)."""
         try:
+            if fee_bps is None:
+                fee_bps = self.default_fee_bps
+            if slip_bps is None:
+                slip_bps = self.default_slip_bps
+            fee_pct = max(0.0, float(fee_bps) / 10000.0)
+            slip_pct = max(0.0, float(slip_bps) / 10000.0)
             interval = (interval or '1h').lower()
             try:
                 limit = int(limit)
@@ -87,14 +121,29 @@ class MasterAnalyzer:
                 equity_curve.append({'t': times[i], 'equity': equity})
                 if position is None:
                     if rsi_vals[i] < 30:
-                        position = {'entry_price': price, 'entry_time': times[i], 'stop': price - 2 * atr_vals[i] if atr_vals[i] > 0 else price * 0.98}
+                        # Enter LONG at worse price due to slippage
+                        entry_raw = price * (1 + slip_pct)
+                        entry = self._round_price(symbol, entry_raw)
+                        stop_raw = (price - 2 * atr_vals[i]) if atr_vals[i] > 0 else price * 0.98
+                        stop = self._round_price(symbol, stop_raw)
+                        position = {'entry_price': entry, 'entry_time': times[i], 'stop': stop}
                 else:
                     stop_hit = price <= position['stop']
                     take = rsi_vals[i] > 55
                     if stop_hit or take:
-                        ret_pct = (price - position['entry_price']) / position['entry_price'] * 100
-                        equity *= (1 + ret_pct/100)
-                        trades.append({'entry_time': position['entry_time'], 'exit_time': times[i], 'entry': round(position['entry_price'],6), 'exit': round(price,6), 'return_pct': round(ret_pct,2), 'outcome': 'win' if ret_pct > 0 else 'loss'})
+                        # Determine exit price with slippage adverse on exit
+                        if stop_hit:
+                            exit_price = self._round_price(symbol, position['stop'] * (1 - slip_pct))
+                        else:
+                            # Take profit at current price; selling -> adverse slippage
+                            exit_price = self._round_price(symbol, price * (1 - slip_pct))
+                        entry_price = float(position['entry_price'])
+                        gross_ret = (exit_price - entry_price) / entry_price
+                        # Subtract taker fees both sides
+                        net_ret = gross_ret - (2 * fee_pct)
+                        equity *= (1 + net_ret)
+                        ret_pct = net_ret * 100.0
+                        trades.append({'entry_time': position['entry_time'], 'exit_time': times[i], 'entry': round(entry_price,6), 'exit': round(exit_price,6), 'return_pct': round(ret_pct,2), 'outcome': 'win' if ret_pct > 0 else 'loss'})
                         position = None
                 if equity > max_equity:
                     max_equity = equity
@@ -150,22 +199,30 @@ class MasterAnalyzer:
                     'win_loss_ratio': round(win_loss_ratio,2) if win_loss_ratio != float('inf') else 'INF',
                     'max_consecutive_wins': max_consec_wins,
                     'max_consecutive_losses': max_consec_losses,
-                    'risk_adjusted_return_ratio': risk_adjusted_return
+                    'risk_adjusted_return_ratio': risk_adjusted_return,
+                    'fee_bps': float(fee_bps),
+                    'slip_bps': float(slip_bps)
                 },
                 'trades': trades[-120:],
                 'equity_curve': equity_curve[-250:],
-                'disclaimer': 'Backtest ist vereinfacht. Vergangene Performance garantiert keine Zukunft.'
+                'disclaimer': 'Backtest berücksichtigt Gebühren/Slippage vereinfacht. Vergangene Performance garantiert keine Zukunft.'
             }
         except Exception as e:
             return {'error': str(e)}
 
-    def run_vector_scalp_backtest(self, symbol, interval='5m', limit=720):
+    def run_vector_scalp_backtest(self, symbol, interval='5m', limit=720, fee_bps=None, slip_bps=None):
         """Backtest the Vector Candle Scalp strategy on a lower timeframe.
         Detection: body_ratio>=0.7, range>1.2x ATR14, volume>1.5x SMA20.
         Entry: 62% retrace toward origin (bounded by mid-body). SL: beyond opposite wick + 0.6*ATR.
         TPs: 1.5R, 2.5R, 3.5R. Conservative intra-candle resolution: SL checked before TP.
         """
         try:
+            if fee_bps is None:
+                fee_bps = self.default_fee_bps
+            if slip_bps is None:
+                slip_bps = self.default_slip_bps
+            fee_pct = max(0.0, float(fee_bps) / 10000.0)
+            slip_pct = max(0.0, float(slip_bps) / 10000.0)
             interval = (interval or '5m').lower()
             try:
                 limit = int(limit)
@@ -220,8 +277,11 @@ class MasterAnalyzer:
             open_pos = None
             trades = []
             equity_r = 0.0
+            equity_r_net = 0.0
             max_dd_r = 0.0
+            max_dd_r_net = 0.0
             peak_r = 0.0
+            peak_r_net = 0.0
             def touch(level, hi, lo, side):
                 if side == 'LONG':
                     return lo <= level <= hi
@@ -247,6 +307,10 @@ class MasterAnalyzer:
                 if risk <= 0:
                     continue
                 tps = [entry + risk*1.5, entry + risk*2.5, entry + risk*3.5] if side=='LONG' else [entry - risk*1.5, entry - risk*2.5, entry - risk*3.5]
+                # Round to tick size for realism
+                entry = self._round_price(symbol, entry)
+                sl = self._round_price(symbol, sl)
+                tps = [self._round_price(symbol, x) for x in tps]
                 # Wait for entry after the vector candle
                 entered = False
                 entry_time = None
@@ -304,25 +368,40 @@ class MasterAnalyzer:
                     rr = ((exit_price - entry)/risk) if side=='LONG' else ((entry - exit_price)/risk)
                 else:
                     rr = ((exit_price - entry)/risk) if side=='LONG' else ((entry - exit_price)/risk)
+                # Compute net RR after fees and slippage
+                # Adverse slippage both at entry and exit
+                # Convert absolute cost to R using risk size
+                cost_abs = entry * (2*fee_pct + 2*slip_pct)
+                cost_r = cost_abs / max(risk, 1e-9)
+                rr_net = rr - cost_r
                 trades.append({
                     'time': times[idx], 'entry_time': entry_time, 'exit_time': exit_time,
                     'direction': side, 'entry': round(entry,6), 'stop': round(sl,6),
                     'tp1': round(tps[0],6), 'tp2': round(tps[1],6), 'tp3': round(tps[2],6),
-                    'exit': round(exit_price,6), 'outcome': outcome, 'rr': round(float(rr),2)
+                    'exit': round(exit_price,6), 'outcome': outcome, 'rr': round(float(rr),2), 'rr_net': round(float(rr_net),2)
                 })
                 equity_r += rr
+                equity_r_net += rr_net
                 peak_r = max(peak_r, equity_r)
+                peak_r_net = max(peak_r_net, equity_r_net)
                 dd = peak_r - equity_r
                 if dd > max_dd_r:
                     max_dd_r = dd
+                ddn = peak_r_net - equity_r_net
+                if ddn > max_dd_r_net:
+                    max_dd_r_net = ddn
             total = len(trades)
             wins = sum(1 for t in trades if t['outcome']=='win')
             losses = sum(1 for t in trades if t['outcome']=='loss')
             expired = sum(1 for t in trades if t['outcome']=='expired')
             avg_rr = float(np.mean([t['rr'] for t in trades])) if trades else 0.0
+            avg_rr_net = float(np.mean([t.get('rr_net', t['rr']) for t in trades])) if trades else 0.0
             profits = [t['rr'] for t in trades if t['rr']>0]
             loss_vals = [-t['rr'] for t in trades if t['rr']<0]
             profit_factor = (sum(profits)/sum(loss_vals)) if loss_vals else float('inf') if profits else 0
+            profits_net = [t.get('rr_net', t['rr']) for t in trades if t.get('rr_net', t['rr'])>0]
+            loss_vals_net = [-t.get('rr_net', t['rr']) for t in trades if t.get('rr_net', t['rr'])<0]
+            profit_factor_net = (sum(profits_net)/sum(loss_vals_net)) if loss_vals_net else float('inf') if profits_net else 0
             return {
                 'symbol': symbol.upper(), 'interval': interval, 'limit': limit,
                 'strategy': 'Vector Candle Scalp',
@@ -331,7 +410,11 @@ class MasterAnalyzer:
                     'wins': wins, 'losses': losses, 'expired': expired,
                     'win_rate_pct': round((wins/total*100) if total else 0,2),
                     'avg_rr': round(avg_rr,2), 'equity_sum_r': round(equity_r,2),
-                    'max_drawdown_r': round(max_dd_r,2), 'profit_factor_r': round(profit_factor,2) if profit_factor!=float('inf') else 'INF'
+                    'avg_rr_net': round(avg_rr_net,2), 'equity_sum_r_net': round(equity_r_net,2),
+                    'max_drawdown_r': round(max_dd_r,2), 'max_drawdown_r_net': round(max_dd_r_net,2),
+                    'profit_factor_r': round(profit_factor,2) if profit_factor!=float('inf') else 'INF',
+                    'profit_factor_r_net': round(profit_factor_net,2) if profit_factor_net!=float('inf') else 'INF',
+                    'fee_bps': float(fee_bps), 'slip_bps': float(slip_bps)
                 },
                 'trades': trades[-200:],
                 'disclaimer': 'Simplified execution model; SL checked before TP within candle for conservatism.'

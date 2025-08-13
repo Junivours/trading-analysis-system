@@ -344,12 +344,21 @@ def backtest(symbol):
     """Run a lightweight backtest on-demand (RSI mean reversion)."""
     interval = request.args.get('interval', '1h')
     limit = int(request.args.get('limit', '500'))
+    fee_bps = request.args.get('fee_bps')
+    slip_bps = request.args.get('slip_bps')
     try:
         if request.args.get('refresh') == '1':
             master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
             log_event('info', 'Cache cleared for backtest', symbol=symbol.upper())
         log_id = log_event('info', 'Backtest start', symbol=symbol.upper(), interval=interval, limit=limit, refresh=request.args.get('refresh')=='1')
-        data = master_analyzer.run_backtest(symbol, interval=interval, limit=limit)
+        kwargs = {}
+        if fee_bps is not None: 
+            try: kwargs['fee_bps'] = float(fee_bps)
+            except: pass
+        if slip_bps is not None:
+            try: kwargs['slip_bps'] = float(slip_bps)
+            except: pass
+        data = master_analyzer.run_backtest(symbol, interval=interval, limit=limit, **kwargs)
         if 'error' in data:
             # Attach meta for client-side diagnosis
             err_id = log_event('warning', 'Backtest insufficient / error', symbol=symbol.upper(), interval=interval, limit=limit, error=data.get('error'), have=data.get('have'), need=data.get('need'))
@@ -367,12 +376,21 @@ def backtest_vector_scapling(symbol):
     """Run vector-candle scalp backtest on low timeframe (default 5m)."""
     interval = request.args.get('interval', '5m')
     limit = int(request.args.get('limit', '720'))
+    fee_bps = request.args.get('fee_bps')
+    slip_bps = request.args.get('slip_bps')
     try:
         if request.args.get('refresh') == '1':
             master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
             log_event('info', 'Cache cleared for vector backtest', symbol=symbol.upper())
         log_id = log_event('info', 'Vector backtest start', symbol=symbol.upper(), interval=interval, limit=limit)
-        data = master_analyzer.run_vector_scalp_backtest(symbol, interval=interval, limit=limit)
+        kwargs = {}
+        if fee_bps is not None:
+            try: kwargs['fee_bps'] = float(fee_bps)
+            except: pass
+        if slip_bps is not None:
+            try: kwargs['slip_bps'] = float(slip_bps)
+            except: pass
+        data = master_analyzer.run_vector_scalp_backtest(symbol, interval=interval, limit=limit, **kwargs)
         if 'error' in data:
             err_id = log_event('warning', 'Vector backtest insufficient / error', symbol=symbol.upper(), interval=interval, limit=limit, error=data.get('error'), have=data.get('have'), need=data.get('need'))
             return jsonify({'success': False, 'error': data['error'], 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}, 'log_id': err_id}), 400
@@ -1384,6 +1402,142 @@ DASHBOARD_HTML = """
                 </div>
                 ${rsiChips}
                 ${emotionBadges}`;
+            try { displaySignalReasons(data); } catch(e) { /* non-fatal */ }
+        }
+
+        // NEW: Decision Helper – konkrete Gründe und Wann LONG/SHORT Leitplanken
+        function displaySignalReasons(data){
+            const el = document.getElementById('signalDisplay');
+            if(!el) return;
+            const fs = data?.final_score || {};
+            const mt = data?.multi_timeframe?.consensus || {};
+            const tech = data?.technical_analysis || {};
+            const ext = data?.extended_analysis || {};
+            const ai = data?.ai_analysis || {};
+            const pat = data?.pattern_analysis || {};
+            const emo = data?.emotion_analysis?.overall?.emotion || 'neutral';
+            const flow = data?.order_flow_analysis || {};
+
+            const trendBull = (tech?.trend?.trend || '').toLowerCase().includes('bull');
+            const trendBear = (tech?.trend?.trend || '').toLowerCase().includes('bear');
+            // MACD curve_direction uses 'bullish'/'bearish' in backend
+            const macdUp = (tech?.macd?.curve_direction || '').toLowerCase().includes('bull');
+            const macdDown = (tech?.macd?.curve_direction || '').toLowerCase().includes('bear');
+            const mtBull = (mt?.primary || '').toUpperCase()==='BULLISH';
+            const mtBear = (mt?.primary || '').toUpperCase()==='BEARISH';
+            const aiBuy = (ai?.signal || '').toUpperCase().includes('BUY');
+            const aiSell = (ai?.signal || '').toUpperCase().includes('SELL');
+            const aiConf = (typeof ai?.confidence==='number')? ai.confidence : null;
+            const flowBuy = flow?.flow_sentiment==='buy_pressure';
+            const flowSell = flow?.flow_sentiment==='sell_pressure';
+            const vola = ext?.atr?.volatility || 'unknown';
+            const rsi = tech?.rsi?.rsi;
+
+            // Build highlight reasons
+            const highlights = [];
+            if(mt?.primary){ highlights.push(`MTF: ${mt.primary} (Bull ${mt.bull_score||0} / Bear ${mt.bear_score||0})`); }
+            if(typeof rsi==='number'){ highlights.push(`RSI(1h): ${rsi.toFixed(1)}`); }
+            if(tech?.trend?.trend){ highlights.push(`Trend: ${String(tech.trend.trend).toUpperCase()}`); }
+            if(tech?.macd?.curve_direction){ highlights.push(`MACD: ${tech.macd.curve_direction}`); }
+            if(pat?.overall_signal){ highlights.push(`Pattern: ${String(pat.overall_signal).toUpperCase()}`); }
+            if(ai?.signal){ highlights.push(`AI: ${ai.signal} (${aiConf!=null?aiConf.toFixed(1)+'%':'-'})`); }
+            if(flow?.flow_sentiment){ highlights.push(`OrderFlow: ${flow.flow_sentiment.replace('_',' ')}`); }
+            if(emo){ highlights.push(`Emotion: ${emo}`); }
+            if(vola){ highlights.push(`Volatility: ${vola}`); }
+
+            // Condition checks for guidance
+            const longChecks = [
+                {label:'MTF bullish', ok: mtBull},
+                {label:'Trend bullish', ok: trendBull},
+                {label:'MACD up', ok: macdUp},
+                {label:'AI BUY (≥55%)', ok: aiBuy && (aiConf==null || aiConf>=55)},
+                {label:'Order Flow buy pressure', ok: !!flowBuy},
+                {label:'Emotion nicht euphorisch', ok: emo!=='euphoria'}
+            ];
+            const shortChecks = [
+                {label:'MTF bearish', ok: mtBear},
+                {label:'Trend bearish', ok: trendBear},
+                {label:'MACD down', ok: macdDown},
+                {label:'AI SELL (≥55%)', ok: aiSell && (aiConf==null || aiConf>=55)},
+                {label:'Order Flow sell pressure', ok: !!flowSell},
+                {label:'Emotion nicht kapitulatorisch', ok: emo!=='capitulation'}
+            ];
+
+            const longScore = longChecks.filter(c=>c.ok).length;
+            const shortScore = shortChecks.filter(c=>c.ok).length;
+            const fsSig = (fs?.signal||'').toUpperCase();
+            let verdict = 'Neutral';
+            if(longScore>shortScore && (fsSig.includes('BUY') || mtBull)) verdict='Bevorzugt LONG';
+            else if(shortScore>longScore && (fsSig.includes('SELL') || mtBear)) verdict='Bevorzugt SHORT';
+
+            // Contradictions from validation if present
+            let contradictions = [];
+            try{ const cons = fs?.validation?.contradictions||[]; contradictions = cons.slice(0,3).map(c=>`${c.type}: ${c.message}`); }catch(e){}
+
+            // Top setup per direction (for concise entry/invalidations)
+            let topLong = null, topShort = null;
+            try{
+                const setups = Array.isArray(data?.trade_setups)? data.trade_setups : [];
+                for(const s of setups){
+                    if(s?.direction==='LONG' && (!topLong || (s.confidence||0)>(topLong.confidence||0))) topLong = s;
+                    if(s?.direction==='SHORT' && (!topShort || (s.confidence||0)>(topShort.confidence||0))) topShort = s;
+                }
+            }catch(e){}
+
+            const fmtSetup = (s)=>{
+                if(!s) return '';
+                const entry = s.entry ?? s.entry_price;
+                const stop = s.stop_loss;
+                const tf = s.timeframe || s.pattern_timeframe || '1h';
+                const t1 = (s.targets && s.targets[0]?.price) || (s.take_profits && s.take_profits[0]?.level);
+                return `<div style='font-size:.52rem;color:var(--text-secondary);line-height:.75rem;margin-top:6px;'>`+
+                       `<div><strong>Entry:</strong> ${entry ?? '-'}  <span style='opacity:.7'>(TF ${tf})</span></div>`+
+                       `<div><strong>Invalidation:</strong> Stop ${stop ?? '-'}</div>`+
+                       `${t1?`<div><strong>Erstes Ziel:</strong> ${t1}</div>`:''}`+
+                       `${s.rationale?`<div style='opacity:.8;'>${s.rationale}</div>`:''}`+
+                       `</div>`;
+            };
+
+            const chip = (txt,color)=>`<span style="background:${color}20;border:1px solid ${color}55;color:${color};padding:3px 8px;border-radius:10px;font-size:.55rem;">${txt}</span>`;
+            const checkRow = (c)=>`<div style='display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;'>
+                <span style='font-size:.55rem;color:var(--text-secondary);'>${c.label}</span>
+                <span style='font-weight:700;color:${c.ok?'#26c281':'#dc3545'}'>${c.ok?'✓':'✗'}</span>
+            </div>`;
+
+            const html = `
+                <div class='decision-helper' style='margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,0.1);border-radius:14px;background:linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));'>
+                    <div style='display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;'>
+                        <div style='font-size:.65rem;font-weight:700;letter-spacing:.5px;color:#0d6efd;'>🧭 Decision Helper</div>
+                        <div>${chip(verdict, verdict.includes('LONG')?'#26c281': verdict.includes('SHORT')?'#dc3545':'#ffc107')}</div>
+                    </div>
+                    <div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;'>
+                        ${highlights.map(h=>chip(h,'#8b5cf6')).join(' ')}
+                    </div>
+                    <div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;'>
+                        <div style='border:1px solid rgba(38,194,129,0.25);border-radius:12px;padding:10px;background:rgba(38,194,129,0.05);'>
+                            <div style='font-size:.6rem;font-weight:700;color:#26c281;margin-bottom:6px;'>Wann LONG günstig?</div>
+                            <div style='display:flex;flex-direction:column;gap:6px;'>${longChecks.map(checkRow).join('')}</div>
+                            ${fmtSetup(topLong)}
+                        </div>
+                        <div style='border:1px solid rgba(255,77,79,0.25);border-radius:12px;padding:10px;background:rgba(255,77,79,0.05);'>
+                            <div style='font-size:.6rem;font-weight:700;color:#ff4d4f;margin-bottom:6px;'>Wann SHORT günstig?</div>
+                            <div style='display:flex;flex-direction:column;gap:6px;'>${shortChecks.map(checkRow).join('')}</div>
+                            ${fmtSetup(topShort)}
+                        </div>
+                    </div>
+                    <div style='margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;'>
+                        ${chip('Schwellen: RSI LONG >55, SHORT <45','#17a2b8')}
+                        ${chip('AI ≥55% stärkt Richtung','#17a2b8')}
+                        ${chip(`Vola: ${String(vola).toUpperCase()} – Stops anpassen`,'#17a2b8')}
+                    </div>
+                    ${contradictions.length?`<div style='margin-top:8px;'>
+                        <div style='font-size:.55rem;color:#ffc107;font-weight:600;margin-bottom:4px;'>Widersprüche</div>
+                        <ul style='margin:0;padding-left:16px;'>${contradictions.map(c=>`<li style="font-size:.52rem;color:var(--text-secondary);">${c}</li>`).join('')}</ul>
+                    </div>`:''}
+                    <div style='margin-top:8px;font-size:.48rem;color:var(--text-dim);'>Hinweis: Checkmarks sind unterstützende Signale – keine Garantie. Achte auf Volatilität und Risiken.</div>
+                </div>`;
+
+            el.insertAdjacentHTML('beforeend', html);
         }
 
         // NEW: Enterprise Validation Display
@@ -2277,6 +2431,9 @@ DASHBOARD_HTML = """
                     `Trades: ${m.total_trades} | WinRate: ${m.win_rate_pct}% | PF: ${m.profit_factor}<br>` +
                     `Avg: ${m.avg_return_pct}% | Total: ${m.total_return_pct}% | MDD: ${m.max_drawdown_pct}%<br>` +
                     `Expectancy: ${m.expectancy_pct}% | Sharpe≈ ${m.sharpe_approx}`;
+                if (m.fee_bps !== undefined) {
+                    html += `<br><span style='color:var(--text-dim)'>Fees: ${m.fee_bps} bps • Slippage: ${m.slip_bps} bps</span>`;
+                }
                 if (j.data.trades && j.data.trades.length) {
                     const last = j.data.trades.slice(-5).map(t=>`${new Date(t.exit_time).toLocaleDateString()} ${t.return_pct}%`).join(' • ');
                     html += `<br><strong>Last Trades:</strong> ${last}`;
@@ -2303,7 +2460,11 @@ DASHBOARD_HTML = """
                 const m = j.data.metrics || {};
                 statusEl.textContent = `${j.data.strategy} • ${j.meta.interval} • candles: ${j.meta.limit}`;
                 let html = `Trades: ${m.total_trades||0} | WinRate: ${m.win_rate_pct||0}% | PF(R): ${m.profit_factor_r}` +
-                           `<br>Avg RR: ${m.avg_rr} | Equity ΣR: ${m.equity_sum_r} | Max DD (R): ${m.max_drawdown_r}`;
+                           `<br>Avg RR (gross): ${m.avg_rr} | ΣR (gross): ${m.equity_sum_r} | Max DD (R): ${m.max_drawdown_r}` +
+                           `<br>Avg RR (net): ${m.avg_rr_net} | ΣR (net): ${m.equity_sum_r_net} | Max DD (R) net: ${m.max_drawdown_r_net}`;
+                if (m.fee_bps !== undefined) {
+                    html += `<br><span style='color:var(--text-dim)'>Fees: ${m.fee_bps} bps • Slippage: ${m.slip_bps} bps</span>`;
+                }
                 if (j.data.trades && j.data.trades.length) {
                     const last = j.data.trades.slice(-5).map(t=>`${new Date(t.exit_time).toLocaleString()} • ${t.direction} • ${t.rr}R`).join('<br>');
                     html += `<br><strong>Last Trades</strong><br>${last}`;
