@@ -535,6 +535,17 @@ class MasterAnalyzer:
             position_analysis = self.position_manager.analyze_position_potential(symbol, current_price, tech_analysis.get('support'), tech_analysis.get('resistance'), pattern_list_for_pos)
             # Order flow
             order_flow_data = self._analyze_order_flow(symbol, current_price, tech_analysis.get('volume_analysis', {}), multi_timeframe)
+            # Inject lightweight derived patterns (OrderFlow, POC bounce, Correlation)
+            try:
+                derived = self._derive_additional_patterns(symbol, tech_analysis, extended_analysis, multi_timeframe, order_flow_data)
+                if derived:
+                    pattern_analysis.setdefault('patterns', []).extend(derived)
+                    # Keep a compact summary note
+                    summ = pattern_analysis.get('pattern_summary') or ''
+                    add_note = ', '.join(sorted({d.get('type') for d in derived if d.get('type')}))
+                    pattern_analysis['pattern_summary'] = f"{summ} | + {add_note}".strip(' |')
+            except Exception:
+                pass
             # Vector Candle detection on 5m for scalping
             vector_analysis = {}
             try:
@@ -809,6 +820,66 @@ class MasterAnalyzer:
             return order_flow
         except Exception as e:
             return {'error': f'Order flow analysis failed: {str(e)}','flow_sentiment':'unknown','flow_strength':'unknown'}
+
+    def _derive_additional_patterns(self, symbol, tech, extended, multi_timeframe, order_flow):
+        """Leitet zusätzliche leichte Muster aus vorhandenen Analysen ab (keine Extra-API-Calls).
+        - OrderFlow Imbalance (Proxy via Volumenverhältnis/Flow-Sentiment)
+        - POC Bounce (Nähe zu volume_profile_poc)
+        - Correlation Break (RSI-Dispersion über TFs)
+        Gibt eine Liste kompatibler Pattern-Dicts zurück.
+        """
+        out = []
+        try:
+            price = tech.get('current_price')
+            vol_ratio = tech.get('volume_analysis', {}).get('ratio')
+            flow = (order_flow or {}).get('flow_sentiment')
+            poc = (order_flow or {}).get('volume_profile_poc')
+            tf_list = multi_timeframe.get('timeframes', []) if isinstance(multi_timeframe, dict) else []
+            rsis = [t.get('rsi') for t in tf_list if isinstance(t, dict) and isinstance(t.get('rsi'), (int, float))]
+            # 1) OrderFlow Imbalance
+            if isinstance(vol_ratio,(int,float)) and vol_ratio>=1.4 and flow in ('buy_pressure','sell_pressure'):
+                out.append({
+                    'type': 'OrderFlow Imbalance',
+                    'signal': 'bullish' if flow=='buy_pressure' else 'bearish',
+                    'timeframe': '1h',
+                    'strength': 'MEDIUM',
+                    'confidence': 60,
+                    'quality_grade': 'C',
+                    'description': f"Flow: {flow}, Vol {vol_ratio:.2f}x",
+                    'reliability_score': 55
+                })
+            # 2) POC Bounce
+            if isinstance(price,(int,float)) and isinstance(poc,(int,float)) and price>0 and poc>0:
+                d_pct = abs(price-poc)/price*100
+                if d_pct < 0.35:
+                    out.append({
+                        'type': 'POC Bounce',
+                        'signal': 'bullish' if price>=poc else 'bearish',
+                        'timeframe': '1h',
+                        'strength': 'MEDIUM',
+                        'confidence': 58,
+                        'quality_grade': 'C',
+                        'description': f"Preis ~{d_pct:.2f}% vom POC",
+                        'reliability_score': 52
+                    })
+            # 3) Correlation Break (RSI-Dispersion)
+            if len(rsis)>=3:
+                mu = sum(rsis)/len(rsis)
+                disp = sum(abs(x-mu) for x in rsis)/len(rsis)
+                if disp >= 6.0:
+                    out.append({
+                        'type': 'Correlation Break (RSI)',
+                        'signal': 'neutral',
+                        'timeframe': 'MULTI',
+                        'strength': 'LOW',
+                        'confidence': 54,
+                        'quality_grade': 'D',
+                        'description': f"RSI-Dispersion ~{disp:.1f} über TFs",
+                        'reliability_score': 45
+                    })
+        except Exception:
+            return []
+        return out
 
     def _analyze_feature_contributions(self, features, ai_analysis, tech_analysis, pattern_analysis):
         try:
@@ -1101,11 +1172,24 @@ class MasterAnalyzer:
         ai_conf = ai_analysis.get('confidence',50)
         ai_status = ai_analysis.get('status') or ('offline' if not ai_analysis.get('initialized',True) else 'online')
         if ai_status=='offline' or ai_conf < 40:
-            removed=dyn_weights.get('ai',0); dyn_weights['ai']=0.0; rem=dyn_weights['technical']+dyn_weights['patterns']
+            # Allow a minimal AI weight floor when near-threshold confidence but aligned context
+            floor = 0.0
+            try:
+                ens = ai_analysis.get('ensemble') or {}
+                aligned = (ens.get('alignment') == 'aligned')
+                if 30 <= ai_conf < 40 and aligned:
+                    floor = min(self.weights.get('ai', 0.1), 0.05)
+            except Exception:
+                floor = 0.0
+            removed = dyn_weights.get('ai',0)
+            dyn_weights['ai'] = floor
+            rem = dyn_weights['technical'] + dyn_weights['patterns']
             if rem<=0: dyn_weights['technical']=0.7; dyn_weights['patterns']=0.3
             else:
-                dyn_weights['technical']=dyn_weights['technical']/rem
-                dyn_weights['patterns']=dyn_weights['patterns']/rem
+                # Re-normalize the remaining weight mass (1 - floor)
+                scale = (1.0 - floor) / rem if rem>0 else 1.0
+                dyn_weights['technical']=dyn_weights['technical']*scale
+                dyn_weights['patterns']=dyn_weights['patterns']*scale
         final_score=(tech_score*dyn_weights['technical'] + pattern_score*dyn_weights['patterns'] + ai_score*dyn_weights.get('ai',0))
         unc = ai_analysis.get('uncertainty') or {}
         entropy = unc.get('entropy'); avg_std = unc.get('avg_std')
