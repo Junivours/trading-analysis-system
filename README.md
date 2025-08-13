@@ -88,10 +88,22 @@ Core modules (all under `core/`):
 | liquidation.py | Leverage liquidation level calculator |
 | profiling.py | SymbolBehaviorProfiler (per-symbol volatility & bias) |
 
-`app.py` contains the Flask routes and the MasterAnalyzer orchestrating all modules.
+`app.py` now only provides the Flask routes & global initialization. The orchestration logic (multi-phase analysis, scoring, validation, adaptive risk, advanced trade setup generation) lives in `core/orchestration/master_analyzer.py` (migrated from the original monolith for maintainability and testability).
 
-## Pattern-Based Trade Ideas
-`ChartPatternTrader.generate_pattern_trades` returns up to 5 high-confidence RR-filtered pattern setups (LONG/SHORT) using detected breakout/target/stop metadata and ATR-based fallback risk sizing.
+## Trade Setups & Pattern-Based Ideas
+Advanced setup generation is handled inside `MasterAnalyzer._generate_trade_setups` (now modular). It produces structured strategies:
+- Pullback (Bullish / Bearish) with enterprise risk filters
+- Breakout / Breakdown continuation
+- Pattern Confirmation (ties ranked multi-timeframe patterns to entries)
+- Momentum Continuation (MACD curve + RSI alignment)
+- Mean Reversion (RSI extreme bands with adaptive thresholds)
+- Support / Resistance Rejection scenarios
+- Pattern Boost (injected when directional scarcity)
+- Fallback generic setups (guarantee minimum coverage)
+
+Each setup includes: normalized risk %, dynamic multi-R targets (1.5R .. 8R + swing extension), probability heuristic, confidence (contradiction & volatility aware), rationale and justification blocks.
+
+`ChartPatternTrader.generate_pattern_trades` adds up to 5 supplemental pattern-centric trades (entry / stop / target / RR) which are merged & ranked with core strategies.
 
 ## Testing (Planned)
 Upcoming `tests/` suite will cover:
@@ -106,4 +118,4 @@ Upcoming `tests/` suite will cover:
 - Optional CI workflow (GitHub Actions) once token workflow permissions available
 - Expand pattern library & dynamic regime weighting
 - WebSocket real-time streaming prices (Binance) with incremental indicator updates
-- Extract MasterAnalyzer into `core/orchestrator.py`
+- (Done) Extract MasterAnalyzer into `core/orchestration/master_analyzer.py`
