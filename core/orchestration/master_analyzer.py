@@ -159,6 +159,186 @@ class MasterAnalyzer:
         except Exception as e:
             return {'error': str(e)}
 
+    def run_vector_scalp_backtest(self, symbol, interval='5m', limit=720):
+        """Backtest the Vector Candle Scalp strategy on a lower timeframe.
+        Detection: body_ratio>=0.7, range>1.2x ATR14, volume>1.5x SMA20.
+        Entry: 62% retrace toward origin (bounded by mid-body). SL: beyond opposite wick + 0.6*ATR.
+        TPs: 1.5R, 2.5R, 3.5R. Conservative intra-candle resolution: SL checked before TP.
+        """
+        try:
+            interval = (interval or '5m').lower()
+            try:
+                limit = int(limit)
+            except Exception:
+                limit = 720
+            limit = max(200, min(limit, 2000))
+            candles = self.technical_analysis.get_candle_data(symbol, interval=interval, limit=limit)
+            if not candles or len(candles) < 120:
+                return {'error': 'Not enough data for vector scalp backtest', 'have': len(candles) if candles else 0, 'need': 120}
+            opens = np.array([c['open'] for c in candles], dtype=float)
+            highs = np.array([c['high'] for c in candles], dtype=float)
+            lows = np.array([c['low'] for c in candles], dtype=float)
+            closes = np.array([c['close'] for c in candles], dtype=float)
+            volumes = np.array([c.get('volume', 0.0) for c in candles], dtype=float)
+            times = [c.get('time') for c in candles]
+            # ATR14 via RMA
+            tr = np.maximum(highs[1:], closes[:-1]) - np.minimum(lows[1:], closes[:-1])
+            atr = np.zeros_like(highs)
+            if len(tr) >= 14:
+                rma = np.zeros_like(tr)
+                rma[13] = tr[:14].mean()
+                for i in range(14, len(tr)):
+                    rma[i] = (rma[i-1]*13 + tr[i]) / 14
+                atr[1+13:] = rma[13:]
+                atr[:1+13] = rma[13]
+            else:
+                atr[:] = (highs - lows).mean()
+            # Volume SMA20
+            vol_sma = np.zeros_like(volumes)
+            if len(volumes) >= 20:
+                for i in range(19, len(volumes)):
+                    vol_sma[i] = volumes[i-19:i+1].mean()
+                vol_sma[:19] = volumes[:19].mean() if len(volumes)>=1 else 0
+            else:
+                vol_sma[:] = volumes.mean() if len(volumes) else 0
+            # Detect all vector candles
+            candidates = []
+            for idx in range(20, len(candles)):
+                o = opens[idx]; h = highs[idx]; l = lows[idx]; c = closes[idx]
+                rng = max(1e-9, h - l); body = abs(c - o)
+                body_ratio = body / rng if rng else 0
+                atr_k = atr[idx] if atr[idx] > 0 else rng
+                v_sma = vol_sma[idx] if vol_sma[idx] > 0 else (volumes.mean() if volumes.size>0 else 0)
+                is_spike = (volumes[idx] > 1.5 * v_sma) if v_sma else False
+                is_range_big = (rng > 1.2 * atr_k)
+                if body_ratio >= 0.7 and is_range_big and is_spike:
+                    direction = 'bull' if c > o else 'bear'
+                    candidates.append({'idx': idx, 'o': float(o), 'h': float(h), 'l': float(l), 'c': float(c), 'rng': float(rng), 'atr': float(atr_k), 'dir': direction})
+            if not candidates:
+                return {'symbol': symbol.upper(), 'interval': interval, 'limit': limit, 'strategy': 'Vector Candle Scalp', 'metrics': {'total_trades': 0}, 'trades': [], 'note': 'No vector candles detected'}
+            # Simulation
+            open_pos = None
+            trades = []
+            equity_r = 0.0
+            max_dd_r = 0.0
+            peak_r = 0.0
+            def touch(level, hi, lo, side):
+                if side == 'LONG':
+                    return lo <= level <= hi
+                else:
+                    return lo <= level <= hi
+            i = 0
+            kset = 0
+            for k in range(len(candidates)):
+                idx = candidates[k]['idx']
+                o = candidates[k]['o']; h = candidates[k]['h']; l = candidates[k]['l']; c = candidates[k]['c']
+                rng = candidates[k]['rng']; atr_k = candidates[k]['atr']; 
+                if candidates[k]['dir'] == 'bull':
+                    entry = l + rng * 0.62
+                    entry = max(entry, (o + c) / 2)
+                    sl = l - atr_k * 0.6
+                    side = 'LONG'
+                else:
+                    entry = h - rng * 0.62
+                    entry = min(entry, (o + c) / 2)
+                    sl = h + atr_k * 0.6
+                    side = 'SHORT'
+                risk = abs(entry - sl)
+                if risk <= 0:
+                    continue
+                tps = [entry + risk*1.5, entry + risk*2.5, entry + risk*3.5] if side=='LONG' else [entry - risk*1.5, entry - risk*2.5, entry - risk*3.5]
+                # Wait for entry after the vector candle
+                entered = False
+                entry_time = None
+                entry_candle = None
+                for j in range(idx+1, len(candles)):
+                    hi = highs[j]; lo = lows[j]
+                    # Entry touch?
+                    if lo <= entry <= hi:
+                        entered = True
+                        entry_time = times[j]
+                        entry_candle = j
+                        break
+                if not entered:
+                    continue
+                # After entry, simulate SL first then TP hits
+                outcome = None
+                exit_price = None
+                exit_time = None
+                best_rr = 0.0
+                for j in range(entry_candle, len(candles)):
+                    hi = highs[j]; lo = lows[j]
+                    if side == 'LONG':
+                        # Conservative: SL first
+                        if lo <= sl:
+                            outcome = 'loss'
+                            exit_price = sl
+                            exit_time = times[j]
+                            best_rr = min(best_rr, -1.0)
+                            break
+                        # TP hits (take first achieved)
+                        if hi >= tps[0]:
+                            outcome = 'win'
+                            exit_price = tps[0]
+                            exit_time = times[j]
+                            best_rr = max(best_rr, 1.5 if hi < tps[1] else (2.5 if hi < tps[2] else 3.5))
+                            break
+                    else:
+                        if hi >= sl:
+                            outcome = 'loss'
+                            exit_price = sl
+                            exit_time = times[j]
+                            best_rr = min(best_rr, -1.0)
+                            break
+                        if lo <= tps[0]:
+                            outcome = 'win'
+                            exit_price = tps[0]
+                            exit_time = times[j]
+                            best_rr = max(best_rr, 1.5 if lo > tps[1] else (2.5 if lo > tps[2] else 3.5))
+                            break
+                if outcome is None:
+                    # trade expired without SL/TP, close at last close
+                    outcome = 'expired'
+                    exit_price = closes[-1]
+                    exit_time = times[-1]
+                    rr = ((exit_price - entry)/risk) if side=='LONG' else ((entry - exit_price)/risk)
+                else:
+                    rr = ((exit_price - entry)/risk) if side=='LONG' else ((entry - exit_price)/risk)
+                trades.append({
+                    'time': times[idx], 'entry_time': entry_time, 'exit_time': exit_time,
+                    'direction': side, 'entry': round(entry,6), 'stop': round(sl,6),
+                    'tp1': round(tps[0],6), 'tp2': round(tps[1],6), 'tp3': round(tps[2],6),
+                    'exit': round(exit_price,6), 'outcome': outcome, 'rr': round(float(rr),2)
+                })
+                equity_r += rr
+                peak_r = max(peak_r, equity_r)
+                dd = peak_r - equity_r
+                if dd > max_dd_r:
+                    max_dd_r = dd
+            total = len(trades)
+            wins = sum(1 for t in trades if t['outcome']=='win')
+            losses = sum(1 for t in trades if t['outcome']=='loss')
+            expired = sum(1 for t in trades if t['outcome']=='expired')
+            avg_rr = float(np.mean([t['rr'] for t in trades])) if trades else 0.0
+            profits = [t['rr'] for t in trades if t['rr']>0]
+            loss_vals = [-t['rr'] for t in trades if t['rr']<0]
+            profit_factor = (sum(profits)/sum(loss_vals)) if loss_vals else float('inf') if profits else 0
+            return {
+                'symbol': symbol.upper(), 'interval': interval, 'limit': limit,
+                'strategy': 'Vector Candle Scalp',
+                'metrics': {
+                    'total_trades': total,
+                    'wins': wins, 'losses': losses, 'expired': expired,
+                    'win_rate_pct': round((wins/total*100) if total else 0,2),
+                    'avg_rr': round(avg_rr,2), 'equity_sum_r': round(equity_r,2),
+                    'max_drawdown_r': round(max_dd_r,2), 'profit_factor_r': round(profit_factor,2) if profit_factor!=float('inf') else 'INF'
+                },
+                'trades': trades[-200:],
+                'disclaimer': 'Simplified execution model; SL checked before TP within candle for conservatism.'
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
     def analyze_symbol(self, symbol):
         """Complete analysis pipeline for a symbol."""
         try:
@@ -272,6 +452,12 @@ class MasterAnalyzer:
             position_analysis = self.position_manager.analyze_position_potential(symbol, current_price, tech_analysis.get('support'), tech_analysis.get('resistance'), pattern_list_for_pos)
             # Order flow
             order_flow_data = self._analyze_order_flow(symbol, current_price, tech_analysis.get('volume_analysis', {}), multi_timeframe)
+            # Vector Candle detection on 5m for scalping
+            vector_analysis = {}
+            try:
+                vector_analysis = self._detect_vector_candles_lowtf(symbol, base_interval='5m')
+            except Exception as _e_vec:
+                vector_analysis = {'error': str(_e_vec)}
             # AI features & prediction
             t_phase = time.time()
             ai_features = self.ai_system.prepare_advanced_features(tech_analysis, pattern_analysis, ticker_data, position_analysis, extended_analysis, regime_data=None)
@@ -297,7 +483,9 @@ class MasterAnalyzer:
             # Backend Explainability Meta
             explain_meta = self._build_ai_explainability_meta(ai_analysis, tech_analysis, pattern_analysis, position_analysis, extended_analysis)
             t_phase = time.time()
-            final_score = self._calculate_weighted_score(tech_analysis, pattern_analysis, ai_analysis)
+            # Market Emotion (Euphoria/Fear) index to improve clarity of signals
+            emotion = self._compute_market_emotion(tech_analysis, extended_analysis, pattern_analysis, multi_timeframe)
+            final_score = self._calculate_weighted_score(tech_analysis, pattern_analysis, ai_analysis, emotion)
             timings['scoring_ms'] = round((time.time()-t_phase)*1000,2)
             liquidation_long = self.liquidation_calc.calculate_liquidation_levels(current_price, 'long')
             liquidation_short = self.liquidation_calc.calculate_liquidation_levels(current_price, 'short')
@@ -330,10 +518,18 @@ class MasterAnalyzer:
                 ntz_meta = {'active': False, 'error': 'ntz_calc_failed'}
 
             trade_setups = []
-            if not ntz_meta.get('active'):
-                trade_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
-            else:
-                trade_setups = []
+            base_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
+            vector_setups = self._generate_vector_scalp_setups(symbol, current_price, vector_analysis, tech_analysis, extended_analysis, multi_timeframe)
+            trade_setups = self._merge_and_prune_setups(base_setups, vector_setups)
+            # If No-Trade-Zone triggered, do not block completely; lower confidence and flag warning
+            try:
+                if ntz_meta.get('active') and isinstance(trade_setups, list):
+                    for s in trade_setups:
+                        s['confidence'] = max(10, int(s.get('confidence', 50) - 15))
+                        conds = s.setdefault('conditions', [])
+                        conds.append({'t': 'No-Trade-Zone', 's': 'warn'})
+            except Exception:
+                pass
             timings['setups_ms'] = round((time.time()-t_phase)*1000,2)
             try:
                 if isinstance(final_score, dict):
@@ -375,6 +571,8 @@ class MasterAnalyzer:
                 'ai_explainability_meta': explain_meta,
                 'ai_feature_hash': ai_analysis.get('feature_hash'),
                 'order_flow_analysis': order_flow_data,
+                'vector_candles': vector_analysis,
+                'emotion_analysis': emotion,
                 'adaptive_risk_targets': adaptive_risk,
                 'market_bias': market_bias,
                 'regime_analysis': regime_data,
@@ -757,7 +955,17 @@ class MasterAnalyzer:
         except Exception as e:
             return {'error': f'Adaptive risk calculation failed: {str(e)}','adaptive_risk_pct':2.0,'adaptive_reward_ratio':2.0}
 
-    def _calculate_weighted_score(self, tech_analysis, pattern_analysis, ai_analysis):
+    def _calculate_weighted_score_base(self, tech_analysis, pattern_analysis, ai_analysis):
+        """Combine technical, pattern, and AI into a calibrated score and discrete signal.
+        Optionally modulate extremes with market emotion (euphoria/fear) when available.
+        """
+        # Backward-compatible signature shim
+        emotion = None
+        if isinstance(pattern_analysis, dict) and pattern_analysis.get('__EMOTION__'):
+            # not used; reserved
+            pass
+        # Ensure ai_reason is defined for later annotations
+        ai_reason = None
         tech_score=50
         rsi = tech_analysis.get('rsi', {}).get('rsi',50)
         if isinstance(rsi,(int,float)):
@@ -803,6 +1011,17 @@ class MasterAnalyzer:
             extra = 0.1 if avg_std>0.18 else 0.05
             final_score = 50 + (final_score-50)*(1-extra)
         final_score = max(0,min(100,final_score))
+        # Emotion-aware modulation (avoid FOMO at extremes, clarify caution)
+        try:
+            # Emotion may be injected via new optional param (when available)
+            # In older calls, there's no emotion param. We try to detect via a hidden attr.
+            _emotion = None
+            if isinstance(ai_analysis, dict):
+                _emotion = ai_analysis.get('__emotion_ctx__')  # unused path
+            # Prefer direct variable if provided by caller through closure; else look up from tech_analysis (none by default)
+        except Exception:
+            _emotion = None
+        # No-op: caller patched signature will pass emotion separately
         # Stricter gating: require minimum ai confidence & reliability alignment
         ai_conf_gate = ai_analysis.get('confidence',50)
         ai_rel_gate = ai_analysis.get('reliability_score',50)
@@ -816,6 +1035,17 @@ class MasterAnalyzer:
             signal='SELL'; signal_color='#fd7e14'
         else:
             signal='HOLD'; signal_color='#6c757d'
+        # Graceful fallback: when AI is offline/low-confidence, allow tech+pattern to drive a softer signal
+        if signal=='HOLD':
+            ai_weight_zero = dyn_weights.get('ai',0) == 0
+            if ai_weight_zero or ai_status=='offline' or ai_conf_gate < 45:
+                if final_score >= 61:
+                    signal = 'BUY'; signal_color = '#6f42c1'
+                elif final_score <= 39:
+                    signal = 'SELL'; signal_color = '#fd7e14'
+                # annotate reason
+                if ai_reason is None:
+                    ai_reason = 'fallback:tech_pattern'
         # Legacy heuristic probability from final score
         calibrated_prob = 1/(1+math.exp(-(final_score-50)*0.09))
         bullish_prob = calibrated_prob
@@ -830,8 +1060,8 @@ class MasterAnalyzer:
             if 0 <= ai_bull_cal_val <= 1:
                 bullish_prob = ai_bull_cal_val
                 prob_source = 'ai_calibrated'
-        ai_reason=None
-        if dyn_weights.get('ai',0)==0 and self.weights.get('ai',0)>0:
+        # If AI weight was suppressed, annotate a disable reason (do not overwrite an existing fallback reason)
+        if ai_reason is None and dyn_weights.get('ai',0)==0 and self.weights.get('ai',0)>0:
             if ai_analysis.get('mode')=='offline' or not ai_analysis.get('signal'):
                 ai_reason='AI offline/initialization failed'
             elif ai_analysis.get('confidence',0)<40:
@@ -862,6 +1092,133 @@ class MasterAnalyzer:
                 'prob_source': prob_source
             }
         }
+
+    def _calculate_weighted_score(self, tech_analysis, pattern_analysis, ai_analysis, emotion=None):
+        # Build base score using original logic, then apply emotion adjustments
+        base = self._calculate_weighted_score_base(tech_analysis, pattern_analysis, ai_analysis)
+        # Apply emotion-aware damping/amplification to clarify extremes
+        try:
+            if emotion and isinstance(emotion, dict):
+                state = emotion.get('state')
+                score = base.get('score', 50)
+                # Damp chasing in bull euphoria and in bear capitulation
+                if state in ('euphoria_bull','excited_bull') and score > 50:
+                    score = 50 + (score - 50) * 0.86
+                if state in ('capitulation_bear','panic_bear','anxious_bear') and score < 50:
+                    score = 50 - (50 - score) * 0.86
+                base['score'] = round(max(0, min(100, score)), 1)
+                # Add context
+                base['emotion_context'] = {
+                    'state': state,
+                    'euphoria_score': emotion.get('euphoria_score'),
+                    'motion_index': emotion.get('motion_index')
+                }
+        except Exception:
+            pass
+        return base
+
+    def _compute_market_emotion(self, tech_analysis, extended_analysis, pattern_analysis, multi_timeframe):
+        """Compute a lightweight Market Emotion index to expose euphoric/fear states and motion.
+        No external deps; uses existing indicators to derive a 0-100 score and state label.
+        """
+        try:
+            rsi = tech_analysis.get('rsi', {}).get('rsi', 50)
+            macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral') or 'neutral'
+            trend_obj = tech_analysis.get('trend', {}) if isinstance(tech_analysis.get('trend'), dict) else {}
+            trend = str(trend_obj.get('trend') or 'neutral')
+            support = tech_analysis.get('support') or 0
+            resistance = tech_analysis.get('resistance') or 0
+            price = tech_analysis.get('current_price') or 0
+            atr_pct = None
+            vol_trend = 'normal'
+            try:
+                atr_pct = extended_analysis.get('atr', {}).get('percentage')
+                vol_trend = tech_analysis.get('volume_analysis', {}).get('trend', 'normal')
+            except Exception:
+                pass
+            # Pattern differential
+            patterns = pattern_analysis.get('patterns', []) if isinstance(pattern_analysis, dict) else []
+            bull_p = sum(1 for p in patterns if p.get('signal') == 'bullish')
+            bear_p = sum(1 for p in patterns if p.get('signal') == 'bearish')
+            mt_primary = multi_timeframe.get('consensus', {}).get('primary', 'NEUTRAL') if isinstance(multi_timeframe, dict) else 'NEUTRAL'
+            # Bull/Bear pressure components (0..1 each)
+            bull = 0.0; bear = 0.0; drivers = []
+            if isinstance(rsi, (int, float)):
+                if rsi >= 60:
+                    inc = min(1.0, (rsi - 60) / 20.0) * 0.35
+                    bull += inc; drivers.append(f"RSI high {rsi:.1f} -> bull +{inc:.2f}")
+                elif rsi <= 40:
+                    inc = min(1.0, (40 - rsi) / 20.0) * 0.35
+                    bear += inc; drivers.append(f"RSI low {rsi:.1f} -> bear +{inc:.2f}")
+            if 'bullish' in macd_curve:
+                bull += 0.12; drivers.append('MACD curve bullish +0.12')
+            if 'bearish' in macd_curve:
+                bear += 0.12; drivers.append('MACD curve bearish +0.12')
+            if 'strong_bull' in trend: bull += 0.18; drivers.append('Trend strong bull +0.18')
+            elif 'bull' in trend: bull += 0.1; drivers.append('Trend bull +0.10')
+            if 'strong_bear' in trend: bear += 0.18; drivers.append('Trend strong bear +0.18')
+            elif 'bear' in trend: bear += 0.1; drivers.append('Trend bear +0.10')
+            # Pattern dominance
+            if bull_p or bear_p:
+                diff = (bull_p - bear_p)
+                if diff > 0:
+                    inc = min(0.18, 0.04 * diff); bull += inc; drivers.append(f"Bull patterns {bull_p}>{bear_p} +{inc:.2f}")
+                elif diff < 0:
+                    inc = min(0.18, 0.04 * (-diff)); bear += inc; drivers.append(f"Bear patterns {bear_p}>{bull_p} +{inc:.2f}")
+            # MTF consensus
+            if mt_primary == 'BULLISH': bull += 0.12; drivers.append('MTF BULLISH +0.12')
+            elif mt_primary == 'BEARISH': bear += 0.12; drivers.append('MTF BEARISH +0.12')
+            # Proximity to S/R -> overextension
+            if price and resistance and resistance > 0:
+                d_res = (resistance - price) / price * 100.0
+                if d_res < 0.4: bull += 0.12; drivers.append('Near/above resistance -> overextended bull +0.12')
+            if price and support and support > 0:
+                d_sup = (price - support) / price * 100.0
+                if d_sup < 0.4: bear += 0.12; drivers.append('Near/below support -> overextended bear +0.12')
+            # Volatility/Volume amplify emotion
+            if isinstance(atr_pct, (int, float)):
+                amp = 0.0
+                if atr_pct > 3.0: amp = 0.10
+                elif atr_pct > 1.8: amp = 0.06
+                if amp:
+                    if bull >= bear: bull += amp; drivers.append(f'ATR {atr_pct:.1f}% amplifies bull +{amp:.2f}')
+                    else: bear += amp; drivers.append(f'ATR {atr_pct:.1f}% amplifies bear +{amp:.2f}')
+            if vol_trend in ('high','very_high'):
+                if bull >= bear: bull += 0.05; drivers.append('Volume high amplifies bull +0.05')
+                else: bear += 0.05; drivers.append('Volume high amplifies bear +0.05')
+            # Clamp and scale to 0..100
+            bull = max(0.0, min(1.6, bull))
+            bear = max(0.0, min(1.6, bear))
+            bull_score = round(min(100, bull / 1.2 * 100), 1)
+            bear_score = round(min(100, bear / 1.2 * 100), 1)
+            euphoria_score = max(bull_score, bear_score)
+            state = 'neutral'
+            if bull_score >= 75: state = 'euphoria_bull'
+            elif bull_score >= 60: state = 'excited_bull'
+            elif bear_score >= 75: state = 'capitulation_bear'
+            elif bear_score >= 60: state = 'anxious_bear'
+            # Motion index ~ ATR% and MTF dispersion of RSI
+            tf_list = multi_timeframe.get('timeframes', []) if isinstance(multi_timeframe, dict) else []
+            rsis = [t.get('rsi') for t in tf_list if isinstance(t, dict) and isinstance(t.get('rsi'), (int, float))]
+            rsi_disp = 0.0
+            if len(rsis) >= 2:
+                mu = sum(rsis) / len(rsis)
+                rsi_disp = sum(abs(x - mu) for x in rsis) / len(rsis)
+            motion = 0.0
+            if isinstance(atr_pct, (int, float)):
+                motion += min(1.0, atr_pct / 4.0) * 0.7
+            motion += min(1.0, rsi_disp / 20.0) * 0.3
+            motion_index = round(min(100, motion * 100), 1)
+            return {
+                'euphoria_score': euphoria_score,
+                'bull_pressure': bull_score,
+                'bear_pressure': bear_score,
+                'state': state,
+                'motion_index': motion_index,
+                'drivers': drivers[:10]
+            }
+        except Exception as e:
+            return {'euphoria_score': 50, 'state': 'neutral', 'motion_index': 0, 'error': str(e)}
 
     def _validate_signals(self, tech_analysis, pattern_analysis, ai_analysis, final_signal, multi_timeframe=None):
         warnings=[]; contradictions=[]; confidence_factors=[]
@@ -1278,11 +1635,13 @@ class MasterAnalyzer:
                     stop_pbs = resistance + atr_val * 0.9
                     risk_pct_short = round((stop_pbs - entry_pbs) / entry_pbs * 100, 2)
                     if risk_pct_short <= 3.0:
+                        targets_pbs, smart_stop_pbs = _targets(entry_pbs, stop_pbs, 'SHORT', [('Support', support), ('Fib 0.382', fib.get('fib_382'))])
+                        stop_pbs = smart_stop_pbs
                         setups.append({
                             'id': 'S-PB', 'direction': 'SHORT', 'strategy': 'Professional Bearish Pullback',
                             'entry': round(entry_pbs, 2), 'stop_loss': round(stop_pbs, 2),
                             'risk_percent': risk_pct_short,
-                            'targets': _targets(entry_pbs, stop_pbs, 'SHORT', [('Support', support), ('Fib 0.382', fib.get('fib_382'))]),
+                            'targets': targets_pbs,
                             'confidence': _confidence(55, [15 if enterprise_ready else 5, 8 if rsi > 35 else 0, 10 if short_trend_validation_passed else 0]),
                             'conditions': [
                                 {'t': 'Short Trend validation', 's': 'ok' if short_trend_validation_passed else 'warn'},
@@ -1297,11 +1656,13 @@ class MasterAnalyzer:
                         })
                 entry_bd = support * 0.9985
                 stop_bd = support + atr_val
+                targets_bd, smart_stop_bd = _targets(entry_bd, stop_bd, 'SHORT', [('Fib 0.236', fib.get('fib_236'))])
+                stop_bd = smart_stop_bd
                 setups.append({
                     'id': 'S-BD', 'direction': 'SHORT', 'strategy': 'Support Breakdown',
                     'entry': round(entry_bd, 2), 'stop_loss': round(stop_bd, 2),
                     'risk_percent': round((stop_bd - entry_bd) / entry_bd * 100, 2),
-                    'targets': _targets(entry_bd, stop_bd, 'SHORT', [('Fib 0.236', fib.get('fib_236'))]),
+                    'targets': targets_bd,
                     'confidence': _confidence(48, [14 if enterprise_ready else 4, 5]),
                     'conditions': [
                         {'t': 'Bruch unter Support', 's': 'ok'},
@@ -1314,11 +1675,13 @@ class MasterAnalyzer:
                     tfs = top_s.get('timeframe', '1h')
                     entry_ps = current_price * 0.999 if current_price > support else support * 0.999
                     stop_ps = entry_ps + atr_val * 0.8
+                    targets_ps, smart_stop_ps = _targets(entry_ps, stop_ps, 'SHORT', [('Support', support)])
+                    stop_ps = smart_stop_ps
                     setups.append({
                         'id': 'S-PC', 'direction': 'SHORT', 'strategy': 'Pattern Confirmation',
                         'entry': round(entry_ps, 2), 'stop_loss': round(stop_ps, 2),
                         'risk_percent': round((stop_ps - entry_ps) / entry_ps * 100, 2),
-                        'targets': _targets(entry_ps, stop_ps, 'SHORT', [('Support', support)]),
+                        'targets': targets_ps,
                         'confidence': _confidence(52, [min(18, int(top_s.get('confidence', 50) / 3)), 5 if 'bearish' in trend else 0]),
                         'conditions': [
                             {'t': f'Pattern {top_s.get("name", "?")}@{tfs}', 's': 'ok'},
@@ -1334,11 +1697,13 @@ class MasterAnalyzer:
                 if 'bearish' in macd_curve_s and rsi < 45:
                     entry_momo_s = current_price * 0.9995
                     stop_momo_s = entry_momo_s + atr_val
+                    targets_momo_s, smart_stop_momo_s = _targets(entry_momo_s, stop_momo_s, 'SHORT', [('Support', support)])
+                    stop_momo_s = smart_stop_momo_s
                     setups.append({
                         'id': 'S-MOMO', 'direction': 'SHORT', 'strategy': 'Momentum Continuation',
                         'entry': round(entry_momo_s, 2), 'stop_loss': round(stop_momo_s, 2),
                         'risk_percent': round((stop_momo_s - entry_momo_s) / entry_momo_s * 100, 2),
-                        'targets': _targets(entry_momo_s, stop_momo_s, 'SHORT', [('Support', support)]),
+                        'targets': targets_momo_s,
                         'confidence': _confidence(50, [10 if rsi < 40 else 5, 6]),
                         'conditions': [
                             {'t': 'MACD Curve bearish', 's': 'ok'},
@@ -1353,11 +1718,13 @@ class MasterAnalyzer:
                     tfs2 = top_s2.get('timeframe', '1h')
                     entry_rej_s = resistance * 0.996
                     stop_rej_s = resistance + atr_val * 0.7
+                    targets_rej_s, smart_stop_rej_s = _targets(entry_rej_s, stop_rej_s, 'SHORT', [('Support', support)])
+                    stop_rej_s = smart_stop_rej_s
                     setups.append({
                         'id': 'S-REJ', 'direction': 'SHORT', 'strategy': 'Resistance Rejection',
                         'entry': round(entry_rej_s, 2), 'stop_loss': round(stop_rej_s, 2),
                         'risk_percent': round((stop_rej_s - entry_rej_s) / entry_rej_s * 100, 2),
-                        'targets': _targets(entry_rej_s, stop_rej_s, 'SHORT', [('Support', support)]),
+                        'targets': targets_rej_s,
                         'confidence': _confidence(48, [8, min(14, int(top_s2.get('confidence', 50) / 4))]),
                         'pattern_timeframe': tfs2,
                         'pattern_refs': [f"{top_s2.get('name','?')}@{tfs2}"],
@@ -1641,3 +2008,168 @@ class MasterAnalyzer:
         except Exception as e:
             ai_analysis.setdefault('ensemble_error', str(e))
         return ai_analysis
+
+    def _detect_vector_candles_lowtf(self, symbol, base_interval='5m', limit=180):
+        """Detect recent bullish/bearish 'vector candles' on a lower timeframe (default 5m).
+        Vector candle heuristic: large body (>70% of range), range > 1.2x ATR(14), volume spike > 1.5x SMA20.
+        Returns latest candidates and a compact context for scalping entries.
+        """
+        tf_candles = self.technical_analysis.get_candle_data(symbol, interval=base_interval, limit=limit)
+        if not tf_candles or len(tf_candles) < 40:
+            return {'timeframe': base_interval, 'candidates': []}
+        # Build arrays
+        opens = np.array([c['open'] for c in tf_candles], dtype=float)
+        highs = np.array([c['high'] for c in tf_candles], dtype=float)
+        lows = np.array([c['low'] for c in tf_candles], dtype=float)
+        closes = np.array([c['close'] for c in tf_candles], dtype=float)
+        volumes = np.array([c.get('volume', 0.0) for c in tf_candles], dtype=float)
+        times = [c.get('time') for c in tf_candles]
+        # ATR(14) approx on this tf
+        tr = np.maximum(highs[1:], closes[:-1]) - np.minimum(lows[1:], closes[:-1])
+        atr = np.zeros_like(highs)
+        if len(tr) >= 14:
+            rma = np.zeros_like(tr)
+            rma[13] = tr[:14].mean()
+            for i in range(14, len(tr)):
+                rma[i] = (rma[i-1]*13 + tr[i]) / 14
+            atr[1+13:] = rma[13:]
+            atr[:1+13] = rma[13]
+        else:
+            atr[:] = (highs - lows).mean()
+        # Volume SMA20
+        vol_sma = np.zeros_like(volumes)
+        if len(volumes) >= 20:
+            for i in range(19, len(volumes)):
+                vol_sma[i] = volumes[i-19:i+1].mean()
+            vol_sma[:19] = volumes[:19].mean() if len(volumes)>=1 else 0
+        else:
+            vol_sma[:] = volumes.mean() if len(volumes) else 0
+        # Evaluate last N
+        candidates = []
+        last_n = min(50, len(tf_candles))
+        for idx in range(len(tf_candles)-last_n, len(tf_candles)):
+            o = opens[idx]; h = highs[idx]; l = lows[idx]; c = closes[idx]
+            rng = max(1e-9, h - l); body = abs(c - o)
+            body_ratio = body / rng if rng else 0
+            atr_k = atr[idx] if atr[idx] > 0 else (rng)
+            vol_k = volumes[idx]; v_sma = vol_sma[idx] if vol_sma[idx] > 0 else (volumes.mean() if volumes.size>0 else 0)
+            is_spike = (vol_k > 1.5 * v_sma) if v_sma else False
+            is_range_big = (rng > 1.2 * atr_k)
+            if body_ratio >= 0.7 and is_range_big and is_spike:
+                direction = 'bull' if c > o else 'bear'
+                upper_wick = h - max(c, o)
+                lower_wick = min(c, o) - l
+                drivers = {
+                    'body_ratio': round(body_ratio,3), 'range_vs_atr': round(rng/max(1e-9, atr_k),2),
+                    'vol_spike_x': round(vol_k/max(v_sma,1e-9),2), 'upper_wick_pct': round(upper_wick/rng*100,1), 'lower_wick_pct': round(lower_wick/rng*100,1)
+                }
+                candidates.append({
+                    'time': times[idx], 'idx': idx, 'direction': direction,
+                    'open': float(o), 'high': float(h), 'low': float(l), 'close': float(c),
+                    'mid_body': float((o+c)/2), 'range': float(rng), 'atr': float(atr_k),
+                    'volume': float(vol_k), 'vol_sma': float(v_sma), 'drivers': drivers
+                })
+        # Keep only last 3 by recency
+        recent = candidates[-3:]
+        return {'timeframe': base_interval, 'candidates': recent}
+
+    def _generate_vector_scalp_setups(self, symbol, current_price, vector_analysis, tech, extended, multi_timeframe):
+        """Create scalping setups based on latest vector candle(s).
+        Entry: retest of 50-62% of vector candle in direction of impulse.
+        SL: beyond opposite wick + ATR buffer; TPs: ladder at 1.5R/2.5R/3.5R.
+        """
+        try:
+            cands = (vector_analysis or {}).get('candidates', [])
+            if not cands:
+                return []
+            setups = []
+            atr_pct = extended.get('atr', {}).get('percentage') if isinstance(extended, dict) else None
+            for vc in cands[-2:]:
+                direction = vc.get('direction')
+                o = vc['open']; c = vc['close']; h = vc['high']; l = vc['low']
+                rng = max(1e-9, vc['range'])
+                half = (o + c) / 2
+                # 62% retrace level (toward origin)
+                if direction == 'bull':
+                    entry = l + rng * 0.62
+                    # prefer slightly above half to ensure fill bias
+                    entry = max(entry, half)
+                    raw_stop = l - vc['atr'] * 0.6
+                    dir_lbl = 'LONG'; sid = 'SCALP-VEC-L'
+                else:
+                    entry = h - rng * 0.62
+                    entry = min(entry, half)
+                    raw_stop = h + vc['atr'] * 0.6
+                    dir_lbl = 'SHORT'; sid = 'SCALP-VEC-S'
+                # Risk and targets
+                risk_abs = abs(entry - raw_stop)
+                if risk_abs <= 0:
+                    continue
+                rr_levels = [1.5, 2.5, 3.5]
+                targets = []
+                for m in rr_levels:
+                    tp = entry + (risk_abs * m) if dir_lbl=='LONG' else entry - (risk_abs * m)
+                    targets.append({'label': f'{m}R', 'price': round(tp, 2), 'rr': m})
+                # Confidence heuristic
+                base_conf = 54
+                # bonus if MTF consensus aligns
+                mt = (multi_timeframe or {}).get('consensus', {}).get('primary')
+                if dir_lbl=='LONG' and mt=='BULLISH': base_conf += 8
+                if dir_lbl=='SHORT' and mt=='BEARISH': base_conf += 8
+                # penalize very high ATR%
+                if isinstance(atr_pct, (int, float)):
+                    if atr_pct > 2.2: base_conf -= 8
+                    elif atr_pct > 1.6: base_conf -= 4
+                risk_pct = abs(entry - raw_stop) / max(1e-9, entry) * 100
+                setups.append({
+                    'id': sid,
+                    'direction': dir_lbl,
+                    'strategy': 'Vector Candle Scalp',
+                    'entry': round(entry, 2),
+                    'stop_loss': round(raw_stop, 2),
+                    'risk_percent': round(risk_pct, 2),
+                    'targets': targets,
+                    'confidence': max(30, min(90, base_conf)),
+                    'conditions': [
+                        {'t': f"Vector {direction}", 's': 'ok'},
+                        {'t': f"Body {vc['drivers'].get('body_ratio',0)*100:.0f}%", 's': 'ok'},
+                        {'t': f"Vol x{vc['drivers'].get('vol_spike_x')}", 's': 'ok'}
+                    ],
+                    'rationale': 'Scalp auf Retracement der impulsiven Vector Candle',
+                    'vector_ref': vc
+                })
+            return setups
+        except Exception as e:
+            self.logger.error(f"Vector scalp setup error: {e}")
+            return []
+
+    def _merge_and_prune_setups(self, base_setups, extra_setups):
+        """Merge two setup lists and pick best 1 LONG and 1 SHORT by a simple rank.
+        Rank = confidence * primary_rr * (1 - min(risk_pct,5)/100).
+        """
+        merged = (base_setups or []) + (extra_setups or [])
+        if not merged:
+            return []
+        def _rank(s):
+            rr = s.get('primary_rr') or (s['targets'][0]['rr'] if s.get('targets') else 1)
+            risk_pct = s.get('risk_percent', 2.0)
+            return (s.get('confidence',50)) * rr * (1 - min(risk_pct,5)/100.0)
+        best_long = None; best_short = None
+        for s in merged:
+            if s.get('direction') == 'LONG':
+                if best_long is None or _rank(s) > _rank(best_long):
+                    best_long = s
+            elif s.get('direction') == 'SHORT':
+                if best_short is None or _rank(s) > _rank(best_short):
+                    best_short = s
+        pruned = []
+        if best_long: pruned.append(best_long)
+        if best_short: pruned.append(best_short)
+        if not pruned:
+            # fallback: pick highest confidence
+            pruned = [sorted(merged, key=lambda x: x.get('confidence',0), reverse=True)[0]]
+        # Mark origin
+        for p in pruned:
+            if p.get('strategy') == 'Vector Candle Scalp':
+                p['selection_method'] = 'directional_top+vector'
+        return pruned

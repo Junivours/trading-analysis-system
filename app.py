@@ -362,6 +362,26 @@ def backtest(symbol):
         err_id = log_event('error', 'Backtest exception', symbol=symbol.upper(), interval=interval, limit=limit, error=str(e))
         return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
 
+@app.route('/api/backtest/vector/<symbol>')
+def backtest_vector_scapling(symbol):
+    """Run vector-candle scalp backtest on low timeframe (default 5m)."""
+    interval = request.args.get('interval', '5m')
+    limit = int(request.args.get('limit', '720'))
+    try:
+        if request.args.get('refresh') == '1':
+            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
+            log_event('info', 'Cache cleared for vector backtest', symbol=symbol.upper())
+        log_id = log_event('info', 'Vector backtest start', symbol=symbol.upper(), interval=interval, limit=limit)
+        data = master_analyzer.run_vector_scalp_backtest(symbol, interval=interval, limit=limit)
+        if 'error' in data:
+            err_id = log_event('warning', 'Vector backtest insufficient / error', symbol=symbol.upper(), interval=interval, limit=limit, error=data.get('error'), have=data.get('have'), need=data.get('need'))
+            return jsonify({'success': False, 'error': data['error'], 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}, 'log_id': err_id}), 400
+        log_event('info', 'Vector backtest success', symbol=symbol.upper(), interval=interval, limit=limit, parent=log_id, trades=data.get('metrics',{}).get('total_trades'))
+        return jsonify({'success': True, 'data': data, 'meta': {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}, 'log_id': log_id})
+    except Exception as e:
+        err_id = log_event('error', 'Vector backtest exception', symbol=symbol.upper(), interval=interval, limit=limit, error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
+
 @app.route('/api/version')
 def api_version():
     commit = 'unknown'
@@ -682,22 +702,15 @@ DASHBOARD_HTML = """
     .signal-display { text-align:center; padding:34px 20px 30px; border-radius:30px; margin-bottom:10px; background: radial-gradient(circle at 50% 0%, rgba(13,110,253,0.35), rgba(13,110,253,0) 65%); position:relative; }
     .signal-display:before { content:""; position:absolute; inset:0; background:linear-gradient(140deg,rgba(255,255,255,0.1),rgba(255,255,255,0)); mix-blend-mode:overlay; opacity:.35; }
 
-    .signal-value { font-size:3.1rem; font-weight:800; letter-spacing:1px; margin-bottom:10px; }
+    .signal-display.long { background: radial-gradient(circle at 50% 0%, rgba(40,167,69,0.35), rgba(40,167,69,0) 65%); }
+    .signal-display.short { background: radial-gradient(circle at 50% 0%, rgba(220,53,69,0.35), rgba(220,53,69,0) 65%); }
 
-        .signal-score {
-            font-size: 1.5rem;
-            opacity: 0.9;
-            margin-bottom: 15px;
-        }
-
-        .signal-weights {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
-
-    .weight-item { background:rgba(255,255,255,0.08); padding:6px 14px; border-radius:14px; font-size:0.7rem; letter-spacing:1px; text-transform:uppercase; color:var(--text-secondary); }
+    .signal-summary {
+        text-align: center;
+        margin-top: 20px;
+        font-size: 1rem;
+        color: rgba(255, 255, 255, 0.9);
+    }
 
         /* Position Management */
         .position-management {
@@ -1174,6 +1187,22 @@ DASHBOARD_HTML = """
                     <div id="backtestStatus" style="font-size:0.65rem; color:var(--text-secondary); margin-bottom:8px;"></div>
                     <div id="backtestResults" style="font-size:0.65rem; line-height:1rem; color:var(--text-secondary);"></div>
                 </div>
+
+                <!-- Vector Scalp Backtest -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">⚡</span> Vector Scalp Backtest <span class="tag">NEW</span></div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                        <select id="vbtInterval" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;">
+                            <option value="5m">5m</option>
+                            <option value="3m">3m</option>
+                            <option value="1m">1m</option>
+                        </select>
+                        <input id="vbtLimit" type="number" value="720" min="200" max="2000" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;" />
+                        <button class="btn-ghost" onclick="runVectorBacktest()" style="font-size:0.65rem;">▶️ Run</button>
+                    </div>
+                    <div id="vectorBacktestStatus" style="font-size:0.65rem; color:var(--text-secondary); margin-bottom:8px;"></div>
+                    <div id="vectorBacktestResults" style="font-size:0.65rem; line-height:1rem; color:var(--text-secondary);"></div>
+                </div>
             </div>
 
             <!-- Liquidation Calculator -->
@@ -1331,6 +1360,16 @@ DASHBOARD_HTML = """
                     if(typeof r==='number'){ if(r>70) col='#dc3545'; else if(r<30) col='#0d6efd'; else col='#198754'; }
                     return `<span style=\"font-size:0.5rem; background:rgba(255,255,255,0.07); padding:4px 6px; border-radius:8px; letter-spacing:.5px; color:${col}; font-weight:600;\">${tf} RSI ${r??'-'}</span>`;}).join('') + '</div>';
             } catch(e){ rsiChips=''; }
+            const emotionBadges = `
+                <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <div style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">
+                        📊 Emotion: ${data.emotion_analysis?.overall?.emotion || 'neutral'}
+                    </div>
+                    <div style="background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:12px; font-size:0.5rem; letter-spacing:.5px;">
+                        Sentiment: ${data.sentiment_analysis?.overall?.sentiment || 'neutral'}
+                    </div>
+                </div>
+            `;
             signalDisplay.innerHTML = `
                 <div class="signal-value" style="color: ${signal.signal_color}">
                     ${signal.signal}
@@ -1343,7 +1382,8 @@ DASHBOARD_HTML = """
                     <div class="weight-item">🔍 Patterns: ${signal.pattern_weight}</div>
                     <div class="weight-item">🤖 AI: ${signal.ai_weight}</div>
                 </div>
-                ${rsiChips}`;
+                ${rsiChips}
+                ${emotionBadges}`;
         }
 
         // NEW: Enterprise Validation Display
@@ -1641,7 +1681,7 @@ DASHBOARD_HTML = """
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">Williams %R:</span>
                              <span style="font-weight:600;" class="${getWilliamsColor(extended?.williams_r?.value)}">${safeFixed(extended?.williams_r?.value,1)}</span>
-                             <span style="opacity:.55;">(${extended?.williams_r?.signal || '-'})</span>
+                             <span style="opacity:.55;" class="${extended?.williams_r?.extreme ? 'extreme-signal' : ''}">${extended?.williams_r?.signal || '-'}</span>
                          </div>
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">CCI:</span>
@@ -2062,7 +2102,7 @@ DASHBOARD_HTML = """
                             ` : ''}
                             
                             ${flow.analysis_note ? `
-                                <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
+                                <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
                                     💡 ${flow.analysis_note}
                                 </div>
                             ` : ''}
@@ -2240,6 +2280,35 @@ DASHBOARD_HTML = """
                 resultEl.innerHTML = html;
             } catch(e) {
                 statusEl.textContent = 'Backtest error';
+            }
+        }
+
+        // Run vector scalp backtest
+        async function runVectorBacktest() {
+            if (!currentSymbol) { alert('Erst Symbol analysieren.'); return; }
+            const interval = document.getElementById('vbtInterval').value;
+            const limit = document.getElementById('vbtLimit').value;
+            const statusEl = document.getElementById('vectorBacktestStatus');
+            const resultEl = document.getElementById('vectorBacktestResults');
+            statusEl.textContent = 'Running vector backtest...';
+            resultEl.textContent = '';
+            try {
+                const res = await fetch(`/api/backtest/vector/${currentSymbol}?interval=${interval}&limit=${limit}`);
+                const j = await res.json();
+                if (!j.success) { statusEl.textContent = 'Error: '+ j.error; return; }
+                const m = j.data.metrics || {};
+                statusEl.textContent = `${j.data.strategy} • ${j.meta.interval} • candles: ${j.meta.limit}`;
+                let html = `Trades: ${m.total_trades||0} | WinRate: ${m.win_rate_pct||0}% | PF(R): ${m.profit_factor_r}` +
+                           `<br>Avg RR: ${m.avg_rr} | Equity ΣR: ${m.equity_sum_r} | Max DD (R): ${m.max_drawdown_r}`;
+                if (j.data.trades && j.data.trades.length) {
+                    const last = j.data.trades.slice(-5).map(t=>`${new Date(t.exit_time).toLocaleString()} • ${t.direction} • ${t.rr}R`).join('<br>');
+                    html += `<br><strong>Last Trades</strong><br>${last}`;
+                } else if (j.data.note) {
+                    html += `<br>${j.data.note}`;
+                }
+                resultEl.innerHTML = html;
+            } catch(e) {
+                statusEl.textContent = 'Vector backtest error';
             }
         }
 
