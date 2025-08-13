@@ -769,7 +769,7 @@ class AdvancedJAXAI:
             'b4': jnp.zeros(4)
         }
     
-    def prepare_advanced_features(self, tech_analysis, patterns, market_data, position_analysis):
+    def prepare_advanced_features(self, tech_analysis, patterns, market_data, position_analysis, extended_analysis=None, regime_data=None):
         """Erweiterte Feature-Extraktion für bessere KI"""
         features = np.zeros(128)
         
@@ -794,6 +794,114 @@ class AdvancedJAXAI:
         # Support/Resistance Strength
         features[11] = tech_analysis.get('support_strength', 0) / 10.0
         features[12] = tech_analysis.get('resistance_strength', 0) / 10.0
+
+        # Multi-Timeframe RSI & Momentum Snapshot (13-25)
+        try:
+            mt_snapshot = self._build_multi_timeframe_snapshot(patterns)
+            # Mapping order ensures consistent explainability: rsi, norm_rsi, slope, momentum, alignment flags
+            # We cap length at 13 slots (13..25 inclusive)
+            for i, v in enumerate(mt_snapshot[:13]):
+                features[13 + i] = v
+        except Exception as e:
+            # Leave zeros if any failure; minimal logging to avoid noisy output
+            # print(f"MT feature build error: {e}")
+            pass
+
+        # Volatility Regime Encoding (26-29)
+        # 26: high_vol (high or very_high)
+        # 27: very_high_vol
+        # 28: squeeze (Bollinger squeeze detected)
+        # 29: expansion (wide bands & high ATR) -> momentum expansion potential
+        try:
+            vol_level = None
+            atr_pct = None
+            bb_width = None
+            squeeze_flag = 0.0
+            if extended_analysis and isinstance(extended_analysis, dict):
+                atr_section = extended_analysis.get('atr') or {}
+                vol_level = atr_section.get('volatility')
+                atr_pct = atr_section.get('percentage')
+                bb_section = extended_analysis.get('bollinger_bands') or {}
+                bb_width = bb_section.get('width')
+                squeeze_flag = 1.0 if bb_section.get('squeeze') else 0.0
+            # Fallback: derive simple volatility from MACD histogram & support/resistance distance if ATR missing
+            if vol_level is None:
+                macd_hist = tech_analysis.get('macd', {}).get('histogram', 0)
+                vol_proxy = abs(macd_hist)
+                if vol_proxy > 150: vol_level = 'very_high'
+                elif vol_proxy > 80: vol_level = 'high'
+                elif vol_proxy > 30: vol_level = 'medium'
+                else: vol_level = 'low'
+            high_vol = 1.0 if vol_level in ('high','very_high') else 0.0
+            very_high_vol = 1.0 if vol_level == 'very_high' else 0.0
+            expansion = 0.0
+            try:
+                if bb_width is not None and atr_pct is not None:
+                    # Expansion if bands wide (>85th pct heuristic) & ATR% > medium threshold
+                    expansion = 1.0 if (bb_width > 10 and atr_pct > 3) and squeeze_flag == 0.0 else 0.0
+            except Exception:
+                pass
+            features[26] = high_vol
+            features[27] = very_high_vol
+            features[28] = squeeze_flag
+            features[29] = expansion
+        except Exception:
+            pass
+
+        # Structural Compression & Order Flow Features (30-36)
+        # 30: price_position (0..1 between support/resistance)
+        # 31: mid_range_compression (min(dist_sup, dist_res)/range) -> higher near center (<=0.5)
+        # 32: sr_asymmetry ((dist_res - dist_sup)/range) -> -1 near resistance, +1 near support
+        # 33: pattern_confluence_scaled (pattern_confluence_score / 100 clipped)
+        # 34: order_flow_imbalance (orderbook_imbalance_pct / 100)
+        # 35: volatility_contraction_flag (squeeze OR very low bb_width)
+        # 36: consensus_cohesion (1 - dispersion from MTF snapshot if available) else 0
+        try:
+            pp = tech_analysis.get('price_position', 0.5)
+            support = tech_analysis.get('support')
+            resistance = tech_analysis.get('resistance')
+            dist_sup = dist_res = None
+            mid_comp = 0.0
+            asym = 0.0
+            if support and resistance and resistance > support:
+                span = (resistance - support) or 1e-9
+                current_price = tech_analysis.get('current_price', support + span*pp)
+                dist_sup = (current_price - support)
+                dist_res = (resistance - current_price)
+                mid_comp = min(dist_sup, dist_res)/span  # 0 edges, 0.5 center
+                asym = (dist_res - dist_sup)/span  # positive -> closer to support
+            pattern_conf = position_analysis.get('pattern_confluence_score', 0)
+            pattern_conf_scaled = max(-1, min(1, pattern_conf/100.0))
+            ob_imb = position_analysis.get('orderbook_imbalance_pct')
+            ob_imb_norm = 0.0
+            if ob_imb is not None:
+                ob_imb_norm = max(-1.0, min(1.0, ob_imb/100.0))
+            bb_section = (extended_analysis or {}).get('bollinger_bands') if isinstance(extended_analysis, dict) else {}
+            bb_width = (bb_section or {}).get('width')
+            squeeze_flag = (bb_section or {}).get('squeeze') is True
+            contraction = 0.0
+            try:
+                if squeeze_flag or (bb_width is not None and bb_width < 6):  # heuristic threshold
+                    contraction = 1.0
+            except Exception:
+                pass
+            # dispersion originally at feature 24 -> we re-derive if already populated
+            cohesion = 0.0
+            try:
+                dispersion_val = features[24]
+                if dispersion_val >= 0 and dispersion_val <= 1:
+                    cohesion = 1 - dispersion_val
+            except Exception:
+                pass
+            features[30] = pp if isinstance(pp, (int,float)) else 0.5
+            features[31] = mid_comp
+            features[32] = asym
+            features[33] = pattern_conf_scaled
+            features[34] = ob_imb_norm
+            features[35] = contraction
+            features[36] = cohesion
+        except Exception:
+            pass
         
         # Pattern Features (50-79)
         pattern_data = patterns.get('patterns', [])
@@ -828,6 +936,78 @@ class AdvancedJAXAI:
         if self.feature_stats['count'] > 30:  # Erst standardisieren wenn genug Daten
             features = self._standardize(features)
         return features
+
+    def _build_multi_timeframe_snapshot(self, pattern_analysis):
+        """Compile compact multi-timeframe context without re-fetching candles.
+
+        Re-uses already collected multi_timeframe patterns embedded in pattern_analysis
+        (we pass the full pattern_analysis object from caller) to derive higher-level
+        alignment metrics. We intentionally avoid additional API calls to prevent
+        duplication and latency.
+
+        Feature slots (indices 13-25):
+          13-16: RSI (15m,1h,4h,1d) normalized ( /100 )
+          17-20: Momentum approximation per tf (price position vs support/resistance if available) -> scaled to [-1,1]
+          21:    Bull alignment score (fraction of bullish/strong_bull signals)
+          22:    Bear alignment score (fraction of bearish/strong_bear signals)
+          23:    Consensus polarity (bull_score - bear_score) / total (clamped)
+          24:    Dispersion (1 - max(side_fraction)) -> higher = disagreement
+          25:    Pattern multi-timeframe density (patterns across tfs / 12 cap)
+
+        Returns list[float] length <=13.
+        """
+        # If upstream added multi_timeframe in the overall analysis pipeline, patterns dict may contain it.
+        mt_ctx = pattern_analysis.get('multi_timeframe_patterns') if isinstance(pattern_analysis, dict) else None
+        # Fallback empty structure
+        rsi_map = {'15m':0.5,'1h':0.5,'4h':0.5,'1d':0.5}
+        momentum_map = {'15m':0.0,'1h':0.0,'4h':0.0,'1d':0.0}
+        # Attempt to infer RSI & momentum proxies via embedded patterns if present
+        if mt_ctx:
+            # We just count pattern bias per timeframe as a momentum proxy (bullish - bearish)/patterns_in_tf
+            tf_groups = {}
+            for p in mt_ctx:
+                tf = p.get('timeframe','1h')
+                tf_groups.setdefault(tf, []).append(p)
+            for tf, plist in tf_groups.items():
+                if tf in rsi_map:
+                    # Approximate RSI by average pattern confidence orientation (not real RSI; placeholder until direct feed added)
+                    bull = [p for p in plist if p.get('signal')=='bullish']
+                    bear = [p for p in plist if p.get('signal')=='bearish']
+                    total = len(plist) or 1
+                    orientation = (len(bull) - len(bear))/total  # -1..1
+                    # Map orientation to pseudo RSI band 30..70 baseline
+                    pseudo_rsi = 50 + orientation * 15
+                    rsi_map[tf] = max(0,min(100,pseudo_rsi))/100.0
+                    momentum_map[tf] = orientation  # already -1..1
+        # Aggregate alignment from overall signals inside multi_timeframe consensus if available on response side.
+        # Since here we only get pattern_analysis, try to locate consensus stored there (if passed incorrectly) else zero.
+        bull_count = bear_count = neutral_count = 0
+        if mt_ctx:
+            for p in mt_ctx:
+                sig = p.get('signal')
+                if sig == 'bullish': bull_count += 1
+                elif sig == 'bearish': bear_count += 1
+                else: neutral_count += 1
+        total_patterns = bull_count + bear_count + neutral_count
+        bull_align = bull_count/total_patterns if total_patterns else 0
+        bear_align = bear_count/total_patterns if total_patterns else 0
+        # Polarity and dispersion
+        polarity = 0
+        dispersion = 0
+        if total_patterns:
+            polarity = (bull_count - bear_count)/total_patterns
+            max_side = max(bull_align, bear_align, (neutral_count/total_patterns))
+            dispersion = 1 - max_side  # 0 = unanimous, higher = disagreement
+        pattern_density = min(1.0, total_patterns/12.0)
+        vec = [
+            rsi_map['15m'], rsi_map['1h'], rsi_map['4h'], rsi_map['1d'],
+            momentum_map['15m'], momentum_map['1h'], momentum_map['4h'], momentum_map['1d'],
+            bull_align, bear_align,
+            max(-1, min(1, polarity)),
+            dispersion,
+            pattern_density
+        ]
+        return vec
 
     def _update_feature_stats(self, x):
         """Numerisch stabile inkrementelle Mittelwert/Varianz (Welford)."""
@@ -894,6 +1074,83 @@ class AdvancedJAXAI:
         except Exception as e:
             print(f"❌ Neural network error: {e}")
             return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':f'KI-Fehler: {e}','mode':self.mode}
+
+    # --- Monte Carlo Uncertainty Extension (no code duplication) ---
+    def predict_with_uncertainty(self, features, passes=20, feature_noise=0.01, dropout_rate=0.12):
+        """Monte-Carlo Unsicherheit: führt mehrere stochastische Forward-Passes aus.
+        Keine doppelten Kernlogiken: nutzt gleiche Gewichte, fügt nur Feature-Rauschen + Dropout-Masken hinzu.
+        Returns dict with mean prediction + uncertainty metrics.
+        """
+        if not self.initialized or passes <= 1 or not JAX_AVAILABLE:
+            base = self.predict_advanced(features)
+            base['uncertainty'] = {'enabled': False, 'reason': 'disabled_or_no_jax'}
+            return base
+        try:
+            feats = jnp.array(features)
+            rng = self.key
+            probs_list = []
+            keep_scale = 1.0/(1.0 - dropout_rate) if dropout_rate > 0 else 1.0
+            for i in range(passes):
+                rng, k1, k2, k3, k4 = random.split(rng, 5)
+                noisy = feats + random.normal(k1, feats.shape)*feature_noise
+                # Forward identical weights; apply dropout masks on hidden activations only
+                h1 = jnp.tanh(jnp.dot(noisy, self.model_params['w1']) + self.model_params['b1'])
+                if dropout_rate>0:
+                    mask1 = (random.bernoulli(k2, 1.0-dropout_rate, h1.shape)).astype(h1.dtype)*keep_scale
+                    h1 = h1 * mask1
+                h2 = jnp.tanh(jnp.dot(h1, self.model_params['w2']) + self.model_params['b2'])
+                if dropout_rate>0:
+                    mask2 = (random.bernoulli(k3, 1.0-dropout_rate, h2.shape)).astype(h2.dtype)*keep_scale
+                    h2 = h2 * mask2
+                h3 = jnp.tanh(jnp.dot(h2, self.model_params['w3']) + self.model_params['b3'])
+                if dropout_rate>0:
+                    mask3 = (random.bernoulli(k4, 1.0-dropout_rate, h3.shape)).astype(h3.dtype)*keep_scale
+                    h3 = h3 * mask3
+                logits = jnp.dot(h3, self.model_params['w4']) + self.model_params['b4']
+                temp = max(0.25, min(4.0, self.temperature))
+                scaled = logits / temp
+                probs = jnp.exp(scaled - logsumexp(scaled))
+                probs_list.append(np.array(probs))
+            self.key = rng  # persist key state
+            probs_arr = np.stack(probs_list, axis=0)  # (passes, 4)
+            mean_probs = probs_arr.mean(axis=0)
+            std_probs = probs_arr.std(axis=0)
+            # Predictive entropy
+            entropy = float(-(mean_probs * np.log(mean_probs + 1e-9)).sum())
+            # Base postprocess (reuse)
+            signals = ['STRONG_SELL', 'SELL', 'BUY', 'STRONG_BUY']
+            max_idx = int(np.argmax(mean_probs))
+            signal = signals[max_idx]
+            confidence = float(mean_probs[max_idx]*100)
+            if signal == 'STRONG_BUY' and confidence > 75:
+                rec = '🚀 KI sehr bullish'
+            elif signal == 'BUY' and confidence > 60:
+                rec = '📈 Moderat bullish'
+            elif signal == 'STRONG_SELL' and confidence > 75:
+                rec = '📉 Stark bearish'
+            elif signal == 'SELL' and confidence > 60:
+                rec = '⚠️ Abwärtsrisiko'
+            else:
+                rec = '🔄 Neutral / Beobachten'
+            return {
+                'signal': signal,
+                'confidence': round(confidence,2),
+                'probabilities': mean_probs.round(4).tolist(),
+                'ai_recommendation': rec,
+                'model_version': 'JAX-v2.0-MC',
+                'mode': self.mode,
+                'uncertainty': {
+                    'enabled': True,
+                    'passes': passes,
+                    'prob_std': std_probs.round(4).tolist(),
+                    'avg_std': float(std_probs.mean()),
+                    'entropy': round(entropy,4)
+                }
+            }
+        except Exception as e:
+            base = self.predict_advanced(features)
+            base['uncertainty'] = {'enabled': False, 'error': str(e)}
+            return base
     
     def add_training_data(self, features, actual_outcome):
         """Training data sammeln für späteres Lernen"""
@@ -2794,7 +3051,7 @@ class MasterAnalyzer:
             # AI Analysis (10% weight)
             t_phase = time.time()
             ai_features = self.ai_system.prepare_advanced_features(
-                tech_analysis, pattern_analysis, ticker_data, position_analysis
+                tech_analysis, pattern_analysis, ticker_data, position_analysis, extended_analysis, regime_data=None
             )
             # Feature integrity hash & stats
             try:
@@ -2802,7 +3059,12 @@ class MasterAnalyzer:
                 feature_hash = hashlib.sha256(feat_payload).hexdigest()[:16]
             except Exception:
                 feature_hash = 'hash_error'
-            ai_analysis = self.ai_system.predict_advanced(ai_features)
+            # Monte Carlo uncertainty (passes env configurable)
+            try:
+                mc_passes = int(os.getenv('AI_MC_PASSES','15'))
+            except Exception:
+                mc_passes = 15
+            ai_analysis = self.ai_system.predict_with_uncertainty(ai_features, passes=mc_passes)
             ai_analysis['feature_hash'] = feature_hash
             ai_analysis['feature_count'] = len(ai_features) if isinstance(ai_features, dict) else 0
             
@@ -3420,9 +3682,31 @@ class MasterAnalyzer:
                 confidence_multiplier = 1.0
             else:
                 confidence_multiplier = 0.7  # Low confidence = conservative
+
+            # --- NEW: AI Uncertainty Adjustment (entropy & std) ---
+            uncertainty = ai_analysis.get('uncertainty') or {}
+            entropy = uncertainty.get('entropy')
+            avg_std = uncertainty.get('avg_std')
+            # Maximum entropy for 4 classes = ln(4)
+            import math
+            max_entropy = math.log(4)
+            if entropy is not None and entropy >= 0:
+                norm_entropy = min(1.0, entropy / max_entropy)
+                # Reduce risk up to -40% at maximum entropy (very uncertain)
+                uncertainty_multiplier = 1.0 - 0.4 * norm_entropy
+            else:
+                uncertainty_multiplier = 1.0
+            # Additional penalty if model probability std is high (>0.12 typical moderate)
+            if avg_std is not None:
+                if avg_std > 0.18:
+                    uncertainty_multiplier *= 0.8  # strong penalty
+                elif avg_std > 0.12:
+                    uncertainty_multiplier *= 0.9  # mild penalty
+            # Floor to avoid zeroing risk completely
+            uncertainty_multiplier = max(0.5, min(1.0, uncertainty_multiplier))
             
             # Calculate final risk percentage
-            adaptive_risk_pct = base_risk_pct * vol_multiplier * regime_multiplier * confidence_multiplier
+            adaptive_risk_pct = base_risk_pct * vol_multiplier * regime_multiplier * confidence_multiplier * uncertainty_multiplier
             adaptive_risk_pct = max(0.5, min(5.0, adaptive_risk_pct))  # Cap between 0.5% and 5%
             
             # Calculate reward ratio
@@ -3481,9 +3765,10 @@ class MasterAnalyzer:
                     'volatility_multiplier': round(vol_multiplier, 2),
                     'regime_multiplier': round(regime_multiplier, 2),
                     'confidence_multiplier': round(confidence_multiplier, 2),
+                    'uncertainty_multiplier': round(uncertainty_multiplier, 2),
                     'reward_multiplier': round(reward_multiplier, 1)
                 },
-                'reasoning': f"Risk adjusted for {regime_data.get('regime_type', 'normal')} regime, {atr_pct:.1f}% volatility, {ai_confidence:.0f}% AI confidence"
+                'reasoning': f"Risk adjusted for {regime_data.get('regime_type', 'normal')} regime, {atr_pct:.1f}% volatility, {ai_confidence:.0f}% AI confidence, entropy={entropy if entropy is not None else 'n/a'}"
             }
             
         except Exception as e:
@@ -3573,6 +3858,22 @@ class MasterAnalyzer:
             pattern_score * dyn_weights['patterns'] +
             ai_score * dyn_weights.get('ai',0)
         )
+
+        # --- NEW: Uncertainty Damping (reduces extremes when entropy high) ---
+        unc = ai_analysis.get('uncertainty') or {}
+        entropy = unc.get('entropy')
+        avg_std = unc.get('avg_std')
+        if entropy is not None:
+            import math
+            max_ent = math.log(4)
+            norm_ent = min(1.0, entropy / max_ent)
+            # Pull score 50% towards 50 baseline proportional to uncertainty (up to 25% shrink)
+            damping = 0.25 * norm_ent
+            final_score = 50 + (final_score - 50) * (1 - damping)
+        if avg_std is not None and avg_std > 0.12:
+            # Additional mild damping for high predictive variance
+            extra = 0.1 if avg_std > 0.18 else 0.05
+            final_score = 50 + (final_score - 50) * (1 - extra)
         
         # Clamp to 0-100 range
         final_score = max(0, min(100, final_score))
