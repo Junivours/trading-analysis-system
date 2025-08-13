@@ -5965,28 +5965,41 @@ DASHBOARD_HTML = """
             document.getElementById('aiAnalysis').innerHTML = html;
         }
 
-                function displayMultiTimeframe(data) {
-                        const mt = data.multi_timeframe || {};
-                        const el = document.getElementById('multiTimeframe');
-                        if (!mt.timeframes || !mt.timeframes.length) { el.innerHTML = '<small style="color:var(--text-dim)">No data</small>'; return; }
-                        let dist = '';
-                        if (mt.distribution_pct) {
-                                dist = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 8px;">' +
-                                        Object.entries(mt.distribution_pct).map(([k,v])=>`<div style=\"font-size:0.5rem; background:rgba(255,255,255,0.1); padding:4px 6px; border-radius:6px;\">${k}: ${v}%</div>`).join('') + '</div>';
-                        }
-                        const cons = mt.consensus || {}; const consColor = cons.primary==='BULLISH'? '#28a745': cons.primary==='BEARISH'? '#dc3545':'#ffc107';
-                        let rows = mt.timeframes.map(t => {
-                                if (t.error) return `<div style='font-size:0.55rem; color:#dc3545; background:rgba(255,255,255,0.06); padding:6px 8px; border-radius:8px;'>${t.tf}: ${t.error}</div>`;
-                                const sigColor = t.signal?.includes('bull')?'#28a745': t.signal?.includes('bear')?'#dc3545':'#ffc107';
-                                return `<div style=\"display:grid; grid-template-columns:50px 70px 50px 1fr; gap:4px; align-items:center; font-size:0.55rem; background:rgba(255,255,255,0.06); padding:6px 8px; border-radius:8px;\">
-                                                <div style=\"font-weight:600;\">${t.tf}</div>
-                                                <div style=\"color:${sigColor}\">${t.signal}</div>
-                                                <div>RSI ${t.rsi ?? '-'} </div>
-                                                <div style=\"opacity:.7;\">${t.trend || ''}</div>
-                                        </div>`;
-                        }).join('');
-                        el.innerHTML = `<div style=\"font-size:0.6rem; margin-bottom:4px;\">Consensus: <span style=\"color:${consColor}; font-weight:600;\">${cons.primary||'-'}</span> (Bull ${cons.bull_score||0} / Bear ${cons.bear_score||0})</div>${dist}<div style=\"display:flex; flex-direction:column; gap:6px;\">${rows}</div>`;
-                }
+        function displayMultiTimeframe(data) {
+            const mt = data.multi_timeframe || {};
+            const el = document.getElementById('multiTimeframe');
+            if (!mt.timeframes || !mt.timeframes.length) { el.innerHTML = '<small style="color:var(--text-dim)">No data</small>'; return; }
+
+            // Legend / explanation tooltip
+            const legend = `<div style=\"font-size:0.48rem; letter-spacing:.4px; color:var(--text-dim); margin:-2px 0 6px; line-height:.7rem;\">
+                <span style=\"color:#28a745;\">Bull/Bear Scores</span> = gewichtete Summe der Signale über Zeitrahmen. Verteilung zeigt prozentuale Häufigkeit von bull / neutral / bear Kategorien.
+            </div>`;
+
+            let dist = '';
+            if (mt.distribution_pct) {
+                dist = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 10px;">' +
+                    Object.entries(mt.distribution_pct).map(([k,v])=>`<div style=\"font-size:0.5rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); backdrop-filter:blur(3px); padding:4px 6px; border-radius:6px;\">${k}: ${v}%</div>`).join('') + '</div>';
+            }
+            const cons = mt.consensus || {};
+            const consColor = cons.primary==='BULLISH'? '#26c281': cons.primary==='BEARISH'? '#ff4d4f':'#f5b041';
+            let rows = mt.timeframes.map(t => {
+                if (t.error) return `<div style='font-size:0.55rem; color:#ff4d4f; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:6px 8px; border-radius:10px;'>${t.tf}: ${t.error}</div>`;
+                const sigColor = t.signal?.includes('bull')?'#26c281': t.signal?.includes('bear')?'#ff4d4f':'#f5b041';
+                return `<div style=\"display:grid; grid-template-columns:50px 82px 52px 1fr; gap:4px; align-items:center; font-size:0.55rem; background:linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)); border:1px solid rgba(255,255,255,0.06); padding:6px 8px; border-radius:12px; box-shadow:0 2px 4px -1px rgba(0,0,0,0.5);\">
+                        <div style=\"font-weight:600; letter-spacing:.5px; color:var(--text-secondary);\">${t.tf}</div>
+                        <div style=\"color:${sigColor}; font-weight:600;\">${t.signal}</div>
+                        <div style=\"opacity:.85;\">RSI ${t.rsi ?? '-'} </div>
+                        <div style=\"opacity:.55; font-style:italic;\">${t.trend || ''}</div>
+                    </div>`;
+            }).join('');
+            el.innerHTML = `
+                <div style=\"font-size:0.6rem; margin-bottom:6px; font-weight:600; letter-spacing:.5px;\">Consensus: <span style=\"color:${consColor}; font-weight:700;\">${cons.primary||'-'}</span>
+                    <span style=\"font-size:0.5rem; font-weight:400; color:var(--text-dim);\">(Bull ${cons.bull_score||0} / Bear ${cons.bear_score||0})</span>
+                </div>
+                ${legend}
+                ${dist}
+                <div style=\"display:flex; flex-direction:column; gap:8px;\">${rows}</div>`;
+        }
 
                 function displayMarketBias(data){
                         const bias = data.market_bias; if(!bias) return;
