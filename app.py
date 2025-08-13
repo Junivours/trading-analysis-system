@@ -2,7 +2,7 @@
 # ULTIMATE TRADING SYSTEM V5 - BEAUTIFUL & INTELLIGENT EDITION  
 # ========================================================================================
 # Professional Trading Dashboard mit intelligenter Position Management
-# Basierend auf deinem schÃ¶nen Backup + erweiterte Features
+# Basierend auf deinem schönen Backup + erweiterte Features
 
 from flask import Flask, jsonify, render_template_string, request
 import os
@@ -80,7 +80,7 @@ def _save_persistent_state():
 _load_persistent_state()
 
 # ========================================================================================
-# ðŸ§¾ STRUCTURED LOGGING (in-memory ring buffer + stdout)
+# 🧾 STRUCTURED LOGGING (in-memory ring buffer + stdout)
 # ========================================================================================
 logger = logging.getLogger("trading_app")
 if not logger.handlers:
@@ -115,11 +115,11 @@ def log_event(level: str, message: str, **context):
     return log_id
 
 # ========================================================================================
-# ðŸŒ API ROUTES
+# 🌐 API ROUTES
 # ========================================================================================
 
 # ========================================================================================
-# ðŸŒ API ROUTES
+# 🌐 API ROUTES
 # ========================================================================================
 
 @app.route('/')
@@ -244,7 +244,7 @@ def ai_status():
             status_data = {'initialized': False, 'model_version': 'error', 'error': str(inner)}
         return jsonify({'success': True, 'data': status_data})
     except Exception as e:
-        # Absolute fallback â€“ never raise 500 for status endpoint
+    # Absolute fallback – never raise 500 for status endpoint
         return jsonify({'success': True, 'data': {'initialized': False, 'model_version': 'unavailable', 'error': str(e)}}), 200
 
 @app.route('/api/backtest/<symbol>')
@@ -359,7 +359,7 @@ def dca_position():
         max_risk_pct = float(payload.get('max_risk_pct', 2.0))  # overall account risk
         current_price = master_analyzer.binance_client.get_current_price(symbol) or payload.get('base_price') or 0
         if not current_price:
-            return jsonify({'success': False, 'error': 'Preis nicht verfÃ¼gbar'}), 400
+            return jsonify({'success': False, 'error': 'Preis nicht verfügbar'}), 400
         # Build descending ladder for LONG (basic); could extend with direction later
         per_step_capital = total_capital / ((entries*(entries+1))/2)  # weighted heavier lower fills
         ladder = []
@@ -932,10 +932,10 @@ DASHBOARD_HTML = """
         <div class="header">
             <div class="header-inner">
                 <h1>Ultimate Trading System V5</h1>
-                <p>Professional Analysis â€¢ Intelligent Position Management â€¢ JAX Neural Networks</p>
+                <p>Professional Analysis • Intelligent Position Management • JAX Neural Networks</p>
                 <div class="toolbar">
-                    <button id="themeToggle" class="btn-ghost" title="Theme umschalten">ðŸŒ— Theme</button>
-                    <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">ðŸ”„ Refresh</button>
+                    <button id="themeToggle" class="btn-ghost" title="Theme umschalten">🌓 Theme</button>
+                    <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">🔄 Refresh</button>
                 </div>
             </div>
         </div>
@@ -946,7 +946,7 @@ DASHBOARD_HTML = """
                 <input type="text" id="searchInput" class="search-input" 
                        placeholder="Enter symbol (e.g., BTC, ETH, DOGE...)" 
                        onkeypress="if(event.key==='Enter') searchSymbol()">
-                <button class="search-btn" onclick="searchSymbol()">ðŸ” Analyze</button>
+                <button class="search-btn" onclick="searchSymbol()">🔍 Analyze</button>
             </div>
         </div>
 
@@ -975,14 +975,20 @@ DASHBOARD_HTML = """
 
             <!-- Trade Setups -->
             <div class="glass-card" id="tradeSetupsCard">
-                <h3 style="color: white; margin-bottom: 16px; display:flex; align-items:center; gap:10px;">ðŸ› ï¸ Trade Setups <span style="font-size:0.7rem; background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:8px; letter-spacing:1px;">BETA</span></h3>
+                <h3 style="color: white; margin-bottom: 10px; display:flex; align-items:center; gap:10px;">🛠 Trade Setups <span style="font-size:0.7rem; background:rgba(255,255,255,0.08); padding:4px 8px; border-radius:8px; letter-spacing:1px;">BETA</span></h3>
+                <div id="tradeSetupFilters" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; font-size:0.6rem;">
+                    <button class="btn-ghost" onclick="setTradeSetupFilter('ALL')" id="filterAll" style="padding:4px 10px;">All</button>
+                    <button class="btn-ghost" onclick="setTradeSetupFilter('LONG')" id="filterLong" style="padding:4px 10px;">Long</button>
+                    <button class="btn-ghost" onclick="setTradeSetupFilter('SHORT')" id="filterShort" style="padding:4px 10px;">Short</button>
+                    <button class="btn-ghost" onclick="toggleMaxSetups()" id="maxSetupToggle" style="padding:4px 10px;">Max: 2</button>
+                </div>
                 <div id="tradeSetupsContent" class="setup-grid"></div>
                 <div id="tradeSetupsStatus" style="font-size:0.75rem; color:rgba(255,255,255,0.6); margin-top:10px;"></div>
             </div>
 
             <!-- Position Size Calculator -->
             <div class="glass-card" id="positionSizerCard">
-                <div class="section-title"><span class="icon">ðŸ“</span> Position Size Calculator <span class="tag">RISK</span></div>
+                <div class="section-title"><span class="icon">📐</span> Position Size Calculator <span class="tag">RISK</span></div>
                 <div style="display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); margin-bottom:14px;">
                     <div>
                         <label style="font-size:.6rem; letter-spacing:1px; text-transform:uppercase; color:var(--text-dim);">Equity ($)</label>
@@ -1002,8 +1008,8 @@ DASHBOARD_HTML = """
                     </div>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-                    <button class="btn-ghost" onclick="prefillFromFirstSetup()">â¤µï¸ Aus Setup Ã¼bernehmen</button>
-                    <button class="btn-ghost" onclick="calcPositionSize()">ðŸ§® Berechnen</button>
+                    <button class="btn-ghost" onclick="prefillFromFirstSetup()">⬇️ Aus Setup übernehmen</button>
+                    <button class="btn-ghost" onclick="calcPositionSize()">🧮 Berechnen</button>
                 </div>
                 <div id="psResult" style="font-size:.7rem; color:var(--text-secondary); line-height:1.1rem;"></div>
             </div>
@@ -1012,7 +1018,7 @@ DASHBOARD_HTML = """
             <div class="grid">
                 <!-- Position Management -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸŽ¯</span> Intelligent Position Management</div>
+                    <div class="section-title"><span class="icon">🎯</span> Intelligent Position Management</div>
                     <div id="positionRecommendations">
                         <!-- Position recommendations will be inserted here -->
                     </div>
@@ -1020,7 +1026,7 @@ DASHBOARD_HTML = """
 
                 <!-- Technical Analysis -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ“ˆ</span> Technical Analysis</div>
+                    <div class="section-title"><span class="icon">📈</span> Technical Analysis</div>
                     <div id="technicalAnalysis">
                         <!-- Technical analysis will be inserted here -->
                     </div>
@@ -1028,7 +1034,7 @@ DASHBOARD_HTML = """
 
                 <!-- Pattern Recognition -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ”</span> Chart Patterns</div>
+                    <div class="section-title"><span class="icon">🔍</span> Chart Patterns</div>
                     <div id="patternAnalysis">
                         <!-- Pattern analysis will be inserted here -->
                     </div>
@@ -1036,7 +1042,7 @@ DASHBOARD_HTML = """
 
                 <!-- Multi-Timeframe -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ•’</span> Multi-Timeframe</div>
+                    <div class="section-title"><span class="icon">🕒</span> Multi-Timeframe</div>
                     <div id="multiTimeframe">
                         <!-- MTF analysis -->
                     </div>
@@ -1044,7 +1050,7 @@ DASHBOARD_HTML = """
 
                 <!-- Market Regime -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸŽ¯</span> Market Regime <span class="tag">BETA</span></div>
+                    <div class="section-title"><span class="icon">📉</span> Market Regime <span class="tag">BETA</span></div>
                     <div id="regimeAnalysis">
                         <!-- Regime analysis -->
                     </div>
@@ -1052,7 +1058,7 @@ DASHBOARD_HTML = """
 
                 <!-- Adaptive Risk & Targets -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸŽ¯</span> Adaptive Risk Management <span class="tag">NEW</span></div>
+                    <div class="section-title"><span class="icon">🎯</span> Adaptive Risk Management <span class="tag">NEW</span></div>
                     <div id="adaptiveRiskTargets">
                         <!-- Adaptive risk and targets -->
                     </div>
@@ -1068,7 +1074,7 @@ DASHBOARD_HTML = """
 
                 <!-- AI Analysis -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ¤–</span> JAX Neural Network</div>
+                    <div class="section-title"><span class="icon">🤖</span> JAX Neural Network</div>
                     <div id="aiAnalysis">
                         <!-- AI analysis will be inserted here -->
                     </div>
@@ -1079,7 +1085,7 @@ DASHBOARD_HTML = """
 
                 <!-- Feature Contributions -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ”</span> AI Explainability <span class="tag">NEW</span></div>
+                    <div class="section-title"><span class="icon">🧪</span> AI Explainability <span class="tag">NEW</span></div>
                     <div id="featureContributions">
                         <!-- Feature contributions analysis -->
                     </div>
@@ -1087,7 +1093,7 @@ DASHBOARD_HTML = """
 
                 <!-- Backtest -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">ðŸ§ª</span> Backtest <span class="tag">BETA</span></div>
+                    <div class="section-title"><span class="icon">🧪</span> Backtest <span class="tag">BETA</span></div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                         <select id="btInterval" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;">
                             <option value="1h">1h</option>
@@ -1097,7 +1103,7 @@ DASHBOARD_HTML = """
                             <option value="1d">1d</option>
                         </select>
                         <input id="btLimit" type="number" value="500" min="100" max="1000" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;" />
-                        <button class="btn-ghost" onclick="runBacktest()" style="font-size:0.65rem;">â–¶ï¸ Run</button>
+                        <button class="btn-ghost" onclick="runBacktest()" style="font-size:0.65rem;">▶️ Run</button>
                     </div>
                     <div id="backtestStatus" style="font-size:0.65rem; color:var(--text-secondary); margin-bottom:8px;"></div>
                     <div id="backtestResults" style="font-size:0.65rem; line-height:1rem; color:var(--text-secondary);"></div>
@@ -1106,10 +1112,10 @@ DASHBOARD_HTML = """
 
             <!-- Liquidation Calculator -->
             <div class="glass-card grid-full">
-                <div class="section-title"><span class="icon">ðŸ’°</span> Liquidation Calculator</div>
+                <div class="section-title"><span class="icon">💰</span> Liquidation Calculator</div>
                 <div class="grid">
                     <div>
-                        <h4 style="color: #28a745; margin-bottom: 15px;">ðŸ“ˆ LONG Positions</h4>
+                        <h4 style="color: #28a745; margin-bottom: 15px;">📈 LONG Positions</h4>
                         <div style="overflow-x: auto;">
                             <table id="liquidationLongTable" class="liquidation-table">
                                 <!-- Long liquidation data will be inserted here -->
@@ -1117,7 +1123,7 @@ DASHBOARD_HTML = """
                         </div>
                     </div>
                     <div>
-                        <h4 style="color: #dc3545; margin-bottom: 15px;">ðŸ“‰ SHORT Positions</h4>
+                        <h4 style="color: #dc3545; margin-bottom: 15px;">📉 SHORT Positions</h4>
                         <div style="overflow-x: auto;">
                             <table id="liquidationShortTable" class="liquidation-table">
                                 <!-- Short liquidation data will be inserted here -->
@@ -1132,6 +1138,31 @@ DASHBOARD_HTML = """
     <script>
         let currentSymbol = '';
         let analysisData = null;
+        let tradeSetupFilter = 'ALL'; // ALL | LONG | SHORT
+        let tradeSetupMax = 2; // default user preference: only see top 2 setups
+
+        function setTradeSetupFilter(f) {
+            tradeSetupFilter = f;
+            updateTradeSetupFilterButtons();
+            if (analysisData) displayTradeSetups(analysisData);
+        }
+        function toggleMaxSetups() {
+            tradeSetupMax = tradeSetupMax === 2 ? 999 : 2;
+            const btn = document.getElementById('maxSetupToggle');
+            if (btn) btn.textContent = tradeSetupMax === 2 ? 'Max: 2' : 'Max: ALL';
+            if (analysisData) displayTradeSetups(analysisData);
+        }
+        function updateTradeSetupFilterButtons(){
+            ['All','Long','Short'].forEach(n=>{
+                const el = document.getElementById('filter'+n);
+                if(el){
+                    const key = n.toUpperCase();
+                    const active = (tradeSetupFilter === 'ALL' && n==='All') || tradeSetupFilter===key;
+                    el.style.background = active ? 'var(--accent)' : 'rgba(255,255,255,0.05)';
+                    el.style.color = active ? '#000' : 'var(--text-primary)';
+                }
+            });
+        }
 
         // Search and analyze symbol
         async function searchSymbol() {
@@ -1210,8 +1241,8 @@ DASHBOARD_HTML = """
                 </div>
                 <div class="signal-weights">
                     <div class="weight-item">Technical: ${signal.technical_weight}</div>
-                    <div class="weight-item">ðŸ” Patterns: ${signal.pattern_weight}</div>
-                    <div class="weight-item">ðŸ¤– AI: ${signal.ai_weight}</div>
+                    <div class="weight-item">🔍 Patterns: ${signal.pattern_weight}</div>
+                    <div class="weight-item">🤖 AI: ${signal.ai_weight}</div>
                 </div>
             `;
         }
@@ -1222,7 +1253,7 @@ DASHBOARD_HTML = """
             const validationDiv = document.getElementById('enterpriseValidation') || createValidationDiv();
             
             let html = `
-                <h3>ðŸ¢ ENTERPRISE VALIDATION</h3>
+                <h3>🏢 ENTERPRISE VALIDATION</h3>
                 <div class="validation-header">
                     <div class="trading-action" style="color: ${validation.trading_action === 'WAIT' ? '#dc3545' : '#28a745'}">
                         EMPFEHLUNG: ${validation.trading_action}
@@ -1231,15 +1262,15 @@ DASHBOARD_HTML = """
                         RISIKO: ${validation.risk_level}
                     </div>
                     <div class="enterprise-ready" style="color: ${validation.enterprise_ready ? '#28a745' : '#dc3545'}">
-                        ${validation.enterprise_ready ? 'âœ… ENTERPRISE READY' : 'âŒ NICHT BEREIT'}
+                        ${validation.enterprise_ready ? '✅ ENTERPRISE READY' : '❌ NICHT BEREIT'}
                     </div>
                 </div>
             `;
 
-            // Contradictions (WidersprÃ¼che)
+            // Contradictions (Widersprüche)
             if (validation.contradictions.length > 0) {
                 html += `<div class="contradictions-section">
-                    <h4 style="color: #dc3545">âš ï¸ WIDERSPRÃœCHE GEFUNDEN</h4>`;
+                    <h4 style="color: #dc3545">⚠️ WIDERSPRÜCHE GEFUNDEN</h4>`;
                 validation.contradictions.forEach(contradiction => {
                     html += `<div class="contradiction-item" style="border-left: 3px solid #dc3545; padding-left: 10px; margin: 5px 0;">
                         <div style="color: #dc3545; font-weight: bold">${contradiction.type}</div>
@@ -1253,7 +1284,7 @@ DASHBOARD_HTML = """
             // Warnings
             if (validation.warnings.length > 0) {
                 html += `<div class="warnings-section">
-                    <h4 style="color: #ffc107">âš ï¸ WARNUNGEN</h4>`;
+                    <h4 style="color: #ffc107">⚠️ WARNUNGEN</h4>`;
                 validation.warnings.forEach(warning => {
                     html += `<div class="warning-item" style="border-left: 3px solid #ffc107; padding-left: 10px; margin: 5px 0;">
                         <div style="color: #ffc107; font-weight: bold">${warning.type}</div>
@@ -1266,7 +1297,7 @@ DASHBOARD_HTML = """
 
             // Confidence Factors
             html += `<div class="confidence-section">
-                <h4 style="color: #17a2b8">âœ… CONFIDENCE FAKTOREN</h4>`;
+                <h4 style="color: #17a2b8">✅ CONFIDENCE FAKTOREN</h4>`;
             validation.confidence_factors.forEach(factor => {
                 html += `<div class="confidence-item" style="color: white; margin: 2px 0;">${factor}</div>`;
             });
@@ -1322,31 +1353,31 @@ DASHBOARD_HTML = """
             `).join('');
         }
 
-        // Trade Setups Renderer (array based) - Enhanced for Pattern Trades
+        // Trade Setups Renderer with filter & max display
         function displayTradeSetups(data) {
             const container = document.getElementById('tradeSetupsContent');
             const status = document.getElementById('tradeSetupsStatus');
-            const setups = data.trade_setups || [];
-            if (!Array.isArray(setups) || setups.length === 0) {
+            const all = Array.isArray(data.trade_setups) ? data.trade_setups : [];
+            if (all.length === 0) {
                 container.innerHTML = '';
-                status.textContent = 'Keine Setups generiert (Bedingungen nicht erfÃ¼llt).';
+                status.textContent = 'Keine Setups generiert (Bedingungen nicht erfüllt).';
                 return;
             }
-
-            // Separate Pattern trades from regular trades
-            const patternTrades = setups.filter(s => s.pattern_name || s.setup_type);
-            const regularTrades = setups.filter(s => !s.pattern_name && !s.setup_type);
-
-            let html = '';
-
-            // Pattern Trades Section
-            if (patternTrades.length > 0) {
+            // Filter by direction
+            let filtered = all.filter(s => tradeSetupFilter === 'ALL' || s.direction === tradeSetupFilter);
+            // Sort: confidence desc then (risk_reward_ratio || primary_rr) desc
+            filtered.sort((a,b)=> (b.confidence||0) - (a.confidence||0) || ((b.risk_reward_ratio||b.primary_rr||0) - (a.risk_reward_ratio||a.primary_rr||0)) );
+            const limited = filtered.slice(0, tradeSetupMax);
+            // Partition limited into pattern vs regular
+            const patternTrades = limited.filter(s => s.pattern_name || s.setup_type);
+            const regularTrades = limited.filter(s => !s.pattern_name && !s.setup_type);
+            let html='';
+            if (patternTrades.length){
                 html += `<div class="trade-section">
-                    <h4 style="color: #FFD700; margin-bottom: 12px; font-size: 0.85rem; display: flex; align-items: center;">
-                        ðŸŽ¯ <span style="margin-left: 6px;">Chart Pattern Setups (${patternTrades.length})</span>
+                    <h4 style="color: #FFD700; margin-bottom: 12px; font-size: 0.75rem; display:flex; align-items:center; gap:6px;">
+                        🎯 <span style="margin-left:2px;">Pattern (${patternTrades.length})</span>
                     </h4>`;
-                
-                const patternBlocks = patternTrades.map(s => {
+                html += patternTrades.map(s=>{
                     const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
                     const targets = (s.targets || s.take_profits || []).map(t=>{
                         const price = t.price || t.level;
@@ -1355,68 +1386,42 @@ DASHBOARD_HTML = """
                         const rr = t.rr ? ` ${t.rr}R` : '';
                         return `<span class="target-pill pattern-target">${label}: ${price}${percentage}${rr}</span>`;
                     }).join('');
-                    
-                    return `
-                    <div class="setup-card pattern-card" style="border-left: 4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
+                    return `<div class="setup-card pattern-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
-                        <div class="setup-title">
-                            ${s.direction} 
-                            <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background: linear-gradient(45deg, #FFD700, #FFA500); color: #000;">
-                                ${s.pattern_name || s.strategy}
-                            </span>
-                        </div>
+                        <div class="setup-title">${s.direction} <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background:linear-gradient(45deg,#FFD700,#FFA500); color:#000;">${s.pattern_name || s.strategy}</span></div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry_price || s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
-                        <div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>
-                        ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color: #28a745;">${s.risk_reward_ratio}</span></div>` : ''}
-                        ${s.key_level ? `<div class="setup-line"><span>Key Level</span><span style="color: #FFD700;">${s.key_level}</span></div>` : ''}
-                        ${s.regime_context ? `<div class="setup-line"><span>Regime</span><span style="color: #17a2b8;">${s.regime_context}</span></div>` : ''}
+                        ${s.risk_percent || s.risk_reward_ratio ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>` : ''}
+                        ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color:#28a745;">${s.risk_reward_ratio}</span></div>`:''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
-                        ${s.rsi_caution && s.rsi_caution.caution_level !== 'none' ? `<div style="margin-top:6px; font-size:.5rem; color:#ffc107; line-height:0.75rem;"><strong>RSI:</strong> ${s.rsi_caution.narrative}</div>` : ''}
-                        ${s.trade_plan ? `<div style="margin-top:8px; font-size:.55rem; color:#FFD700; line-height:0.75rem;"><strong>Plan:</strong> ${s.trade_plan}</div>` : ''}
-                        ${s.market_structure ? `<div style="margin-top:4px; font-size:.55rem; color:rgba(255,255,255,0.7); line-height:0.75rem;"><strong>Structure:</strong> ${s.market_structure}</div>` : ''}
-                        <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale || s.trade_plan}</div>
+                        ${s.rationale ? `<div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale}</div>` : ''}
                     </div>`;
-                });
-                html += patternBlocks.join('') + '</div>';
+                }).join('') + '</div>';
             }
-
-            // Regular Technical Trades Section
-            if (regularTrades.length > 0) {
+            if (regularTrades.length){
                 html += `<div class="trade-section">
-                    <h4 style="color: #17a2b8; margin-bottom: 12px; font-size: 0.85rem; display: flex; align-items: center;">
-                        <span style="margin-left: 6px;">Technical Analysis Setups (${regularTrades.length})</span>
+                    <h4 style="color: #17a2b8; margin-bottom: 12px; font-size: 0.75rem; display:flex; align-items:center; gap:6px;">
+                        📈 <span style="margin-left:2px;">Technical (${regularTrades.length})</span>
                     </h4>`;
-                
-                const regularBlocks = regularTrades.map(s => {
+                html += regularTrades.map(s=>{
                     const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
-                    const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price} (${t.rr}R)</span>`).join('');
-                    const conds = (s.conditions||[]).map(c=>`<li class="${c.s==='ok'?'c-ok':(c.s==='bad'?'c-bad':'c-warn')}">${c.t}</li>`).join('');
-                    
-                    return `
-                    <div class="setup-card">
+                    const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price}${t.rr?` (${t.rr}R)`:''}</span>`).join('');
+                    return `<div class="setup-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
-                        <div class="setup-title">
-                            ${s.direction} 
-                            <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span>
-                            ${s.validation_score ? `<span class="validation-badge ${s.validation_score.toLowerCase()}">${s.validation_score}</span>` : ''}
-                        </div>
+                        <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span></div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
-                        <div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>
-                        ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style="color: #28a745;">${s.primary_rr}R</span></div>` : ''}
+                        ${s.risk_percent ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>`:''}
+                        ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style=\"color:#28a745;\">${s.primary_rr}R</span></div>`:''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
-                        <ul class="conditions">${conds}</ul>
-                        <div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;">${s.rationale}</div>
+                        ${s.rationale ? `<div style=\"margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:0.75rem;\">${s.rationale}</div>`:''}
                     </div>`;
-                });
-                html += regularBlocks.join('') + '</div>';
+                }).join('') + '</div>';
             }
-
-            container.innerHTML = html;
-            status.textContent = `${setups.length} Trading-Setups generiert (${patternTrades.length} Pattern + ${regularTrades.length} Technical)`;
+            container.innerHTML = html || '<div style="font-size:.65rem; color:var(--text-dim);">Keine passenden Setups nach Filter.</div>';
+            status.textContent = `Zeige ${limited.length} von ${filtered.length} (${all.length} gesamt) | Filter: ${tradeSetupFilter} | Limit: ${tradeSetupMax===2?'2':'ALLE'}`;
         }
 
         // Display position management recommendations
@@ -1492,7 +1497,7 @@ DASHBOARD_HTML = """
                          </div>
                          <div class="metric-card" style="min-height:92px;">
                              <div class="metric-value ${getVolatilityColor(extended?.atr?.volatility)}" style="font-size:1.05rem;">${safeUpper(extended?.atr?.volatility)}</div>
-                             <div class="metric-label" style="font-size:.5rem;">VOLATILITÃ„T (ATR)</div>
+                             <div class="metric-label" style="font-size:.5rem;">VOLATILITÄT (ATR)</div>
                          </div>
                      </div>
                  </div>
@@ -1550,7 +1555,7 @@ DASHBOARD_HTML = """
                  </div>
                  <!-- Volatility & Risk -->
                  <div style="flex:0 0 230px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
-                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#dc3545; margin-bottom:10px;">âš ï¸ VOLA & RISK</div>
+                     <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#dc3545; margin-bottom:10px;">⚠️ VOLA & RISK</div>
                      <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
                          <div style="display:flex; justify-content:space-between;">
                              <span style="color:var(--text-secondary);">ATR %:</span>
@@ -1567,7 +1572,7 @@ DASHBOARD_HTML = """
                  <!-- Levels & Fib -->
                  <div style="flex:0 0 310px; display:flex; flex-direction:column; gap:12px;">
                      <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
-                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#28a745; margin-bottom:10px;">ðŸ“ˆ LEVELS</div>
+                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#28a745; margin-bottom:10px;">📈 LEVELS</div>
                          <div style="display:flex; flex-direction:column; gap:6px; font-size:.6rem;">
                              <div style="display:flex; justify-content:space-between;">
                                <span style="color:var(--text-secondary);">Resistance:</span>
@@ -1587,7 +1592,7 @@ DASHBOARD_HTML = """
                          </div>
                      </div>
                      <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:18px; padding:14px 16px;">
-                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#6f42c1; margin-bottom:10px;">ðŸŒ€ FIBONACCI</div>
+                         <div style="font-size:.6rem; letter-spacing:.6px; font-weight:600; color:#6f42c1; margin-bottom:10px;">🌐 FIBONACCI</div>
                          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:6px; font-size:.6rem;">
                              <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">23.6%:</span><span style="font-weight:600;">${safeFixed(extended?.fibonacci?.fib_236,4)}</span></div>
                              <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-secondary);">38.2%:</span><span style="font-weight:600;">${safeFixed(extended?.fibonacci?.fib_382,4)}</span></div>
@@ -1644,7 +1649,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <div class="indicator-section">
-                    <h4 style="color: #28a745; margin: 15px 0 10px 0;">ðŸ“ˆ LEVELS</h4>
+                    <h4 style="color: #28a745; margin: 15px 0 10px 0;">📈 LEVELS</h4>
                     <div class="levels-grid">
                         <div class="level-item">
                             <span class="level-name">Resistance:</span>
@@ -1730,7 +1735,7 @@ DASHBOARD_HTML = """
 
             // Legend / explanation tooltip
             const legend = `<div style=\"font-size:0.48rem; letter-spacing:.4px; color:var(--text-dim); margin:-2px 0 6px; line-height:.7rem;\">
-                <span style=\"color:#28a745;\">Bull/Bear Scores</span> = gewichtete Summe der Signale Ã¼ber Zeitrahmen. Verteilung zeigt prozentuale HÃ¤ufigkeit von bull / neutral / bear Kategorien.
+                <span style=\"color:#28a745;\">Bull/Bear Scores</span> = gewichtete Summe der Signale über Zeitrahmen. Verteilung zeigt prozentuale Häufigkeit von bull / neutral / bear Kategorien.
             </div>`;
 
             let dist = '';
@@ -1802,7 +1807,7 @@ DASHBOARD_HTML = """
                     };
                     
                     const color = regimeColors[regime.regime] || '#6c757d';
-                    const icon = regimeIcons[regime.regime] || 'â“';
+                    const icon = regimeIcons[regime.regime] || '❓';
                     
                     let html = `
                         <div class="metric-card" style="margin-bottom: 15px; border-left: 4px solid ${color};">
@@ -1819,7 +1824,7 @@ DASHBOARD_HTML = """
                     
                     if (regime.secondary_regime) {
                         const secColor = regimeColors[regime.secondary_regime] || '#6c757d';
-                        const secIcon = regimeIcons[regime.secondary_regime] || 'â“';
+                        const secIcon = regimeIcons[regime.secondary_regime] || '❓';
                         html += `
                             <div style="font-size: 0.6rem; color: ${secColor}; margin: 5px 0;">
                                 Secondary: ${secIcon} ${regime.secondary_regime}
@@ -1862,7 +1867,7 @@ DASHBOARD_HTML = """
                     
                     const flow = data.order_flow_analysis;
                     if (flow.error) {
-                        orderFlowContainer.innerHTML = `<div class="alert alert-warning">âš ï¸ ${flow.error}</div>`;
+                        orderFlowContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${flow.error}</div>`;
                         return;
                     }
                     
@@ -1877,9 +1882,9 @@ DASHBOARD_HTML = """
                     const sentimentEmojis = {
                         'buy_pressure': 'ðŸŸ¢',
                         'sell_pressure': 'ðŸ”´',
-                        'neutral': 'âšª',
+                        'neutral': '⚖️',
                         'low_liquidity': 'ðŸŸ¡',
-                        'unknown': 'â“'
+                        'unknown': '❓'
                     };
                     
                     const imbalancePercent = (flow.order_book_imbalance * 100).toFixed(1);
@@ -1947,7 +1952,7 @@ DASHBOARD_HTML = """
                             
                             ${flow.analysis_note ? `
                                 <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
-                                    ðŸ’¡ ${flow.analysis_note}
+                                    💡 ${flow.analysis_note}
                                 </div>
                             ` : ''}
                         </div>
@@ -1960,7 +1965,7 @@ DASHBOARD_HTML = """
                     
                     const features = data.ai_analysis.feature_contributions;
                     if (features.error) {
-                        featureContainer.innerHTML = `<div class="alert alert-warning">âš ï¸ ${features.error}</div>`;
+                        featureContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${features.error}</div>`;
                         return;
                     }
                     
@@ -2006,7 +2011,7 @@ DASHBOARD_HTML = """
                             
                             ${features.note ? `
                                 <div style="margin-top:10px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
-                                    ðŸ’¡ ${features.note}
+                                    💡 ${features.note}
                                 </div>
                             ` : ''}
                         </div>
@@ -2019,7 +2024,7 @@ DASHBOARD_HTML = """
                     
                     const risk = data.adaptive_risk_targets;
                     if (risk.error) {
-                        adaptiveContainer.innerHTML = `<div class="alert alert-warning">âš ï¸ ${risk.error}</div>`;
+                        adaptiveContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${risk.error}</div>`;
                         return;
                     }
                     
@@ -2066,7 +2071,7 @@ DASHBOARD_HTML = """
                             
                             <!-- Stop Loss & Targets -->
                             <div class="stop-targets" style="margin:0 0 12px;">
-                                <h6 style="margin:0 0 10px; font-size:0.65rem; letter-spacing:.5px; font-weight:600; color:var(--text-secondary);">ðŸ“ Stop Loss & Targets</h6>
+                                <h6 style="margin:0 0 10px; font-size:0.65rem; letter-spacing:.5px; font-weight:600; color:var(--text-secondary);">📍 Stop Loss & Targets</h6>
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px;">
                                     <div style="padding:10px 8px; background:rgba(255,77,79,0.08); border:1px solid rgba(255,77,79,0.35); border-radius:12px; text-align:center;">
                                         <div style="font-size:0.55rem; letter-spacing:.5px; color:#ff4d4f; font-weight:600;">Stop Loss</div>
@@ -2089,7 +2094,7 @@ DASHBOARD_HTML = """
                             
                             ${risk.reasoning ? `
                                 <div style="margin-top:8px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
-                                    ðŸ’¡ ${risk.reasoning}
+                                    💡 ${risk.reasoning}
                                 </div>
                             ` : ''}
                         </div>
@@ -2127,13 +2132,13 @@ DASHBOARD_HTML = """
                 const j = await res.json();
                 if (!j.success) { statusEl.textContent = 'Error: '+ j.error; return; }
                 const m = j.data.metrics;
-                statusEl.textContent = `${j.data.strategy} â€¢ ${j.data.candles} candles`;
+                statusEl.textContent = `${j.data.strategy} • ${j.data.candles} candles`;
                 let html = `<strong>Performance</strong><br>` +
                     `Trades: ${m.total_trades} | WinRate: ${m.win_rate_pct}% | PF: ${m.profit_factor}<br>` +
                     `Avg: ${m.avg_return_pct}% | Total: ${m.total_return_pct}% | MDD: ${m.max_drawdown_pct}%<br>` +
-                    `Expectancy: ${m.expectancy_pct}% | Sharpeâ‰ˆ ${m.sharpe_approx}`;
+                    `Expectancy: ${m.expectancy_pct}% | Sharpe≈ ${m.sharpe_approx}`;
                 if (j.data.trades && j.data.trades.length) {
-                    const last = j.data.trades.slice(-5).map(t=>`${new Date(t.exit_time).toLocaleDateString()} ${t.return_pct}%`).join(' â€¢ ');
+                    const last = j.data.trades.slice(-5).map(t=>`${new Date(t.exit_time).toLocaleDateString()} ${t.return_pct}%`).join(' • ');
                     html += `<br><strong>Last Trades:</strong> ${last}`;
                 }
                 resultEl.innerHTML = html;
@@ -2277,7 +2282,7 @@ DASHBOARD_HTML = """
         function prefillFromFirstSetup() {
             const data = window.__lastAnalysis;
             if(!data || !Array.isArray(data.trade_setups) || data.trade_setups.length===0) {
-                document.getElementById('psResult').textContent = 'âš ï¸ Keine Setups vorhanden zum Ãœbernehmen.';
+                document.getElementById('psResult').textContent = '⚠️ Keine Setups vorhanden zum Übernehmen.';
                 return;
             }
             const s = data.trade_setups[0];
@@ -2294,13 +2299,13 @@ DASHBOARD_HTML = """
             if(equity<=0||riskPct<=0||entry<=0||stop<=0) { res.textContent='Bitte Werte eingeben.'; return; }
             const riskAmount = equity * (riskPct/100);
             const diff = Math.abs(entry - stop);
-            if(diff <= 0) { res.textContent='Entry und Stop dÃ¼rfen nicht identisch sein.'; return; }
+            if(diff <= 0) { res.textContent='Entry und Stop dürfen nicht identisch sein.'; return; }
             const qty = riskAmount / diff;
             // Suggest capital usage (notional)
             const notional = qty * entry;
             const rr2 = entry + (diff*2);
             const rr3 = entry + (diff*3);
-            res.innerHTML = `Risiko: $${riskAmount.toFixed(2)} | GrÃ¶ÃŸe: <b>${qty.toFixed(4)}</b> | Notional ca: $${notional.toFixed(2)}<br>`+
+            res.innerHTML = `Risiko: $${riskAmount.toFixed(2)} | Größe: <b>${qty.toFixed(4)}</b> | Notional ca: $${notional.toFixed(2)}<br>`+
                 `TP 2R: ${rr2.toFixed(2)} | TP 3R: ${rr3.toFixed(2)} | Abstand (R): 1R = ${(diff).toFixed(2)}`;
         }
 
@@ -2342,8 +2347,8 @@ DASHBOARD_HTML = """
 
 print("ULTIMATE TRADING SYSTEM")
 print("Professional Trading Analysis")
-print("âš¡ Server starting on port: 5000")
-print("ðŸŒ Environment: Development")
+print("⚡ Server starting on port: 5000")
+print("🌍 Environment: Development")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
