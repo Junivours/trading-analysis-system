@@ -111,6 +111,16 @@ Ensures AI, analyze, backtest, logs endpoints work before pushing.
 
 Live Demo: (set after deployment)
 
+### AI backend selection (optional)
+- Default backend is JAX and requires `jax[cpu]` (already in `requirements.txt`).
+- You can switch backend via environment variable before starting the app:
+	- `AI_BACKEND=jax` (default)
+	- `AI_BACKEND=torch` (requires `torch` installed) – lightweight adapter
+	- `AI_BACKEND=tf` (requires `tensorflow` installed) – lightweight adapter
+	- `AI_BACKEND=ensemble` – averages across available backends (JAX + any optional ones)
+
+If Torch/TF are not installed, the adapters fall back to the JAX implementation and annotate `framework` in the AI response for transparency.
+
 ## Architecture Overview
 Core modules (all under `core/`):
 | Module | Purpose |

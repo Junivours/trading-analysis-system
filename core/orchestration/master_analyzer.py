@@ -7,6 +7,7 @@ from core.advanced_technical import AdvancedTechnicalAnalysis
 from core.patterns import AdvancedPatternDetector, ChartPatternTrader
 from core.position import PositionManager
 from core.ai import AdvancedJAXAI
+from core.ai_backends import get_ai_system
 from core.binance_client import BinanceClient
 from core.liquidation import LiquidationCalculator
 from core.profiling import SymbolBehaviorProfiler
@@ -18,7 +19,12 @@ class MasterAnalyzer:
         self.position_manager = PositionManager()
         self.liquidation_calc = LiquidationCalculator()
         self.binance_client = BinanceClient()
-        self.ai_system = AdvancedJAXAI()
+        # Pluggable AI backend: 'jax' (default), 'torch', 'tf', 'ensemble' via AI_BACKEND env
+        try:
+            backend = os.getenv('AI_BACKEND', 'jax')
+            self.ai_system = get_ai_system(backend)
+        except Exception:
+            self.ai_system = AdvancedJAXAI()
         self.symbol_profiler = SymbolBehaviorProfiler()
         self.weights = {'technical':0.70,'patterns':0.20,'ai':0.10}
         self.logger = logging.getLogger("master_analyzer")
