@@ -9,13 +9,35 @@ except Exception:
     JAX_AVAILABLE = False
 
 class AdvancedJAXAI:
-    def __init__(self, input_dim: int = 128, mode: str = 'live', temperature: float = 1.0):
-        self.input_dim = input_dim; self.mode = mode; self.temperature = temperature
-        self.initialized = False; self.training_data = []; self.key=None; self.model_params={}
+    """Lightweight in-process JAX model with improved feature engineering & reliability metrics.
+
+    Upgrades (v2.1):
+      - Extended engineered feature set (trend, volatility, pattern distribution, regime proxies)
+      - Deterministic feature ordering + scaling (running mean/var) for more stable logits
+      - Reliability score (probability margin + entropy inverse)
+      - Simple adaptive temperature: lowers temperature when high consensus to sharpen probs
+      - Feature list introspection via get_feature_schema()
+    """
+    def __init__(self, input_dim: int = 160, mode: str = 'live', temperature: float = 1.0):
+        self.input_dim = input_dim
+        self.mode = mode
+        self.base_temperature = temperature
+        self.temperature = temperature
+        self.initialized = False
+        self.training_data = []
+        self.key = None
+        self.model_params = {}
+        # Running stats for naive online standardization
+        self._feat_count = 0
+        self._feat_mean = None
+        self._feat_m2 = None  # sum of squares of differences
+        self._feature_names_cache = None
         try:
-            if JAX_AVAILABLE: self._init_model()
+            if JAX_AVAILABLE:
+                self._init_model()
         except Exception as e:
-            print(f"AI init failed: {e}"); self.initialized=False
+            print(f"AI init failed: {e}")
+            self.initialized = False
     def _init_model(self):
         self.key = random.PRNGKey(int(time.time()) & 0xFFFFFFFF)
         k1,k2,k3,k4 = random.split(self.key,4)
@@ -25,39 +47,141 @@ class AdvancedJAXAI:
             'w3': random.normal(k3,(64,32))*0.05,'b3': jnp.zeros(32),
             'w4': random.normal(k4,(32,4))*0.05,'b4': jnp.zeros(4)}; self.initialized=True
     def prepare_advanced_features(self, tech, patterns, ticker, position, extended, regime_data=None):
-        return {
-            'price': float(tech.get('current_price', 0)) if isinstance(tech, dict) else 0,
-            'rsi': float(tech.get('rsi', {}).get('rsi', 50)) if isinstance(tech.get('rsi'), dict) else 50,
-            'macd_hist': float(tech.get('macd', {}).get('histogram', 0)) if isinstance(tech.get('macd'), dict) else 0,
-            'pattern_count': len(patterns.get('patterns', [])) if isinstance(patterns, dict) else 0,
-            'bullish_patterns': sum(1 for p in patterns.get('patterns', []) if p.get('signal')=='bullish') if isinstance(patterns, dict) else 0,
-            'bearish_patterns': sum(1 for p in patterns.get('patterns', []) if p.get('signal')=='bearish') if isinstance(patterns, dict) else 0,
-            'support_risk': float(position.get('support_risk',0)) if isinstance(position, dict) else 0,
-            'resistance_potential': float(position.get('resistance_potential',0)) if isinstance(position, dict) else 0
+        """Return raw (unscaled) engineered feature dict.
+        Backwards compatible: retains earlier keys, adds new ones.
+        """
+        pattern_list = patterns.get('patterns', []) if isinstance(patterns, dict) else []
+        bull = sum(1 for p in pattern_list if p.get('signal') == 'bullish')
+        bear = sum(1 for p in pattern_list if p.get('signal') == 'bearish')
+        macd = tech.get('macd', {}) if isinstance(tech, dict) else {}
+        trend_struct = tech.get('trend', {}) if isinstance(tech, dict) else {}
+        atr_pct = extended.get('atr', {}).get('percentage') if isinstance(extended, dict) else None
+        volatility = atr_pct if isinstance(atr_pct, (int, float)) else 0.0
+        regime = (regime_data or {}).get('regime') if isinstance(regime_data, dict) else None
+        regime_one_hot = {
+            'regime_trending': 1 if regime == 'trending' else 0,
+            'regime_ranging': 1 if regime == 'ranging' else 0,
+            'regime_expansion': 1 if regime == 'expansion' else 0,
+            'regime_vol_crush': 1 if regime == 'volatility_crush' else 0
         }
-    def _postprocess(self, probs_arr, version_tag='JAX-v2.0'):
-        probs_np = np.array(probs_arr); signals=['STRONG_SELL','SELL','BUY','STRONG_BUY']
-        idx=int(np.argmax(probs_np)); signal=signals[idx]; confidence=float(probs_np[idx]*100)
-        if signal=='STRONG_BUY' and confidence>75: rec='🚀 KI sehr bullish'
-        elif signal=='BUY' and confidence>60: rec='📈 Moderat bullish'
-        elif signal=='STRONG_SELL' and confidence>75: rec='📉 Stark bearish'
-        elif signal=='SELL' and confidence>60: rec='⚠️ Abwärtsrisiko'
-        else: rec='⚖️ Neutral'
-        return {'signal':signal,'confidence':round(confidence,2),'probabilities':probs_np.round(4).tolist(),'ai_recommendation':rec,'model_version':version_tag,'mode':self.mode}
+        current_price = float(tech.get('current_price', 0)) if isinstance(tech, dict) else 0
+        support = tech.get('support') if isinstance(tech, dict) else None
+        resistance = tech.get('resistance') if isinstance(tech, dict) else None
+        dist_support_pct = ((current_price - support) / current_price * 100) if support and current_price else 0
+        dist_resist_pct = ((resistance - current_price) / current_price * 100) if resistance and current_price else 0
+        feature_map = {
+            # Core legacy
+            'price': current_price,
+            'rsi': float(tech.get('rsi', {}).get('rsi', 50)) if isinstance(tech.get('rsi'), dict) else 50,
+            'macd_hist': float(macd.get('histogram', 0)) if isinstance(macd, dict) else 0,
+            'pattern_count': len(pattern_list),
+            'bullish_patterns': bull,
+            'bearish_patterns': bear,
+            'bull_bear_pattern_diff': bull - bear,
+            'support_risk': float(position.get('support_risk', 0)) if isinstance(position, dict) else 0,
+            'resistance_potential': float(position.get('resistance_potential', 0)) if isinstance(position, dict) else 0,
+            # New technical context
+            'trend_is_bull': 1 if 'bull' in str(trend_struct.get('trend', '')) else 0,
+            'trend_is_bear': 1 if 'bear' in str(trend_struct.get('trend', '')) else 0,
+            'trend_strength_score': {'weak': 0.3, 'moderate': 0.6, 'strong': 0.85, 'very_strong': 1.0}.get(trend_struct.get('strength', ''), 0.5),
+            'volatility_atr_pct': volatility,
+            'dist_support_pct': dist_support_pct,
+            'dist_resistance_pct': dist_resist_pct,
+            # Pattern quality aggregates
+            'avg_pattern_conf': float(np.mean([p.get('confidence', 0) for p in pattern_list])) if pattern_list else 0,
+            'avg_pattern_quality': float(np.mean([p.get('quality_score', 0) for p in pattern_list])) if pattern_list else 0,
+            'high_reliability_patterns': sum(1 for p in pattern_list if p.get('quality_grade') in ('A', 'B')),
+            # Regime one-hot
+            **regime_one_hot
+        }
+        # Cache order once (sorted for deterministic vector)
+        if self._feature_names_cache is None:
+            self._feature_names_cache = sorted(feature_map.keys())
+        return feature_map
+
+    def get_feature_schema(self):
+        return self._feature_names_cache or []
+
+    # --------------------------- internal feature processing --------------------------- #
+    def _vectorize(self, feature_map: dict):
+        names = self._feature_names_cache or sorted(feature_map.keys())
+        vec = np.zeros(self.input_dim, dtype=float)
+        for i, name in enumerate(names):
+            if i >= self.input_dim:
+                break
+            try:
+                vec[i] = float(feature_map.get(name, 0))
+            except Exception:
+                vec[i] = 0.0
+        # Online standardization (population variance) for first N dims actually used
+        used_len = min(len(names), self.input_dim)
+        slice_vec = vec[:used_len]
+        if self._feat_mean is None:
+            self._feat_mean = np.zeros(used_len)
+            self._feat_m2 = np.zeros(used_len)
+        # Expand stored stats if new features appear
+        if used_len > len(self._feat_mean):
+            pad = used_len - len(self._feat_mean)
+            self._feat_mean = np.concatenate([self._feat_mean, np.zeros(pad)])
+            self._feat_m2 = np.concatenate([self._feat_m2, np.zeros(pad)])
+        self._feat_count += 1
+        delta = slice_vec - self._feat_mean[:used_len]
+        self._feat_mean[:used_len] += delta / self._feat_count
+        delta2 = slice_vec - self._feat_mean[:used_len]
+        self._feat_m2[:used_len] += delta * delta2
+        variance = (self._feat_m2[:used_len] / max(1, self._feat_count - 1)).clip(min=1e-6)
+        standardized = (slice_vec - self._feat_mean[:used_len]) / np.sqrt(variance)
+        vec[:used_len] = standardized
+        return vec
+    def _postprocess(self, probs_arr, version_tag='JAX-v2.1'):
+        probs_np = np.array(probs_arr)
+        signals = ['STRONG_SELL', 'SELL', 'BUY', 'STRONG_BUY']
+        idx = int(np.argmax(probs_np))
+        signal = signals[idx]
+        confidence = float(probs_np[idx] * 100)
+        entropy = float(-(probs_np * np.log(probs_np + 1e-9)).sum())
+        margin = float(np.sort(probs_np)[-1] - np.sort(probs_np)[-2]) if len(probs_np) >= 2 else 0
+        max_entropy = np.log(len(probs_np))
+        reliability = (0.6 * (margin) + 0.4 * (1 - entropy / max_entropy)) * 100  # 0..100
+        # Narrative
+        if signal == 'STRONG_BUY' and confidence > 75:
+            rec = '🚀 KI sehr bullish'
+        elif signal == 'BUY' and confidence > 60:
+            rec = '📈 Moderat bullish'
+        elif signal == 'STRONG_SELL' and confidence > 75:
+            rec = '📉 Stark bearish'
+        elif signal == 'SELL' and confidence > 60:
+            rec = '⚠️ Abwärtsrisiko'
+        else:
+            rec = '⚖️ Neutral'
+        return {
+            'signal': signal,
+            'confidence': round(confidence, 2),
+            'probabilities': probs_np.round(4).tolist(),
+            'ai_recommendation': rec,
+            'model_version': version_tag,
+            'mode': self.mode,
+            'reliability_score': round(reliability, 2),
+            'prob_margin': round(margin, 4),
+            'entropy': round(entropy, 4)
+        }
     def predict_advanced(self, features):
         if not self.initialized or not JAX_AVAILABLE:
             return {'signal':'HOLD','confidence':50.0,'probabilities':[0.25]*4,'ai_recommendation':'offline','mode':self.mode}
         try:
-            vec=np.zeros(self.input_dim)
-            for i,(k,v) in enumerate(sorted(features.items())):
-                if i>=self.input_dim: break
-                try: vec[i]=float(v)
-                except: vec[i]=0.0
+            vec = self._vectorize(features)
             x=jnp.array(vec); h1=jnp.tanh(jnp.dot(x,self.model_params['w1'])+self.model_params['b1'])
             h2=jnp.tanh(jnp.dot(h1,self.model_params['w2'])+self.model_params['b2'])
             h3=jnp.tanh(jnp.dot(h2,self.model_params['w3'])+self.model_params['b3'])
             logits=jnp.dot(h3,self.model_params['w4'])+self.model_params['b4']
-            temp=max(0.25,min(4.0,self.temperature)); scaled=logits/temp; probs=jnp.exp(scaled-logsumexp(scaled))
+            # Adaptive temperature: sharper distribution when confident (low entropy)
+            raw = jnp.array(logits)
+            temp = max(0.25, min(4.0, self.base_temperature))
+            # crude entropy proxy from logits variance
+            log_var = float(jnp.var(raw))
+            adapt = 1.0 / (1.0 + log_var * 0.25)
+            eff_temp = temp * adapt
+            scaled=logits/eff_temp; probs=jnp.exp(scaled-logsumexp(scaled))
             return self._postprocess(np.array(probs))
         except Exception as e:
             print(f"AI predict error: {e}")
@@ -66,11 +190,8 @@ class AdvancedJAXAI:
         if not self.initialized or not JAX_AVAILABLE:
             base=self.predict_advanced(features); base['uncertainty']={'enabled':False}; return base
         try:
-            base_vec=np.zeros(self.input_dim)
-            for i,(k,v) in enumerate(sorted(features.items())):
-                if i>=self.input_dim: break
-                try: base_vec[i]=float(v)
-                except: pass
+            feature_vec = self._vectorize(features)
+            base_vec = feature_vec.copy()
             feats=jnp.array(base_vec); rng=self.key; probs_list=[]; keep_scale=1.0/(1.0-dropout_rate)
             for _ in range(passes):
                 rng,k1,k2,k3,k4=random.split(rng,5)
@@ -88,7 +209,7 @@ class AdvancedJAXAI:
                 temp=max(0.25,min(4.0,self.temperature)); scaled=logits/temp; probs=jnp.exp(scaled-logsumexp(scaled))
                 probs_list.append(np.array(probs))
             self.key=rng; arr=np.stack(probs_list,axis=0); mean=arr.mean(axis=0); std=arr.std(axis=0)
-            base=self._postprocess(mean,'JAX-v2.0-MC'); entropy=float(-(mean*np.log(mean+1e-9)).sum())
+            base=self._postprocess(mean,'JAX-v2.1-MC'); entropy=float(-(mean*np.log(mean+1e-9)).sum())
             base['uncertainty']={'enabled':True,'passes':passes,'prob_std':std.round(4).tolist(),'avg_std':float(std.mean()),'entropy':round(entropy,4)}; return base
         except Exception as e:
             b=self.predict_advanced(features); b['uncertainty']={'enabled':False,'error':str(e)}; return b
@@ -118,7 +239,14 @@ class AdvancedJAXAI:
         except Exception as e:
             self.last_train_info={'error':str(e),'updated':datetime.now().isoformat()}
     def get_status(self):
-        return {'initialized':self.initialized,'samples_collected':len(self.training_data),'last_train':getattr(self,'last_train_info',None),'model_version':'JAX-v2.0' if self.initialized else 'unavailable','mode':self.mode if self.initialized else 'offline'}
+        return {
+            'initialized': self.initialized,
+            'samples_collected': len(self.training_data),
+            'last_train': getattr(self,'last_train_info',None),
+            'model_version': 'JAX-v2.1' if self.initialized else 'unavailable',
+            'mode': self.mode if self.initialized else 'offline',
+            'feature_count': len(self._feature_names_cache or [])
+        }
     def _encode_outcome(self, outcome):
         if outcome=='profit': return [0,0,1,1]
         if outcome=='loss': return [1,1,0,0]

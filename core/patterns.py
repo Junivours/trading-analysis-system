@@ -34,10 +34,28 @@ class AdvancedPatternDetector:
             overall='BEARISH'; summary=f"📉 {bearish} bearische Patterns"
         else:
             overall='NEUTRAL'; summary='Gemischte Pattern-Signale'
+        # Enhanced quality & reliability scoring
+        last_price = closes[-1]
         for p in patterns:
             base = p.get('confidence',0)/100.0
-            p['quality_score']=round(base*100,1)
-            p['quality_grade'] = 'A' if base>0.8 else 'B' if base>0.65 else 'C' if base>0.5 else 'D'
+            # Distance factor: how far price is from breakout/neckline (closer => more reliable until triggered)
+            ref_level = p.get('breakout_level') or p.get('breakdown_level') or p.get('neckline') or p.get('target_level') or last_price
+            dist_pct = abs(last_price - ref_level)/last_price if last_price else 0
+            dist_factor = 1.0 if dist_pct < 0.5/100 else 0.85 if dist_pct < 1.0/100 else 0.7 if dist_pct < 1.8/100 else 0.5
+            volume_factor = 1.0
+            if 'volume' in p.get('description',''):
+                if 'x Volumen' in p['description']:
+                    try:
+                        ratio = float(p['description'].split('x Volumen')[0].split()[-1])
+                        if ratio > 1.5:
+                            volume_factor = 1.05
+                    except Exception:
+                        pass
+            reliability = base * dist_factor * volume_factor
+            p['quality_score'] = round(reliability*100,2)
+            p['reliability_score'] = p['quality_score']
+            p['distance_to_trigger_pct'] = round(dist_pct*100,3)
+            p['quality_grade'] = 'A' if reliability>0.82 else 'B' if reliability>0.68 else 'C' if reliability>0.52 else 'D'
         avg_quality = round(sum(p.get('quality_score',0) for p in patterns)/len(patterns),1) if patterns else 0
         return {'patterns':patterns,'pattern_summary':summary,'visual_signals':visual_signals,'overall_signal':overall,'confidence_score': np.mean([p.get('confidence',0) for p in patterns]) if patterns else 0,'patterns_count':len(patterns),'average_quality_score':avg_quality}
 
@@ -123,11 +141,13 @@ class AdvancedPatternDetector:
         current_price = recent_closes[-1]; avg_volume = np.mean(recent_volumes[:-5]) if len(recent_volumes) > 5 else np.mean(recent_volumes)
         current_volume = recent_volumes[-1]
         resistance = max(recent_highs[:-3]) if len(recent_highs)>3 else max(recent_highs)
-        if current_price > resistance * 1.02 and current_volume > avg_volume * 1.5:
-            return {'type':'Resistance Breakout','signal':'bullish','confidence':85,'description':f'Ausbruch über {resistance:.2f} mit {(current_volume/avg_volume):.1f}x Volumen','direction':'BULLISH','target':resistance*1.1,'strength':'VERY_STRONG'}
+        # Stricter confirmation: candle close must exceed by 1%, volume >=1.6x, and body > half ATR proxy
+        body_strength = abs(recent_closes[-1]-recent_closes[-2]) / recent_closes[-2] if len(recent_closes) > 1 else 0
+        if current_price > resistance * 1.01 and current_volume > avg_volume * 1.6 and body_strength > 0.004:
+            return {'type':'Resistance Breakout','signal':'bullish','confidence':88,'description':f'Ausbruch über {resistance:.2f} mit {(current_volume/avg_volume):.2f}x Volumen','direction':'BULLISH','target':resistance*1.1,'strength':'VERY_STRONG'}
         support = min(recent_lows[:-3]) if len(recent_lows)>3 else min(recent_lows)
-        if current_price < support * 0.98 and current_volume > avg_volume * 1.5:
-            return {'type':'Support Breakdown','signal':'bearish','confidence':85,'description':f'Durchbruch unter {support:.2f} mit {(current_volume/avg_volume):.1f}x Volumen','direction':'BEARISH','target':support*0.9,'strength':'VERY_STRONG'}
+        if current_price < support * 0.99 and current_volume > avg_volume * 1.6 and body_strength > 0.004:
+            return {'type':'Support Breakdown','signal':'bearish','confidence':88,'description':f'Durchbruch unter {support:.2f} mit {(current_volume/avg_volume):.2f}x Volumen','direction':'BEARISH','target':support*0.9,'strength':'VERY_STRONG'}
         return None
 
 class ChartPatternTrader:
