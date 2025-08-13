@@ -30,6 +30,7 @@ from core.binance_client import BinanceClient
 from core.liquidation import LiquidationCalculator
 from core.profiling import SymbolBehaviorProfiler
 from core.orchestration.master_analyzer import MasterAnalyzer
+from core.diagnostics import run_symbol_diagnostics
 from collections import deque
 import json, hashlib, logging, uuid
 
@@ -153,6 +154,11 @@ def analyze_symbol(symbol):
             log_event('info', 'Cache cleared for analyze', symbol=symbol.upper())
         log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1')
         analysis = master_analyzer.analyze_symbol(symbol.upper())
+        if request.args.get('diag') == '1':
+            try:
+                analysis['diagnostics'] = run_symbol_diagnostics(analysis)
+            except Exception as _d:
+                analysis['diagnostics'] = {'status':'error','error': str(_d)}
 
         # --- Fallback / Repair for position_analysis to avoid dict-float subtraction errors ---
         try:
