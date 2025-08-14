@@ -1505,6 +1505,9 @@ DASHBOARD_HTML = """
                         <option value="4h">4h</option>
                         <option value="1d">1d</option>
                     </select>
+                    {% if tradingEnabled %}
+                    <button id="botToggle" class="btn-ghost" title="Handelsbot öffnen">🤖 Bot</button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -3563,119 +3566,157 @@ DASHBOARD_HTML = """
 # Inject a compact Trading Bot panel (full UI only). Uses /api/bot/run, /api/bot/positions, /api/bot/orders
 # The template gets tradingEnabled via Jinja variable 'tradingEnabled'. We'll append the panel right after body tag.
 DASHBOARD_HTML = DASHBOARD_HTML.replace(
-    "<body>",
-    """
-<body>
-    {% if tradingEnabled %}
-    <!-- Trading Bot Panel (Local only; disabled on Railway) -->
-    <div style=\"position:fixed; right:16px; bottom:16px; max-width:420px; z-index:9999;\">
-            <div style=\"background:rgba(15,18,28,0.95); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; color:#fff; box-shadow:0 6px 24px rgba(0,0,0,0.35)\">
-                <div style=\"display:flex; justify-content:space-between; align-items:center; gap:8px;\">
-                    <div style=\"font-weight:700\">Trading Bot</div>
-                    <div id=\"tb-status\" style=\"font-size:.85rem; opacity:.8\"></div>
-                </div>
-                <div style=\"display:flex; gap:6px; margin-top:10px; flex-wrap:wrap\">
-                    <input id=\"tb-symbol\" placeholder=\"BTCUSDT\" value=\"BTCUSDT\" style=\"flex:1; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                    <select id=\"tb-tf\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\">
-                        <option>15m</option><option selected>1h</option><option>4h</option><option>1d</option>
-                    </select>
-                    <select id=\"tb-ex\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\">
-                        <option value=\"binance\">Binance</option>
-                        <option value=\"mexc\">MEXC</option>
-                    </select>
-                </div>
-                <div style=\"display:flex; gap:6px; margin-top:8px; flex-wrap:wrap\">
-                    <input id=\"tb-equity\" type=\"number\" placeholder=\"Equity (USDT)\" value=\"1000\" min=\"10\" style=\"flex:1; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                    <input id=\"tb-risk\" type=\"number\" step=\"0.1\" placeholder=\"Risk %\" value=\"0.5\" style=\"width:110px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                    <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-paper\" type=\"checkbox\" checked/> Paper</label>
-                </div>
-                <div style=\"display:flex; gap:8px; margin-top:10px\">
-                    <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Run once</button>
-                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Refresh</button>
-                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Advanced</button>
-                </div>
-                <div id=\"tb-adv\" style=\"display:none; margin-top:8px; padding:8px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
-                    <div style=\"display:flex; gap:6px; flex-wrap:wrap\">
-                        <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" placeholder=\"Cooldown (min)\" value=\"5\" style=\"width:130px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <input id=\"tb-daily\" type=\"number\" step=\"1\" min=\"0\" placeholder=\"Max Trades/Tag\" value=\"3\" style=\"width:150px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <input id=\"tb-maxnotional\" type=\"number\" step=\"1\" min=\"1\" placeholder=\"Max Notional % Equity\" value=\"100\" style=\"width:180px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <input id=\"tb-minnotional\" type=\"number\" step=\"1\" min=\"1\" placeholder=\"Min Notional (USD)\" value=\"10\" style=\"width:170px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-align\" type=\"checkbox\" checked/> Trend-Alignment nötig</label>
+                "</body>",
+                """
+{% if tradingEnabled %}
+<!-- Handelsbot Modal -->
+<div id=\"botModal\" style=\"display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.45);\">
+    <div style=\"position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(95vw, 560px);\">
+        <div style=\"background:rgba(15,18,28,0.98); border:1px solid rgba(255,255,255,0.12); border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.45); color:#fff; overflow:hidden;\">
+            <div style=\"display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,0.08)\">
+                <div style=\"font-weight:700\">Handelsbot</div>
+                <div id=\"tb-status\" style=\"font-size:.85rem; opacity:.8\"></div>
+                <button id=\"botClose\" style=\"background:transparent; border:none; color:#fff; font-size:1.1rem; cursor:pointer\">✕</button>
+            </div>
+            <div style=\"padding:14px\">
+                <div style=\"display:flex; gap:6px; flex-wrap:wrap\">
+                    <div style=\"flex:1; min-width:140px\">
+                        <label style=\"font-size:.75rem; opacity:.8\">Symbol</label>
+                        <input id=\"tb-symbol\" placeholder=\"BTCUSDT\" value=\"BTCUSDT\" title=\"Handelspaar, z.B. BTCUSDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                    </div>
+                    <div>
+                        <label style=\"font-size:.75rem; opacity:.8\">TF</label>
+                        <select id=\"tb-tf\" title=\"Zeiteinheit der Analyse\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select>
+                    </div>
+                    <div>
+                        <label style=\"font-size:.75rem; opacity:.8\">Exchange</label>
+                        <select id=\"tb-ex\" title=\"Börse für Orderausführung\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option value=\"binance\">Binance</option><option value=\"mexc\">MEXC</option></select>
                     </div>
                 </div>
-            <div id=\"tb-out\" style=\"margin-top:10px; max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; line-height:1.35\"></div>
+                <div style=\"display:flex; gap:6px; margin-top:8px; flex-wrap:wrap\">
+                    <div style=\"flex:1; min-width:160px\">
+                        <label style=\"font-size:.75rem; opacity:.8\">Equity (USDT)</label>
+                        <input id=\"tb-equity\" type=\"number\" placeholder=\"1000\" value=\"1000\" min=\"10\" title=\"Verfügbares Kontokapital in USDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">Basis für Positionsgröße und Notional-Limits</div>
+                    </div>
+                    <div style=\"min-width:120px\">
+                        <label style=\"font-size:.75rem; opacity:.8\">Risk %</label>
+                        <input id=\"tb-risk\" type=\"number\" step=\"0.1\" placeholder=\"0.5\" value=\"0.5\" title=\"Risikoprozent pro Trade bezogen auf Equity\" style=\"width:120px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">z. B. 0.5% Risiko pro Trade</div>
+                    </div>
+                    <label style=\"display:flex; align-items:flex-end; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-paper\" type=\"checkbox\" checked title=\"Paper: simulierte Orders ohne Live-Handel\"/> Paper</label>
+                </div>
+                <div style=\"display:flex; gap:8px; margin-top:10px\">
+                    <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Einmal ausführen</button>
+                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Aktualisieren</button>
+                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Fortschrittlich</button>
+                </div>
+                <div id=\"tb-adv\" style=\"display:none; margin-top:10px; padding:10px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
+                    <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px\">
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">Cooldown (min)</label>
+                            <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" value=\"5\" title=\"Mindestzeit zwischen Trades pro Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6\">Verhindert zu häufiges Traden</div>
+                        </div>
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">Max Trades/Tag</label>
+                            <input id=\"tb-daily\" type=\"number\" step=\"1\" min=\"0\" value=\"3\" title=\"Begrenzt Trades pro Tag und Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6\">0 = kein Limit</div>
+                        </div>
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">Max Notional %</label>
+                            <input id=\"tb-maxnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"100\" title=\"Maximale Positionsnotional relativ zur Equity\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6\">Deckelt Positionsgröße</div>
+                        </div>
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">Min Notional (USD)</label>
+                            <input id=\"tb-minnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"10\" title=\"Mindestnotional zur Orderplatzierung\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6\">z. B. Exchange-Limits</div>
+                        </div>
+                        <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\" title=\"Nur traden, wenn Richtung mit MTF-Trend übereinstimmt\"><input id=\"tb-align\" type=\"checkbox\" checked/> Trend-Alignment nötig</label>
+                    </div>
+                </div>
+                <div id=\"tb-out\" style=\"margin-top:12px; max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; line-height:1.35\"></div>
             </div>
+        </div>
     </div>
-        <script>
-            const TRADING_ENABLED = {{ tradingEnabled | tojson }};
-            function fmtTs(ms){ try{ const d=new Date(ms); return d.toLocaleString(); }catch(e){ return ms; } }
-            async function tbRefresh(){
-                const st = document.getElementById('tb-status'); const out = document.getElementById('tb-out');
-                try{
-                    const [p,o] = await Promise.all([
-                        fetch('/api/bot/positions').then(r=>r.json()).catch(()=>({success:false})),
-                        fetch('/api/bot/orders?limit=20').then(r=>r.json()).catch(()=>({success:false}))
-                    ]);
-                    let html = '';
-                    if(p.success){
-                        html += '<div style="opacity:.7;margin-bottom:4px">Positions</div>';
-                        const keys = Object.keys(p.positions||{});
-                        if(!keys.length) html += '<div style="opacity:.6">Keine offenen Positionen</div>';
-                        keys.forEach(k=>{ const v=p.positions[k]; html += `<div>• ${k}: qty=${v.qty} @ ${v.avg_entry}</div>`; });
-                    }
-                    if(o.success){
-                        html += '<div style="opacity:.7;margin:8px 0 4px">Letzte Orders</div>';
-                        (o.orders||[]).forEach(x=>{ html += `<div>• ${x.side||''} ${x.qty||''} ${x.symbol||''} (${fmtTs(x.ts)}) ${x.dry_run?'[paper]':''}</div>`; });
-                    }
-                    out.innerHTML = html || '<div style="opacity:.6">Keine Daten</div>';
-                    st.innerText = TRADING_ENABLED ? 'bereit' : 'deaktiviert';
-                    document.getElementById('tb-run').disabled = !TRADING_ENABLED;
-                    if(!TRADING_ENABLED){ document.getElementById('tb-run').title = 'Trading ist auf diesem Deployment deaktiviert'; }
-                }catch(e){ out.innerText = 'Fehler beim Laden'; }
+</div>
+<script>
+    const TRADING_ENABLED = {{ tradingEnabled | tojson }};
+    function fmtTs(ms){ try{ const d=new Date(ms); return d.toLocaleString(); }catch(e){ return ms; } }
+    async function tbRefresh(){
+        const st = document.getElementById('tb-status'); const out = document.getElementById('tb-out');
+        if(!st || !out) return;
+        try{
+            const [p,o] = await Promise.all([
+                fetch('/api/bot/positions').then(r=>r.json()).catch(()=>({success:false})),
+                fetch('/api/bot/orders?limit=20').then(r=>r.json()).catch(()=>({success:false}))
+            ]);
+            let html = '';
+            if(p.success){
+                html += '<div style=\"opacity:.7;margin-bottom:4px\">Positions</div>';
+                const keys = Object.keys(p.positions||{});
+                if(!keys.length) html += '<div style=\"opacity:.6\">Keine offenen Positionen</div>';
+                keys.forEach(k=>{ const v=p.positions[k]; html += `<div>• ${k}: qty=${v.qty} @ ${v.avg_entry}</div>`; });
             }
-                    async function tbRun(){
-                const s = (document.getElementById('tb-symbol').value||'BTCUSDT').toUpperCase();
-                const tf = (document.getElementById('tb-tf').value||'1h');
-                const ex = (document.getElementById('tb-ex').value||'binance');
-                const eq = parseFloat(document.getElementById('tb-equity').value||'1000');
-                const rk = parseFloat(document.getElementById('tb-risk').value||'0.5');
-                const pap = !!document.getElementById('tb-paper').checked;
-                const out = document.getElementById('tb-out'); out.innerText = 'Running…';
-                try{
-                    const adv = {};
-                    const cd = parseFloat(document.getElementById('tb-cooldown')?.value || ''); if(!isNaN(cd)) adv.cooldown_minutes = cd;
-                    const dl = parseInt(document.getElementById('tb-daily')?.value || ''); if(!isNaN(dl)) adv.max_trades_per_day = dl;
-                    const mn = parseFloat(document.getElementById('tb-maxnotional')?.value || ''); if(!isNaN(mn)) adv.max_notional_pct = mn;
-                    const mi = parseFloat(document.getElementById('tb-minnotional')?.value || ''); if(!isNaN(mi)) adv.min_notional = mi;
-                    const al = document.getElementById('tb-align')?.checked; if(typeof al==='boolean') adv.require_trend_alignment = al;
-                    const payload = Object.assign({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap}, adv);
-                    const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-                    const j = await r.json();
-                    if(!j.success){ out.innerText = 'Fehler: '+(j.error||'unknown'); }
-                    else {
-                                const exed = (j.data && j.data.executed) || [];
-                                const ctx = (j.data && j.data.context) || {};
-                                let html = `<div style=\"opacity:.7\">Ergebnis (max 1 Trade) • ${ex.toUpperCase()} • Paper: ${j.paper?'JA':'NEIN'}</div>`;
-                                html += `<div style=\"opacity:.7\">Kontext: decision=${ctx.decision||'-'}, mtf=${ctx.mtf||'-'}, RSI=${ctx.rsi??'-'}, MACD=${ctx.macd||'-'}, AI=${ctx.ai_signal||'-'} (${ctx.ai_confidence??'-'}%)</div>`;
-                                if(!exed.length){ html += '<div>Keine Ausführungen (Filter oder Bedingungen nicht erfüllt)</div>'; }
-                                exed.forEach((e,i)=>{
-                                    if(e.skipped){
-                                        const st = e.setup||{}; const why = e.reason||''; const dir = st.direction||'-'; const rr = st.risk_reward_ratio||st.primary_rr; const prob = st.probability_estimate_pct;
-                                        html += `<div>• SKIPPED (${dir}) — Gründe: ${why} • RR=${rr??'-'} • P=${prob??'-'}% • TF=${st.timeframe||'-'} • Strat=${st.strategy||st.label||'-'}</div>`
-                                    } else {
-                                        html += `<div>• EXECUTED ${e.direction} ${e.qty} @ ${e.entry} • RR=${e.rr??'-'} • P=${e.probability_estimate_pct??'-'}% • TF=${e.timeframe||'-'} • Strat=${e.strategy||'-'}</div>`
-                                        if(e.rationale){ html += `<div style=\"opacity:.7\">   Begründung: ${e.rationale}</div>`; }
-                                    }
-                                });
-                        out.innerHTML = html;
-                    }
-                    tbRefresh();
-                }catch(e){ out.innerText = 'Fehler: '+e; }
+            if(o.success){
+                html += '<div style=\"opacity:.7;margin:8px 0 4px\">Letzte Orders</div>';
+                (o.orders||[]).forEach(x=>{ html += `<div>• ${x.side||''} ${x.qty||''} ${x.symbol||''} (${fmtTs(x.ts)}) ${x.dry_run?'[paper]':''}</div>`; });
             }
-            document.addEventListener('DOMContentLoaded', ()=>{ tbRefresh(); });
-        </script>
-    {% endif %}
-        """
+            out.innerHTML = html || '<div style=\"opacity:.6\">Keine Daten</div>';
+            st.innerText = TRADING_ENABLED ? 'bereit' : 'deaktiviert';
+            const runBtn = document.getElementById('tb-run'); if(runBtn){ runBtn.disabled = !TRADING_ENABLED; if(!TRADING_ENABLED){ runBtn.title = 'Trading ist auf diesem Deployment deaktiviert'; } }
+        }catch(e){ if(out){ out.innerText = 'Fehler beim Laden'; } }
+    }
+    async function tbRun(){
+        const s = (document.getElementById('tb-symbol').value||'BTCUSDT').toUpperCase();
+        const tf = (document.getElementById('tb-tf').value||'1h');
+        const ex = (document.getElementById('tb-ex').value||'binance');
+        const eq = parseFloat(document.getElementById('tb-equity').value||'1000');
+        const rk = parseFloat(document.getElementById('tb-risk').value||'0.5');
+        const pap = !!document.getElementById('tb-paper').checked;
+        const out = document.getElementById('tb-out'); if(out) out.innerText = 'Running…';
+        try{
+            const adv = {};
+            const cd = parseFloat(document.getElementById('tb-cooldown')?.value || ''); if(!isNaN(cd)) adv.cooldown_minutes = cd;
+            const dl = parseInt(document.getElementById('tb-daily')?.value || ''); if(!isNaN(dl)) adv.max_trades_per_day = dl;
+            const mn = parseFloat(document.getElementById('tb-maxnotional')?.value || ''); if(!isNaN(mn)) adv.max_notional_pct = mn;
+            const mi = parseFloat(document.getElementById('tb-minnotional')?.value || ''); if(!isNaN(mi)) adv.min_notional = mi;
+            const al = document.getElementById('tb-align')?.checked; if(typeof al==='boolean') adv.require_trend_alignment = al;
+            const payload = Object.assign({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap}, adv);
+            const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+            const j = await r.json();
+            if(!j.success){ if(out) out.innerText = 'Fehler: '+(j.error||'unknown'); }
+            else {
+                const exed = (j.data && j.data.executed) || [];
+                const ctx = (j.data && j.data.context) || {};
+                let html = `<div style=\"opacity:.7\">Ergebnis (max 1 Trade) • ${ex.toUpperCase()} • Paper: ${j.paper?'JA':'NEIN'}</div>`;
+                html += `<div style=\"opacity:.7\">Kontext: decision=${ctx.decision||'-'}, mtf=${ctx.mtf||'-'}, RSI=${ctx.rsi??'-'}, MACD=${ctx.macd||'-'}, AI=${ctx.ai_signal||'-'} (${ctx.ai_confidence??'-'}%)</div>`;
+                if(!exed.length){ html += '<div>Keine Ausführungen (Filter oder Bedingungen nicht erfüllt)</div>'; }
+                exed.forEach((e,i)=>{
+                    if(e.skipped){
+                        const st = e.setup||{}; const why = e.reason||''; const dir = st.direction||'-'; const rr = st.risk_reward_ratio||st.primary_rr; const prob = st.probability_estimate_pct;
+                        html += `<div>• SKIPPED (${dir}) — Gründe: ${why} • RR=${rr??'-'} • P=${prob??'-'}% • TF=${st.timeframe||'-'} • Strat=${st.strategy||st.label||'-'}</div>`
+                    } else {
+                        html += `<div>• EXECUTED ${e.direction} ${e.qty} @ ${e.entry} • RR=${e.rr??'-'} • P=${e.probability_estimate_pct??'-'}% • TF=${e.timeframe||'-'} • Strat=${e.strategy||'-'}</div>`
+                        if(e.rationale){ html += `<div style=\"opacity:.7\">   Begründung: ${e.rationale}</div>`; }
+                    }
+                });
+                if(out) out.innerHTML = html;
+            }
+            tbRefresh();
+        }catch(e){ if(out) out.innerText = 'Fehler: '+e; }
+    }
+    document.addEventListener('DOMContentLoaded', ()=>{
+        const btn = document.getElementById('botToggle'); const modal = document.getElementById('botModal'); const close = document.getElementById('botClose');
+        if(btn && modal){ btn.addEventListener('click', ()=>{ modal.style.display='block'; tbRefresh(); }); }
+        if(close && modal){ close.addEventListener('click', ()=>{ modal.style.display='none'; }); }
+        if(modal){ modal.addEventListener('click', (e)=>{ if(e.target===modal){ modal.style.display='none'; } }); }
+    });
+</script>
+{% endif %}
+</body>
+"""
 )
 
 # Minimal dashboard shown on Railway (analysis-only): simple decision and short reasons
