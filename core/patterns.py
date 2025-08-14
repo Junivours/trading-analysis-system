@@ -409,20 +409,87 @@ class AdvancedPatternDetector:
         return {'type':'Head and Shoulders','signal':'bearish','confidence':conf,'description':f'KR: {head_ratio:.2f}, Vol: {vol_pattern}','neckline':neckline,'target':neckline - (head - neckline),'strength':'VERY_STRONG' if conf>80 else 'STRONG'}
 
     @staticmethod
-    def _detect_enhanced_double_patterns(highs, lows, volumes, lookback=20):
-        if len(highs) < lookback:
+    def _detect_enhanced_double_patterns(highs, lows, volumes, lookback=30):
+        """Robuste Double Top/Bottom Erkennung mit Pivot-Logik, Zeitabstand und Volumen-Check.
+        Reduziert False Positives und liefert klare Handelslevels (neckline/breakout + stop).
+        """
+        n = len(highs)
+        if n < lookback or lookback < 12:
             return None
-        recent_highs = highs[-lookback:]; recent_lows = lows[-lookback:]
-        h_sorted = sorted(recent_highs, reverse=True)[:3]; l_sorted = sorted(recent_lows)[:3]
-        if len(h_sorted) < 2 or len(l_sorted) < 2:
+        H = highs[-lookback:]; L = lows[-lookback:]; V = volumes[-lookback:]
+        # 1) Lokale Pivots finden (3-kerzen Kriterium)
+        piv_high = []
+        piv_low = []
+        for i in range(2, lookback-2):
+            if H[i] > H[i-1] and H[i] > H[i-2] and H[i] > H[i+1] and H[i] > H[i+2]:
+                piv_high.append((i, H[i]))
+            if L[i] < L[i-1] and L[i] < L[i-2] and L[i] < L[i+1] and L[i] < L[i+2]:
+                piv_low.append((i, L[i]))
+        if len(piv_high) < 2 and len(piv_low) < 2:
             return None
-        high_diff = abs(h_sorted[0] - h_sorted[1]) / ((h_sorted[0] + h_sorted[1]) / 2)
-        low_diff = abs(l_sorted[0] - l_sorted[1]) / ((l_sorted[0] + l_sorted[1]) / 2)
-        if high_diff < 0.005:
-            return {'type':'Double Top','signal':'bearish','confidence':70,'description':f'Doppeltes Top ~{high_diff:.2%}','target_level':min(recent_lows[-5:]),'strength':'MEDIUM'}
-        if low_diff < 0.005:
-            return {'type':'Double Bottom','signal':'bullish','confidence':70,'description':f'Doppelter Boden ~{low_diff:.2%}','target_level':max(recent_highs[-5:]),'strength':'MEDIUM'}
-        return None
+        # 2) Double Top: zwei letzte High-Pivots nahe beieinander, mit Pullback dazwischen
+        def find_double_top():
+            if len(piv_high) < 2:
+                return None
+            i1, h1 = piv_high[-2]
+            i2, h2 = piv_high[-1]
+            # Zeitabstand ausreichend
+            if (i2 - i1) < max(3, int(lookback*0.15)):
+                return None
+            # Höhe nahe (<= 0.6%)
+            diff = abs(h2 - h1) / max(h1, h2)
+            if diff > 0.006:
+                return None
+            # Pullback (Zwischentief) ausreichend (>= 0.6% vom Top)
+            trough = min(L[i1:i2+1])
+            if (max(h1, h2) - trough) / max(h1, h2) < 0.006:
+                return None
+            # Volumen: zweite Spitze mit geringerem Volumen bevorzugt
+            v1 = float(np.mean(V[max(0,i1-2):i1+1]))
+            v2 = float(np.mean(V[max(0,i2-2):i2+1]))
+            vol_conf = v2 < v1*0.9
+            neckline = trough
+            stop_level = max(h1, h2) * 1.004
+            conf = 78 if vol_conf else 68
+            return {
+                'type':'Double Top','signal':'bearish','confidence':conf,
+                'description': f'Tops Δ≈{diff*100:.2f}%, Pullback ok, Vol2 {"<" if vol_conf else "~"} Vol1',
+                'neckline': neckline,
+                'breakdown_level': neckline * 0.998,
+                'stop_level': stop_level,
+                'target_level': neckline - (max(h1,h2)-neckline)*0.6,
+                'strength': 'STRONG' if conf>=75 else 'MEDIUM'
+            }
+        # 3) Double Bottom: zwei letzte Low-Pivots nahe beieinander, mit Rally dazwischen
+        def find_double_bottom():
+            if len(piv_low) < 2:
+                return None
+            i1, l1 = piv_low[-2]
+            i2, l2 = piv_low[-1]
+            if (i2 - i1) < max(3, int(lookback*0.15)):
+                return None
+            diff = abs(l2 - l1) / max(l1, l2)
+            if diff > 0.006:
+                return None
+            peak = max(H[i1:i2+1])
+            if (peak - min(l1, l2)) / peak < 0.006:
+                return None
+            v1 = float(np.mean(V[max(0,i1-2):i1+1]))
+            v2 = float(np.mean(V[max(0,i2-2):i2+1]))
+            vol_conf = v2 < v1*0.9
+            neckline = peak
+            stop_level = min(l1, l2) * 0.996
+            conf = 78 if vol_conf else 68
+            return {
+                'type':'Double Bottom','signal':'bullish','confidence':conf,
+                'description': f'Bottoms Δ≈{diff*100:.2f}%, Rally ok, Vol2 {"<" if vol_conf else "~"} Vol1',
+                'neckline': neckline,
+                'breakout_level': neckline * 1.002,
+                'stop_level': stop_level,
+                'target_level': neckline + (neckline-min(l1,l2))*0.6,
+                'strength': 'STRONG' if conf>=75 else 'MEDIUM'
+            }
+        return find_double_top() or find_double_bottom()
 
     @staticmethod
     def _detect_cup_and_handle(highs, lows, closes, lookback=30):
@@ -472,17 +539,30 @@ class ChartPatternTrader:
             atr_value = atr.get('atr') or atr.get('value')
         else:
             atr_value = atr
+        # Risk unit: prefer ATR, else 1% of price
         risk_unit = atr_value if atr_value and atr_value > 0 else (current_price * 0.01)
         for p in patterns:
             ptype = p.get('type','')
             signal = p.get('signal','neutral')
-            conf = p.get('confidence',50)
+            conf = int(p.get('confidence',50))
             strength = p.get('strength','MEDIUM')
             if signal == 'bullish':
-                entry = p.get('breakout_level') or p.get('target_level') or (resistance if resistance else current_price*1.01)
-                stop = p.get('stop_level') or (support if support else current_price * 0.95)
-                target = p.get('target') or (entry + risk_unit*2)
-                r = (target-entry)/(entry-stop) if entry!=stop else 0
+                entry = p.get('breakout_level') or p.get('neckline') or p.get('target_level') or (resistance if resistance else current_price*1.01)
+                # Stop fallback: use provided stop_level, else below entry by ATR or 1%
+                stop = p.get('stop_level') or (support if support else (entry - max(risk_unit, entry*0.01)*1.2))
+                # Ensure stop is below entry for LONG
+                if stop >= entry:
+                    stop = entry - max(risk_unit, entry*0.01)*1.2
+                target = p.get('target') or (entry + max(risk_unit*2.0, abs(entry-stop)*2.0))
+                # RR sanity: ensure at least 1.2R if possible
+                risk = max(1e-9, entry - stop)
+                if (target - entry) / risk < 1.2:
+                    target = entry + 1.2 * risk
+                # Confidence distance adjustment
+                dist_pct = abs(entry - current_price) / max(1e-9, current_price) * 100
+                if dist_pct > 3.0:
+                    conf = max(10, conf - 15)
+                r = (target-entry)/risk
                 trades.append({
                     'symbol': symbol,
                     'pattern': ptype,
@@ -491,14 +571,24 @@ class ChartPatternTrader:
                     'stop': round(stop,6),
                     'target': round(target,6),
                     'rr': round(r,2),
-                    'confidence': conf,
+                    'confidence': int(max(10, min(95, conf))),
                     'strength': strength
                 })
             elif signal == 'bearish':
-                entry = p.get('breakdown_level') or p.get('target_level') or (support if support else current_price*0.99)
-                stop = p.get('stop_level') or (resistance if resistance else current_price * 1.05)
-                target = p.get('target') or (entry - risk_unit*2)
-                r = (entry-target)/(stop-entry) if stop!=entry else 0
+                entry = p.get('breakdown_level') or p.get('neckline') or p.get('target_level') or (support if support else current_price*0.99)
+                stop = p.get('stop_level') or (resistance if resistance else (entry + max(risk_unit, entry*0.01)*1.2))
+                # Ensure stop is above entry for SHORT
+                if stop <= entry:
+                    stop = entry + max(risk_unit, entry*0.01)*1.2
+                target = p.get('target') or (entry - max(risk_unit*2.0, abs(stop-entry)*2.0))
+                # RR sanity
+                risk = max(1e-9, stop - entry)
+                if (entry - target) / risk < 1.2:
+                    target = entry - 1.2 * risk
+                dist_pct = abs(entry - current_price) / max(1e-9, current_price) * 100
+                if dist_pct > 3.0:
+                    conf = max(10, conf - 15)
+                r = (entry-target)/risk
                 trades.append({
                     'symbol': symbol,
                     'pattern': ptype,
@@ -507,7 +597,7 @@ class ChartPatternTrader:
                     'stop': round(stop,6),
                     'target': round(target,6),
                     'rr': round(r,2),
-                    'confidence': conf,
+                    'confidence': int(max(10, min(95, conf))),
                     'strength': strength
                 })
         trades.sort(key=lambda x: (x['confidence'], x['rr']), reverse=True)

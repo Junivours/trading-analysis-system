@@ -1599,12 +1599,37 @@ class MasterAnalyzer:
             # NEW: Enhanced Signal Detection für detailliertere Erfolgssignale
             enhanced_signals = []
             try:
-                # Hole Candlestick-Daten für Mikro-Pattern-Analyse
-                candles = self.binance_client.get_klines(symbol, '1h', 20)
-                if candles and len(candles) > 5:
+                # Hole Candlestick-Daten für Mikro-Pattern-Analyse (nutze TechnicalAnalysis API)
+                candles = self.technical_analysis.get_candle_data(symbol, limit=20, interval='1h')
+                if candles and isinstance(candles, list) and len(candles) > 5:
                     # Erweiterte Signal-Erkennung ohne Breaking Changes
                     micro_patterns = SignalEnhancer.detect_micro_patterns(candles)
                     enhanced_signals.extend(micro_patterns)
+                    # Deduplicate: keep best by (type, signal, timeframe, anchor-level)
+                    try:
+                        best_by_sig = {}
+                        for s in enhanced_signals:
+                            if not isinstance(s, dict):
+                                continue
+                            t = s.get('type','')
+                            sig = s.get('signal','')
+                            tf = s.get('timeframe','')
+                            # pick a stable anchor price level if available
+                            anchor = None
+                            for k in ('sweep_level','order_block_low','order_block_high','gap_low','gap_high','break_level','current_level'):
+                                v = s.get(k)
+                                if isinstance(v,(int,float)):
+                                    anchor = round(float(v), 5)
+                                    break
+                            key = (t, sig, tf, anchor)
+                            prev = best_by_sig.get(key)
+                            if prev is None or int(s.get('confidence',0)) > int(prev.get('confidence',0)):
+                                best_by_sig[key] = s
+                        # Replace with deduped list, sorted by confidence desc and capped
+                        enhanced_signals = sorted(best_by_sig.values(), key=lambda x: int(x.get('confidence',0)), reverse=True)[:20]
+                    except Exception:
+                        # If dedup fails, keep raw list but limit size
+                        enhanced_signals = enhanced_signals[:20]
                     
                     # Log für Debugging
                     if micro_patterns:
@@ -1612,6 +1637,7 @@ class MasterAnalyzer:
             except Exception as e:
                 self.logger.warning(f"Enhanced signal detection failed for {symbol}: {e}")
                 # Fallback: Continue with standard signal generation
+                enhanced_signals = []
                 
             # Store enhanced signals for return
             self.enhanced_signals = enhanced_signals
@@ -2522,8 +2548,8 @@ class MasterAnalyzer:
                 
                 # Timing-Präzision hinzufügen wenn Candle-Daten verfügbar
                 try:
-                    candles = self.binance_client.get_klines(symbol, '1h', 5)
-                    if candles:
+                    candles = self.technical_analysis.get_candle_data(symbol, limit=5, interval='1h')
+                    if candles and isinstance(candles, list) and len(candles) >= 2:
                         enhanced_setup = SignalEnhancer.add_timing_precision(enhanced_setup, candles)
                 except Exception:
                     pass  # Fallback: Continue ohne Timing Enhancement
