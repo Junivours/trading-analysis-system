@@ -1,7 +1,7 @@
-import time, requests
+import os, time, requests
 
 class BinanceClient:
-    BASE_URL = "https://api.binance.com/api/v3"
+    BASE_URL = os.getenv("BINANCE_BASE_URL", "https://api.binance.com/api/v3")
     _cache = {'ticker': {}, 'price': {}, 'klines': {}, 'exchangeInfo': {}}
     TICKER_TTL = 10; PRICE_TTL = 3; KLINES_TTL = 45
     EXINFO_TTL = 60*60  # 1 hour
@@ -17,7 +17,10 @@ class BinanceClient:
     @staticmethod
     def search_symbols(query):
         try:
-            resp=requests.get(f"{BinanceClient.BASE_URL}/exchangeInfo",timeout=10); data=resp.json(); symbols=[]; q=query.upper()
+            headers = {}
+            if os.getenv('BINANCE_API_KEY'):
+                headers['X-MBX-APIKEY'] = os.getenv('BINANCE_API_KEY')
+            resp=requests.get(f"{BinanceClient.BASE_URL}/exchangeInfo",timeout=10, headers=headers); data=resp.json(); symbols=[]; q=query.upper()
             for s in data.get('symbols',[]):
                 sym=s['symbol'];
                 if s.get('status')=='TRADING':
@@ -35,7 +38,10 @@ class BinanceClient:
             now=time.time(); cached=BinanceClient._cache['ticker'].get(symbol)
             if cached and now-cached[0] < BinanceClient.TICKER_TTL:
                 data=cached[1]; data['_cache']='HIT'; return data
-            r=requests.get(f"{BinanceClient.BASE_URL}/ticker/24hr",params={'symbol':symbol},timeout=10); data=r.json(); data['_cache']='MISS'
+            headers = {}
+            if os.getenv('BINANCE_API_KEY'):
+                headers['X-MBX-APIKEY'] = os.getenv('BINANCE_API_KEY')
+            r=requests.get(f"{BinanceClient.BASE_URL}/ticker/24hr",params={'symbol':symbol},timeout=10, headers=headers); data=r.json(); data['_cache']='MISS'
             BinanceClient._cache['ticker'][symbol]=(now,data); return data
         except Exception as e: print(f"Error getting ticker data: {e}"); return {}
     @staticmethod
@@ -43,7 +49,10 @@ class BinanceClient:
         try:
             now=time.time(); cached=BinanceClient._cache['price'].get(symbol)
             if cached and now-cached[0] < BinanceClient.PRICE_TTL: return cached[1]
-            r=requests.get(f"{BinanceClient.BASE_URL}/ticker/price",params={'symbol':symbol},timeout=10); data=r.json(); price=float(data['price'])
+            headers = {}
+            if os.getenv('BINANCE_API_KEY'):
+                headers['X-MBX-APIKEY'] = os.getenv('BINANCE_API_KEY')
+            r=requests.get(f"{BinanceClient.BASE_URL}/ticker/price",params={'symbol':symbol},timeout=10, headers=headers); data=r.json(); price=float(data['price'])
             BinanceClient._cache['price'][symbol]=(now,price); return price
         except Exception as e: print(f"Error getting current price: {e}"); return 0
 
@@ -59,7 +68,10 @@ class BinanceClient:
             if cache and now - cache[0] < BinanceClient.EXINFO_TTL:
                 return cache[1]
             # Fetch full exchangeInfo once, then find symbol
-            resp = requests.get(f"{BinanceClient.BASE_URL}/exchangeInfo", timeout=15)
+            headers = {}
+            if os.getenv('BINANCE_API_KEY'):
+                headers['X-MBX-APIKEY'] = os.getenv('BINANCE_API_KEY')
+            resp = requests.get(f"{BinanceClient.BASE_URL}/exchangeInfo", timeout=15, headers=headers)
             data = resp.json()
             filters = {}
             for s in data.get('symbols', []):

@@ -1,9 +1,14 @@
 Flask==2.3.3
 requests==2.31.0
-numpy==1.24.3
+# Numpy pinned to a version compatible with TF/Torch on Python 3.11
+numpy==1.26.4
 gunicorn==21.2.0
 Werkzeug==2.3.7
---find-links https://storage.googleapis.com/jax-releases/jax_releases.html
-jax[cpu]
+
+# ML backends (CPU-only) for Railway/Linux builds
+# Guarded by platform markers so local Windows installs can skip and use neutral fallback
+torch==2.2.2; platform_system == "Linux"
+tensorflow==2.15.1; platform_system == "Linux"
+
 pytest==8.2.2
 pytest-timeout==2.3.1

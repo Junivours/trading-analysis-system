@@ -25,7 +25,6 @@ from core.technical_analysis import TechnicalAnalysis
 from core.advanced_technical import AdvancedTechnicalAnalysis
 from core.patterns import AdvancedPatternDetector, ChartPatternTrader
 from core.position import PositionManager
-from core.ai import AdvancedJAXAI
 from core.binance_client import BinanceClient
 from core.liquidation import LiquidationCalculator
 from core.profiling import SymbolBehaviorProfiler
@@ -519,6 +518,73 @@ def ai_status():
     except Exception as e:
     # Absolute fallback – never raise 500 for status endpoint
         return jsonify({'success': True, 'data': {'initialized': False, 'model_version': 'unavailable', 'error': str(e)}}), 200
+
+@app.route('/api/ai/compare/<symbol>')
+def ai_compare(symbol):
+    """Run both AI backends (torch and tensorflow) against the same features to validate side-by-side.
+    Optional: ?tf=1h (15m|1h|4h|1d)
+    """
+    try:
+        tf = (request.args.get('tf') or '1h').lower()
+        if tf not in ('15m','1h','4h','1d'):
+            tf = '1h'
+        # Reuse full pipeline to get consistent technicals/patterns/extended
+        analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=tf)
+        tech = analysis.get('technical_analysis') or {}
+        patterns = analysis.get('pattern_analysis') or {}
+        extended = analysis.get('extended_analysis') or {}
+        position = analysis.get('position_analysis') or {}
+        # Prefer market_data from analysis, else fetch ticker directly
+        ticker = analysis.get('market_data') or {}
+        if not ticker:
+            try:
+                ticker = master_analyzer.binance_client.get_ticker_data(symbol.upper())
+            except Exception:
+                ticker = {}
+
+        # Build features once using the neutral feature engine
+        from core.ai_backends import FeatureEngineNeutral, TorchAIAdapter, TensorFlowAIAdapter, EnsembleAI
+        engine = FeatureEngineNeutral()
+        features = engine.prepare_advanced_features(tech, patterns, ticker, position, extended)
+
+        # Run adapters (will neutral-fallback if framework not installed)
+        torch_pred = None
+        tf_pred = None
+        try:
+            torch_pred = TorchAIAdapter(feature_engine=engine).predict_with_uncertainty(features)
+        except Exception as e:
+            torch_pred = {'initialized': False, 'framework': 'torch', 'error': str(e)}
+        try:
+            tf_pred = TensorFlowAIAdapter(feature_engine=engine).predict_with_uncertainty(features)
+        except Exception as e:
+            tf_pred = {'initialized': False, 'framework': 'tensorflow', 'error': str(e)}
+
+        # Ensemble across available members
+        try:
+            ens = EnsembleAI([
+                TorchAIAdapter(feature_engine=engine),
+                TensorFlowAIAdapter(feature_engine=engine)
+            ], feature_engine=engine)
+            ens_pred = ens.predict_with_uncertainty(features)
+            ens_status = ens.get_status()
+        except Exception as e:
+            ens_pred = {'initialized': False, 'framework': 'ensemble', 'error': str(e)}
+            ens_status = {'initialized': False, 'mode': 'ensemble', 'error': str(e)}
+
+        return jsonify({
+            'success': True,
+            'symbol': symbol.upper(),
+            'timeframe': tf,
+            'data_latency': analysis.get('latency_ms') if isinstance(analysis, dict) else None,
+            'torch': torch_pred,
+            'tensorflow': tf_pred,
+            'ensemble': ens_pred,
+            'ensemble_status': ens_status,
+            'master_ai': analysis.get('ai_analysis'),
+        })
+    except Exception as e:
+        err_id = log_event('error', 'AI compare exception', symbol=symbol.upper(), error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'symbol': symbol.upper(), 'log_id': err_id}), 500
 
 @app.route('/api/backtest/<symbol>')
 def backtest(symbol):
@@ -1204,7 +1270,7 @@ DASHBOARD_HTML = """
         <div class="header">
             <div class="header-inner">
                 <h1>Ultimate Trading System V5</h1>
-                <p>Professional Analysis • Intelligent Position Management • JAX Neural Networks</p>
+                <p>Professional Analysis • Intelligent Position Management • Pluggable AI</p>
                 <div class="toolbar">
                     <button id="themeToggle" class="btn-ghost" title="Theme umschalten">🌓 Theme</button>
                     <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">🔄 Refresh</button>
@@ -1358,7 +1424,7 @@ DASHBOARD_HTML = """
 
                 <!-- AI Analysis -->
                 <div class="glass-card">
-                    <div class="section-title"><span class="icon">🤖</span> JAX Neural Network</div>
+                    <div class="section-title"><span class="icon">🤖</span> AI Engine</div>
                     <div id="aiAnalysis">
                         <!-- AI analysis will be inserted here -->
                     </div>
