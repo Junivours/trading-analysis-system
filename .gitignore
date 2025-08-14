@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pytest_cache/
+*.ipynb_checkpoints/
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+
+# Local env/secrets
+.env
+.env.*
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data/Cache (adjust if you want to keep data/ in repo)
+/data/*
+!data/.gitkeep
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# VS Code
+.vscode/

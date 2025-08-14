@@ -10,6 +10,13 @@ import time
 import requests
 import numpy as np
 from datetime import datetime
+ 
+# Try to load environment variables from .env automatically (optional dependency)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 # Optional JAX imports
 try:
@@ -124,6 +131,28 @@ def log_event(level: str, message: str, **context):
     return log_id
 
 # ========================================================================================
+# 🔒 DEPLOYMENT GUARDS (disable trading on Railway / prod by default)
+# ========================================================================================
+def _is_on_railway() -> bool:
+    try:
+        for k in os.environ.keys():
+            if k.startswith('RAILWAY_'):
+                return True
+    except Exception:
+        pass
+    return False
+
+def _trading_enabled() -> bool:
+    """Allow trading only when explicitly enabled AND not on Railway.
+    Enable locally by setting ALLOW_TRADING=true in .env.
+    On Railway (any RAILWAY_* env present) this returns False regardless.
+    """
+    if _is_on_railway():
+        return False
+    val = (os.getenv('ALLOW_TRADING') or os.getenv('ENABLE_TRADING') or '').strip().lower()
+    return val in ('1','true','yes','local')
+
+# ========================================================================================
 # 🌐 API ROUTES
 # ========================================================================================
 
@@ -133,8 +162,12 @@ def log_event(level: str, message: str, **context):
 
 @app.route('/')
 def dashboard():
-    """Render the beautiful main dashboard"""
-    return render_template_string(DASHBOARD_HTML)
+    """Render dashboard. On Railway show a minimal UI with one-line decision."""
+    try:
+        minimal = _is_on_railway() or (os.getenv('ANALYSIS_MODE','full').lower() == 'minimal')
+    except Exception:
+        minimal = False
+    return render_template_string(MINIMAL_DASHBOARD_HTML if minimal else DASHBOARD_HTML)
 
 @app.route('/api/search/<query>')
 def search_symbols(query):
@@ -489,6 +522,93 @@ def quick_price(symbol):
             'error': str(e)
         }), 500
 
+# --- Minimal decision (read-only) ---
+def _extract_minimal_decision(analysis: dict) -> dict:
+    """Summarize analysis into LONG/SHORT/NEUTRAL with short reasons.
+    Prefers final_score, MTF consensus, technical trend, MACD, RSI, and AI hints.
+    """
+    reasons = []
+    decision = 'NEUTRAL'
+    score = None
+    try:
+        fs = (analysis or {}).get('final_score') or {}
+        tech = (analysis or {}).get('technical_analysis') or {}
+        mtc = ((analysis or {}).get('multi_timeframe') or {}).get('consensus') or {}
+        ai = (analysis or {}).get('ai_analysis') or {}
+        pat = (analysis or {}).get('pattern_analysis') or {}
+
+        # Decision mapping
+        sig = str(fs.get('signal') or '').upper()
+        if 'BUY' in sig:
+            decision = 'LONG'
+        elif 'SELL' in sig:
+            decision = 'SHORT'
+        else:
+            # fallback to MTF
+            prim = str(mtc.get('primary') or '').upper()
+            if prim == 'BULLISH':
+                decision = 'LONG'
+            elif prim == 'BEARISH':
+                decision = 'SHORT'
+            else:
+                decision = 'NEUTRAL'
+        s = fs.get('score')
+        if isinstance(s,(int,float)):
+            score = float(s)
+
+        # Reasons
+        trend = (tech.get('trend') or {}).get('trend')
+        if trend:
+            reasons.append(f"Trend: {str(trend).upper()}")
+        rsi = ((tech.get('rsi') or {}).get('rsi'))
+        try:
+            if isinstance(rsi,(int,float)):
+                reasons.append(f"RSI: {rsi:.1f}")
+        except Exception:
+            pass
+        macd = (tech.get('macd') or {}).get('curve_direction')
+        if macd:
+            reasons.append(f"MACD: {str(macd).lower()}")
+        prim = mtc.get('primary')
+        if prim:
+            reasons.append(f"MTF: {prim}")
+        if pat.get('overall_signal'):
+            reasons.append(f"Pattern: {str(pat.get('overall_signal')).upper()}")
+        if ai.get('signal'):
+            try:
+                ac = ai.get('confidence')
+                if isinstance(ac,(int,float)):
+                    reasons.append(f"AI: {ai['signal']} ({ac:.1f}%)")
+                else:
+                    reasons.append(f"AI: {ai['signal']}")
+            except Exception:
+                reasons.append(f"AI: {ai.get('signal')}")
+
+        # Keep concise
+        reasons = [str(x) for x in reasons if x][:4]
+    except Exception as e:
+        reasons = [f'Analyse Fehler: {e}']
+        decision = 'NEUTRAL'
+        score = None
+    return {'decision': decision, 'score': score, 'reasons': reasons}
+
+
+@app.route('/api/decision/<symbol>')
+def api_minimal_decision(symbol):
+    """Return LONG/SHORT/NEUTRAL with short reasons (no trading)."""
+    try:
+        tf = (request.args.get('tf') or '1h').lower()
+        if tf not in ('3m','5m','15m','30m','1h','4h','1d'):
+            tf = '1h'
+        if request.args.get('refresh') == '1':
+            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
+        analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=tf)
+        out = _extract_minimal_decision(analysis)
+        return jsonify({'success': True, 'symbol': symbol.upper(), 'timeframe': tf, **out})
+    except Exception as e:
+        err_id = log_event('error', 'Decision exception', symbol=symbol.upper(), error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
+
 @app.route('/favicon.ico')
 def favicon():
     # Serve a tiny inline favicon (16x16) to prevent browser 404/502 spam.
@@ -692,25 +812,45 @@ def health():
 @app.route('/api/bot/run', methods=['POST'])
 def bot_run_once():
     """Run the trading bot once for a given symbol and timeframe. Paper by default.
-    Body: {symbol: 'BTCUSDT', interval: '1h', equity?: 10000, risk_pct?: 0.5}
+    Body: {symbol: 'BTCUSDT', interval: '1h', equity?: 10000, risk_pct?: 0.5, exchange?: 'binance'/'mexc'}
     """
     if not TRADING_AVAILABLE:
         return jsonify({'success': False, 'error': 'Trading module not available'}), 400
+    # Deployment safety: block trading in managed environments (e.g., Railway)
+    if not _trading_enabled():
+        return jsonify({'success': False, 'error': 'Trading disabled on this deployment (analysis-only mode). Set ALLOW_TRADING=true locally to enable.'}), 403
     try:
         payload = request.get_json(force=True) or {}
         symbol = (payload.get('symbol') or 'BTCUSDT').upper()
         interval = (payload.get('interval') or '1h').lower()
+        exchange = (payload.get('exchange') or 'binance').lower()
+        
         cfg = {
             'equity': float(payload.get('equity', 10000)),
             'risk_pct': float(payload.get('risk_pct', 0.5)),
             'min_probability': float(payload.get('min_probability', 54)),
             'min_rr': float(payload.get('min_rr', 1.2)),
+            'exchange': exchange
         }
-        dry = (os.getenv('BINANCE_API_KEY') is None or os.getenv('BINANCE_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
-        adapter = ExchangeAdapter(dry_run=dry)
+        
+        # Determine paper mode based on exchange and API keys
+        if exchange == 'mexc':
+            dry = (os.getenv('MEXC_API_KEY') is None or os.getenv('MEXC_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
+            from core.trading.mexc_adapter import MEXCExchangeAdapter
+            adapter = MEXCExchangeAdapter(dry_run=dry)
+        else:  # Default to Binance
+            dry = (os.getenv('BINANCE_API_KEY') is None or os.getenv('BINANCE_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
+            adapter = ExchangeAdapter(dry_run=dry)
+        
         bot = TradingBot(analyzer=master_analyzer, adapter=adapter, storage=TradeStorage(), config=cfg)
         result = bot.run_once(symbol, base_interval=interval)
-        return jsonify({'success': True, 'data': result, 'paper': adapter.dry_run})
+        
+        return jsonify({
+            'success': True, 
+            'data': result, 
+            'paper': adapter.dry_run,
+            'exchange': exchange.upper()
+        })
     except Exception as e:
         err_id = log_event('error', 'Bot run failure', error=str(e))
         return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
@@ -3382,10 +3522,74 @@ DASHBOARD_HTML = """
 </html>
 """
 
-print("ULTIMATE TRADING SYSTEM")
-print("Professional Trading Analysis")
-print("⚡ Server starting on port: 5000")
-print("🌍 Environment: Development")
+# Minimal dashboard shown on Railway (analysis-only): simple decision and short reasons
+MINIMAL_DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang=\"de\">
+<head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Trading Decision (Minimal)</title>
+    <style>
+        body{font-family:Segoe UI,Arial,sans-serif;background:#0b0f17;color:#fff;margin:0;padding:24px}
+        .card{background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:18px 16px; max-width:720px}
+        .row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px}
+        input,select,button{padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.08); color:#fff}
+        button{cursor:pointer}
+        .muted{color:rgba(255,255,255,0.65); font-size:.85rem}
+        .pill{display:inline-block; padding:4px 10px; border-radius:999px; font-weight:600}
+        .long{background:#26c28133; border:1px solid #26c28166; color:#26c281}
+        .short{background:#ff4d4f33; border:1px solid #ff4d4f66; color:#ff4d4f}
+        .neutral{background:#ffc10733; border:1px solid #ffc10766; color:#ffc107}
+        ul{margin:8px 0 0 16px; padding:0}
+    </style>
+    <script>
+        async function runDecision(){
+            const s = (document.getElementById('sym').value||'BTCUSDT').toUpperCase();
+            const tf = (document.getElementById('tf').value||'1h');
+            const out = document.getElementById('out'); out.innerHTML = 'Lade…';
+            try{
+                const r = await fetch(`/api/decision/${s}?tf=${tf}`);
+                const j = await r.json();
+                if(!j.success){ out.innerHTML = 'Fehler: '+(j.error||'unknown'); return; }
+                const d = (j.decision||'NEUTRAL').toUpperCase();
+                const css = d==='LONG'?'pill long': d==='SHORT'?'pill short':'pill neutral';
+                const reasons = (j.reasons||[]).slice(0,4).map(x=>`<li>${x}</li>`).join('') || '<li>Keine Gründe verfügbar</li>';
+                out.innerHTML = `<div class=\"muted\">Symbol: <b>${j.symbol}</b> • TF: <b>${j.timeframe}</b></div>
+                    <div style=\"margin:8px 0\"><span class=\"${css}\">${d}</span> <span class=\"muted\" style=\"margin-left:8px\">Score: ${j.score??'-'}</span></div>
+                    <div class=\"muted\">Begründung:</div>
+                    <ul>${reasons}</ul>
+                    <div class=\"muted\" style=\"margin-top:8px\">Modus: Analysis-only</div>`;
+            }catch(e){ out.innerHTML = 'Netzwerkfehler: '+e; }
+        }
+        document.addEventListener('DOMContentLoaded', ()=>{
+            document.getElementById('sym').value = 'BTCUSDT';
+            runDecision();
+        });
+    </script>
+</head>
+<body>
+    <div class=\"card\">
+        <h2 style=\"margin:0 0 8px\">Trading Decision (Minimal)</h2>
+        <div class=\"muted\" style=\"margin-bottom:10px\">Kompakte Empfehlung mit kurzer Begründung</div>
+        <div class=\"row\">
+            <input id=\"sym\" placeholder=\"BTCUSDT\" />
+            <select id=\"tf\"><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select>
+            <button onclick=\"runDecision()\">Analysieren</button>
+        </div>
+        <div id=\"out\" class=\"muted\">Bitte Symbol wählen…</div>
+    </div>
+</body>
+</html>
+"""
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        print("ULTIMATE TRADING SYSTEM")
+        print("Professional Trading Analysis")
+        port = int(os.getenv('PORT', '5000'))
+        print(f"Server starting on port: {port}")
+        print("Environment: Development")
+    except Exception:
+        pass
+    app.run(host='0.0.0.0', port=port, debug=False)

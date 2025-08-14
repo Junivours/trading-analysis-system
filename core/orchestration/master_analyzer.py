@@ -34,6 +34,8 @@ class MasterAnalyzer:
         # Default execution model
         self.default_fee_bps = float(os.getenv('DEFAULT_FEE_BPS', '6'))  # 0.06% per side
         self.default_slip_bps = float(os.getenv('DEFAULT_SLIP_BPS', '2'))  # 0.02% slippage per side
+        # Cached market-wide context (BTC trend/volume + alt/BTC proxy)
+        self.btc_context = None
 
     # ======== Exchange precision helpers ========
     def _get_symbol_filters(self, symbol: str):
@@ -452,6 +454,12 @@ class MasterAnalyzer:
             timings['candles_fetch_ms'] = round((time.time()-t_phase)*1000,2)
             if not candles:
                 return {'error': 'Unable to fetch candlestick data'}
+            try:
+                ctx_t0 = time.time()
+                self.btc_context = self._compute_btc_context()
+                timings['btc_context_ms'] = round((time.time()-ctx_t0)*1000,2)
+            except Exception as _e_btc:
+                self.btc_context = {'error': str(_e_btc)}
             t_phase = time.time()
             tech_analysis = self.technical_analysis.calculate_advanced_indicators(candles)
             timings['technical_ms'] = round((time.time()-t_phase)*1000,2)
@@ -628,7 +636,7 @@ class MasterAnalyzer:
                 ntz_meta = {'active': False, 'error': 'ntz_calc_failed'}
 
             trade_setups = []
-            base_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data)
+            base_setups = self._generate_trade_setups(symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe, regime_data, btc_context=self.btc_context)
             # Ensure timeframe on base setups (defaulting to main analysis tf 1h or pattern_timeframe)
             try:
                 for s in (base_setups or []):
@@ -729,6 +737,7 @@ class MasterAnalyzer:
                 'ai_feature_hash': ai_analysis.get('feature_hash'),
                 'order_flow_analysis': order_flow_data,
                 'vector_candles': vector_analysis,
+                'btc_context': self.btc_context,
                 'emotion_analysis': emotion,
                 'adaptive_risk_targets': adaptive_risk,
                 'market_bias': market_bias,
@@ -799,78 +808,78 @@ class MasterAnalyzer:
             return {'regime': primary_regime,'secondary_regime': secondary,'confidence': min(100, confidence),'rationale': rationale,'regime_scores': regime_scores,'volatility_level': volatility_level,'atr_percentage': atr_pct,'range_percentage': range_pct,'trend_classification': f"{trend_direction} ({trend_strength})"}
         except Exception as e:
             return {'regime':'error','confidence':0,'rationale': f'Regime detection failed: {str(e)}'}
-
-        def _sanitize_setups(self, symbol: str, setups: list) -> list:
-            """Ensure entries/stops/targets are rounded to exchange precision and targets are monotonic.
-            Prevents duplicates and small rounding issues. Low-risk, post-generation cleanup.
-            """
-            try:
-                if not setups:
-                    return setups
-                f = self._get_symbol_filters(symbol)
-                tick = float(f.get('tickSize') or 0.0)
-                def rp(x: float) -> float:
-                    try:
-                        if tick and tick > 0:
-                            return round(self._round_to_step(float(x), tick), 8)
-                        return round(float(x), 2)
-                    except Exception:
-                        try:
-                            return float(x)
-                        except Exception:
-                            return x
-                out = []
-                for s in setups:
-                    try:
-                        s = dict(s)
-                        if 'entry' in s:
-                            s['entry'] = rp(s['entry'])
-                        if 'entry_price' in s:
-                            s['entry_price'] = rp(s['entry_price'])
-                        if 'stop_loss' in s:
-                            s['stop_loss'] = rp(s['stop_loss'])
-                        tps = s.get('targets') or s.get('take_profits')
-                        if isinstance(tps, list) and tps:
-                            # round and dedup + enforce monotonic away from entry
-                            entry = s.get('entry', s.get('entry_price'))
-                            rounded = []
-                            seen = set()
-                            for t in tps:
-                                try:
-                                    price = rp(t.get('price') or t.get('level'))
-                                except Exception:
-                                    price = t.get('price') or t.get('level')
-                                if price is None:
-                                    continue
-                                key = round(float(price), 6)
-                                if key in seen:
-                                    continue
-                                lbl = t.get('label') or t.get('level') or 'TP'
-                                rr = t.get('rr')
-                                rounded.append({'label': lbl, 'price': price, **({'rr': rr} if rr is not None else {})})
-                                seen.add(key)
-                            # monotonic filter
-                            if entry is not None:
-                                try:
-                                    e = float(entry)
-                                    if s.get('direction') == 'LONG':
-                                        rounded = [x for x in rounded if float(x['price']) > e]
-                                        rounded.sort(key=lambda x: x['price'])
-                                    elif s.get('direction') == 'SHORT':
-                                        rounded = [x for x in rounded if float(x['price']) < e]
-                                        rounded.sort(key=lambda x: x['price'], reverse=True)
-                                except Exception:
-                                    pass
-                            if 'targets' in s:
-                                s['targets'] = rounded
-                            else:
-                                s['take_profits'] = rounded
-                        out.append(s)
-                    except Exception:
-                        out.append(s)
-                return out
-            except Exception:
+    
+    def _sanitize_setups(self, symbol: str, setups: list) -> list:
+        """Ensure entries/stops/targets are rounded to exchange precision and targets are monotonic.
+        Prevents duplicates and small rounding issues. Low-risk, post-generation cleanup.
+        """
+        try:
+            if not setups:
                 return setups
+            f = self._get_symbol_filters(symbol)
+            tick = float(f.get('tickSize') or 0.0)
+            def rp(x: float) -> float:
+                try:
+                    if tick and tick > 0:
+                        return round(self._round_to_step(float(x), tick), 8)
+                    return round(float(x), 2)
+                except Exception:
+                    try:
+                        return float(x)
+                    except Exception:
+                        return x
+            out = []
+            for s in setups:
+                try:
+                    s = dict(s)
+                    if 'entry' in s:
+                        s['entry'] = rp(s['entry'])
+                    if 'entry_price' in s:
+                        s['entry_price'] = rp(s['entry_price'])
+                    if 'stop_loss' in s:
+                        s['stop_loss'] = rp(s['stop_loss'])
+                    tps = s.get('targets') or s.get('take_profits')
+                    if isinstance(tps, list) and tps:
+                        # round and dedup + enforce monotonic away from entry
+                        entry = s.get('entry', s.get('entry_price'))
+                        rounded = []
+                        seen = set()
+                        for t in tps:
+                            try:
+                                price = rp(t.get('price') or t.get('level'))
+                            except Exception:
+                                price = t.get('price') or t.get('level')
+                            if price is None:
+                                continue
+                            key = round(float(price), 6)
+                            if key in seen:
+                                continue
+                            lbl = t.get('label') or t.get('level') or 'TP'
+                            rr = t.get('rr')
+                            rounded.append({'label': lbl, 'price': price, **({'rr': rr} if rr is not None else {})})
+                            seen.add(key)
+                        # monotonic filter
+                        if entry is not None:
+                            try:
+                                e = float(entry)
+                                if s.get('direction') == 'LONG':
+                                    rounded = [x for x in rounded if float(x['price']) > e]
+                                    rounded.sort(key=lambda x: x['price'])
+                                elif s.get('direction') == 'SHORT':
+                                    rounded = [x for x in rounded if float(x['price']) < e]
+                                    rounded.sort(key=lambda x: x['price'], reverse=True)
+                            except Exception:
+                                pass
+                        if 'targets' in s:
+                            s['targets'] = rounded
+                        else:
+                            s['take_profits'] = rounded
+                    out.append(s)
+                except Exception:
+                    out.append(s)
+            return out
+        except Exception:
+            return setups
 
     def _generate_rsi_caution_narrative(self, rsi, trend):
         caution_level='none'; narrative=''; confidence_penalty=0; signal_quality='ok'
@@ -934,6 +943,56 @@ class MasterAnalyzer:
             return order_flow
         except Exception as e:
             return {'error': f'Order flow analysis failed: {str(e)}','flow_sentiment':'unknown','flow_strength':'unknown'}
+
+    def _compute_btc_context(self) -> dict:
+        """Compute a lightweight BTC context: dominance proxy and volume/momentum.
+        Uses BTCUSDT and ETHUSDT 5m candles as a proxy for BTC dominance.
+        """
+        try:
+            btc_c = self.technical_analysis.get_candle_data('BTCUSDT', interval='5m', limit=60) or []
+            eth_c = self.technical_analysis.get_candle_data('ETHUSDT', interval='5m', limit=60) or []
+            if len(btc_c) < 20 or len(eth_c) < 20:
+                return {'status': 'insufficient', 'note': 'not enough 5m candles'}
+            btc_close = [c['close'] for c in btc_c]
+            btc_vol = [c.get('volume', 0.0) for c in btc_c]
+            eth_close = [c['close'] for c in eth_c]
+            # Momentum over last 12 candles (~1h)
+            def mom(arr, n=12):
+                if len(arr) <= n: return 0.0
+                a = float(arr[-1]); b = float(arr[-n])
+                return (a - b) / b if b else 0.0
+            btc_mom = mom(btc_close, 12)
+            eth_mom = mom(eth_close, 12)
+            # Volume state via ratio vs SMA20
+            if len(btc_vol) >= 21:
+                sma20 = sum(btc_vol[-21:-1]) / 20.0
+            else:
+                sma20 = (sum(btc_vol) / len(btc_vol)) if btc_vol else 0.0
+            last_vol = btc_vol[-1] if btc_vol else 0.0
+            vol_ratio = (last_vol / sma20) if sma20 else 1.0
+            if vol_ratio >= 2.0: vol_state = 'very_high'
+            elif vol_ratio >= 1.4: vol_state = 'high'
+            elif vol_ratio <= 0.6: vol_state = 'low'
+            else: vol_state = 'normal'
+            # Dominance proxy: BTC momentum minus ETH momentum
+            diff = btc_mom - eth_mom
+            if diff > 0.01:
+                dom = 'btc_dominant'
+            elif diff < -0.01:
+                dom = 'alt_season'
+            else:
+                dom = 'neutral'
+            return {
+                'status': 'ok',
+                'dominance_state': dom,
+                'btc_momentum_1h': round(btc_mom*100, 2),
+                'eth_momentum_1h': round(eth_mom*100, 2),
+                'momentum_diff_pct': round(diff*100, 2),
+                'btc_volume_state': vol_state,
+                'btc_volume_ratio_vs_sma20': round(vol_ratio, 2),
+            }
+        except Exception as e:
+            return {'status': 'error', 'error': str(e)}
 
     def _derive_additional_patterns(self, symbol, tech, extended, multi_timeframe, order_flow, base_tf: str = '1h'):
         """Leitet zusätzliche leichte Muster aus vorhandenen Analysen ab (keine Extra-API-Calls).
@@ -1591,7 +1650,7 @@ class MasterAnalyzer:
             confidence_factors.append('Signale konsistent')
         return {'trading_action': trading_action,'risk_level': risk_level,'contradictions': contradictions,'warnings': warnings,'confidence_factors': confidence_factors,'enterprise_ready': len(contradictions)==0 and risk_level in ['LOW','MEDIUM']}
 
-    def _generate_trade_setups(self, symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe=None, regime_data=None):
+    def _generate_trade_setups(self, symbol, current_price, tech_analysis, extended_analysis, pattern_analysis, final_score, multi_timeframe=None, regime_data=None, btc_context=None):
         """Advanced multi-strategy trade setup generation (migrated from legacy app.py).
         Returns up to 12 setups (core strategies + pattern trades) with confidence, targets & rationale."""
         setups = []
@@ -1788,6 +1847,19 @@ class MasterAnalyzer:
                 filtered = [t for t in filtered if t['rr'] >= 1.3] or filtered
                 return filtered, adj_stop
 
+            # Keep entries reasonably close to market to avoid unrealistic fills
+            def _clamp_entry(entry: float, direction: str, max_dist_pct: float = 3.0) -> float:
+                try:
+                    dist_pct = abs((entry - current_price) / current_price) * 100
+                    if dist_pct > max_dist_pct:
+                        if direction == 'LONG' and entry > current_price:
+                            return round(current_price * (1 + max_dist_pct/100.0), 2)
+                        if direction == 'SHORT' and entry < current_price:
+                            return round(current_price * (1 - max_dist_pct/100.0), 2)
+                    return round(entry, 2)
+                except Exception:
+                    return round(entry, 2)
+
             timeframe_weight = {'15m': 0.6, '1h': 1.0, '4h': 1.4, '1d': 1.8}
             all_patterns_rank = []
             try:
@@ -1816,7 +1888,7 @@ class MasterAnalyzer:
                 else:
                     trend_validation_passed = True
                 if trend_validation_passed:
-                    entry_pb = support * 1.003
+                    entry_pb = _clamp_entry(support * 1.003, 'LONG')
                     raw_stop_pb = support - atr_val * 0.9
                     targets_pb, smart_stop_pb = _targets(entry_pb, raw_stop_pb, 'LONG', [
                         ('Resistance', resistance), ('Fib 0.382', fib.get('fib_382')), ('Fib 0.618', fib.get('fib_618'))
@@ -1864,7 +1936,7 @@ class MasterAnalyzer:
                             }
                         })
                 # Breakout LONG
-                entry_bo = resistance * 1.0015
+                entry_bo = _clamp_entry(resistance * 1.0015, 'LONG')
                 raw_stop_bo = resistance - atr_val
                 targets_bo, smart_stop_bo = _targets(entry_bo, raw_stop_bo, 'LONG', [
                     ('Fib 0.618', fib.get('fib_618')), ('Fib 0.786', fib.get('fib_786'))
@@ -1886,7 +1958,7 @@ class MasterAnalyzer:
                 if bull_ranked:
                     top_b = bull_ranked[0]
                     tfb = top_b.get('timeframe', '1h')
-                    entry_pc = current_price * 1.001 if current_price < resistance else resistance * 1.001
+                    entry_pc = current_price * 1.001 if current_price < resistance else _clamp_entry(resistance * 1.001, 'LONG')
                     raw_stop_pc = entry_pc - atr_val * 0.8
                     targets_pc, smart_stop_pc = _targets(entry_pc, raw_stop_pc, 'LONG', [('Resistance', resistance)])
                     stop_pc = smart_stop_pc
@@ -1908,7 +1980,7 @@ class MasterAnalyzer:
                     })
                 macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral')
                 if 'bullish' in macd_curve and rsi > 55:
-                    entry_momo = current_price * 1.0005
+                    entry_momo = _clamp_entry(current_price * 1.0005, 'LONG')
                     raw_stop_momo = entry_momo - atr_val
                     targets_momo, smart_stop_momo = _targets(entry_momo, raw_stop_momo, 'LONG', [('Resistance', resistance)])
                     stop_momo = smart_stop_momo
@@ -1929,7 +2001,7 @@ class MasterAnalyzer:
                 if support and (current_price - support) / current_price * 100 < 1.2 and bull_ranked:
                     top_b2 = bull_ranked[0]
                     tfb2 = top_b2.get('timeframe', '1h')
-                    entry_rej = support * 1.004
+                    entry_rej = _clamp_entry(support * 1.004, 'LONG')
                     raw_stop_rej = support - atr_val * 0.7
                     targets_rej, smart_stop_rej = _targets(entry_rej, raw_stop_rej, 'LONG', [('Resistance', resistance)])
                     stop_rej = smart_stop_rej
@@ -1953,7 +2025,7 @@ class MasterAnalyzer:
             if rsi < 32:
                 relaxation['relaxed_rsi_bounds'] = True
             if rsi < 35:
-                entry_mr = current_price * 0.998
+                entry_mr = _clamp_entry(current_price * 0.998, 'LONG')
                 raw_stop_mr = entry_mr - atr_val * 0.9
                 targets_mr, smart_stop_mr = _targets(entry_mr, raw_stop_mr, 'LONG', [('Resistance', resistance)])
                 stop_mr = smart_stop_mr
@@ -1980,7 +2052,7 @@ class MasterAnalyzer:
                 else:
                     short_trend_validation_passed = True
                 if short_trend_validation_passed:
-                    entry_pbs = resistance * 0.997
+                    entry_pbs = _clamp_entry(resistance * 0.997, 'SHORT')
                     stop_pbs = resistance + atr_val * 0.9
                     risk_pct_short = round((stop_pbs - entry_pbs) / entry_pbs * 100, 2)
                     if risk_pct_short <= 3.0:
@@ -2003,7 +2075,7 @@ class MasterAnalyzer:
                             ]) else 'STANDARD',
                             'rationale': 'Multi-validated Pullback an Widerstand mit Professional Risk Management'
                         })
-                entry_bd = support * 0.9985
+                entry_bd = _clamp_entry(support * 0.9985, 'SHORT')
                 stop_bd = support + atr_val
                 targets_bd, smart_stop_bd = _targets(entry_bd, stop_bd, 'SHORT', [('Fib 0.236', fib.get('fib_236'))])
                 stop_bd = smart_stop_bd
@@ -2022,7 +2094,7 @@ class MasterAnalyzer:
                 if bear_ranked:
                     top_s = bear_ranked[0]
                     tfs = top_s.get('timeframe', '1h')
-                    entry_ps = current_price * 0.999 if current_price > support else support * 0.999
+                    entry_ps = current_price * 0.999 if current_price > support else _clamp_entry(support * 0.999, 'SHORT')
                     stop_ps = entry_ps + atr_val * 0.8
                     targets_ps, smart_stop_ps = _targets(entry_ps, stop_ps, 'SHORT', [('Support', support)])
                     stop_ps = smart_stop_ps
@@ -2044,7 +2116,7 @@ class MasterAnalyzer:
                     })
                 macd_curve_s = tech_analysis.get('macd', {}).get('curve_direction', 'neutral')
                 if 'bearish' in macd_curve_s and rsi < 45:
-                    entry_momo_s = current_price * 0.9995
+                    entry_momo_s = _clamp_entry(current_price * 0.9995, 'SHORT')
                     stop_momo_s = entry_momo_s + atr_val
                     targets_momo_s, smart_stop_momo_s = _targets(entry_momo_s, stop_momo_s, 'SHORT', [('Support', support)])
                     stop_momo_s = smart_stop_momo_s
@@ -2065,7 +2137,7 @@ class MasterAnalyzer:
                 if resistance and (resistance - current_price) / current_price * 100 < 1.2 and bear_ranked:
                     top_s2 = bear_ranked[0]
                     tfs2 = top_s2.get('timeframe', '1h')
-                    entry_rej_s = resistance * 0.996
+                    entry_rej_s = _clamp_entry(resistance * 0.996, 'SHORT')
                     stop_rej_s = resistance + atr_val * 0.7
                     targets_rej_s, smart_stop_rej_s = _targets(entry_rej_s, stop_rej_s, 'SHORT', [('Support', support)])
                     stop_rej_s = smart_stop_rej_s
@@ -2085,7 +2157,7 @@ class MasterAnalyzer:
             if rsi > 68:
                 relaxation['relaxed_rsi_bounds'] = True
             if rsi > 65:
-                entry_mrs = current_price * 1.002
+                entry_mrs = _clamp_entry(current_price * 1.002, 'SHORT')
                 raw_stop_mrs = entry_mrs + atr_val * 0.9
                 targets_mrs, smart_stop_mrs = _targets(entry_mrs, raw_stop_mrs, 'SHORT', [('Support', support)])
                 stop_mrs = smart_stop_mrs
@@ -2260,7 +2332,32 @@ class MasterAnalyzer:
                 pruned = [filtered_post[0]]
             for p in pruned:
                 p['selection_method'] = 'directional_top'
-            return pruned
+            # Post-process: annotate entry distance and adjust confidence by BTC context
+            ctx = btc_context or getattr(self, 'btc_context', None) or {}
+            out_final = []
+            for s in pruned:
+                try:
+                    e = float(s.get('entry')) if s.get('entry') is not None else None
+                    if e is not None and current_price:
+                        dist_pct = abs((e - current_price) / current_price) * 100
+                        s['entry_distance_pct'] = round(dist_pct, 2)
+                    # BTC context confidence adjustment
+                    if isinstance(ctx, dict) and ctx.get('status') == 'ok' and 'confidence' in s:
+                        dom = ctx.get('dominance_state')
+                        vol_state = ctx.get('btc_volume_state')
+                        adj = 0
+                        if dom == 'btc_dominant' and s.get('direction') == 'LONG':
+                            adj -= 3
+                        if dom == 'alt_season' and s.get('direction') == 'LONG':
+                            adj += 3
+                        if vol_state == 'very_high':
+                            adj -= 2
+                        s['confidence'] = max(10, min(95, int(s.get('confidence', 50)) + adj))
+                        s.setdefault('conditions', []).append({'t': f"BTC ctx: {dom}, vol {vol_state}", 's': 'info'})
+                except Exception:
+                    pass
+                out_final.append(s)
+            return out_final
         except Exception as e:
             self.logger.error(f"Trade setup generation error: {e}")
             return []

@@ -4,16 +4,28 @@ from typing import Dict, Any, List, Optional
 
 from core.orchestration.master_analyzer import MasterAnalyzer
 from core.trading.exchange_adapter import ExchangeAdapter
+from core.trading.mexc_adapter import MEXCExchangeAdapter
 from core.trading.storage import TradeStorage
 from core.binance_client import BinanceClient
 
 class TradingBot:
     """Minimal automated trader. Pulls top setups from MasterAnalyzer and executes via ExchangeAdapter.
     Safety first: dry_run default, 1 trade per side per symbol, simple position sizing.
+    Now supports both Binance and MEXC exchanges.
     """
-    def __init__(self, analyzer: Optional[MasterAnalyzer] = None, adapter: Optional[ExchangeAdapter] = None, storage: Optional[TradeStorage] = None, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, analyzer: Optional[MasterAnalyzer] = None, adapter: Optional[Any] = None, storage: Optional[TradeStorage] = None, config: Optional[Dict[str, Any]] = None):
         self.analyzer = analyzer or MasterAnalyzer()
-        self.adapter = adapter or ExchangeAdapter(dry_run=True)
+        
+        # Auto-detect exchange or use provided adapter
+        if adapter is None:
+            exchange = config.get('exchange', 'binance').lower() if config else 'binance'
+            if exchange == 'mexc':
+                self.adapter = MEXCExchangeAdapter(dry_run=True)
+            else:
+                self.adapter = ExchangeAdapter(dry_run=True)
+        else:
+            self.adapter = adapter
+            
         self.storage = storage or TradeStorage()
         self.cfg = config or {}
 
@@ -26,13 +38,19 @@ class TradingBot:
         risk_per_unit = abs(entry - stop)
         if risk_per_unit <= 0: return 0.0
         qty = max(min_notional / entry, risk_amount / risk_per_unit)
-        # round to lot size if available
+        
+        # round to lot size based on exchange type
         try:
-            f = BinanceClient.get_symbol_filters(symbol)
-            step = f.get('stepSize') or 0.0
-            if step:
-                decimals = max(0, int(round(-math.log10(step))))
-                qty = float(f"{qty:.{decimals}f}")
+            if hasattr(self.adapter, 'format_quantity'):
+                # MEXC adapter has built-in quantity formatting
+                qty = self.adapter.format_quantity(symbol, qty)
+            else:
+                # Binance adapter - use BinanceClient method
+                f = BinanceClient.get_symbol_filters(symbol)
+                step = f.get('stepSize') or 0.0
+                if step:
+                    decimals = max(0, int(round(-math.log10(step))))
+                    qty = float(f"{qty:.{decimals}f}")
         except Exception:
             pass
         return max(0.0, qty)

@@ -56,6 +56,7 @@ You can use `/api/version` as a health endpoint. It returns JSON fast.
 ## API Endpoints
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| /api/decision/<symbol>?tf=1h | GET | Minimal decision: LONG/SHORT/NEUTRAL with 2–4 short reasons (no trading) |
 | /api/analyze/<symbol> | GET | Full multi-timeframe + AI + patterns + setups analysis |
 | /api/analyze/<symbol>?refresh=1 | GET | Force cache bypass for live recomputation |
 | /api/analyze/<symbol>?validate=1 | GET | Include enterprise validation block in response |
@@ -71,6 +72,7 @@ You can use `/api/version` as a health endpoint. It returns JSON fast.
 | /admin/save-state | POST | Force persistence save to disk (manual checkpoint) |
 | /api/logs/recent?limit=100&level=INFO | GET | Recent in-memory logs (filterable) |
 | /api/validate/<symbol>?refresh=1 | GET | Return a concise enterprise validation report only |
+| /api/bot/run | POST | Run trading bot once (Body: symbol, interval, exchange, equity, risk_pct, paper) |
 | /api/version | GET | Version & commit hash (also sets X-App-Version header) |
 | /health | GET | Simple uptime/health probe |
 
@@ -153,14 +155,44 @@ Each setup includes: normalized risk %, dynamic multi-R targets (1.5R .. 8R + sw
 
 ## Automated Trading Bot (Paper by default)
 
-- Location: `core/trading/` with `bot.py`, `exchange_adapter.py`, and `storage.py`.
-- By default runs in dry-run (paper) mode unless `BINANCE_API_KEY` and `BINANCE_API_SECRET` are set and you pass `{"paper": false}`.
+- Location: `core/trading/` with `bot.py`, `exchange_adapter.py`, `mexc_adapter.py`, and `storage.py`.
+- **Supports both Binance and MEXC exchanges**
+- By default runs in dry-run (paper) mode unless API keys are set and you pass `{"paper": false}`.
 - Simple REST to execute once:
 
+**Binance Trading:**
+```bash
 POST /api/bot/run
-Body: {"symbol":"BTCUSDT","interval":"1h"}
+Body: {"symbol":"BTCUSDT","interval":"1h","exchange":"binance"}
+```
+
+**MEXC Trading:**
+```bash
+POST /api/bot/run  
+Body: {"symbol":"BTCUSDT","interval":"1h","exchange":"mexc"}
+```
 
 Response includes selected setups and any executed paper orders. Position sizing uses risk % and ATR-informed stops from the analyzer.
+
+### Exchange Configuration
+
+| Exchange | API Keys Required | Environment Variables |
+|----------|-------------------|----------------------|
+| Binance | BINANCE_API_KEY, BINANCE_API_SECRET | For live trading |
+| MEXC | MEXC_API_KEY, MEXC_API_SECRET | For live trading |
+
+**Setup Example:**
+```bash
+# For MEXC
+export MEXC_API_KEY="your_mexc_key"
+export MEXC_API_SECRET="your_mexc_secret"
+
+# For Binance  
+export BINANCE_API_KEY="your_binance_key"
+export BINANCE_API_SECRET="your_binance_secret"
+```
+
+See `MEXC_SETUP.md` for detailed MEXC configuration guide.
 
 
 `ChartPatternTrader.generate_pattern_trades` adds up to 5 supplemental pattern-centric trades (entry / stop / target / RR) which are merged & ranked with core strategies. Pattern objects include: `quality_grade`, `reliability_score`, `distance_to_trigger_pct` to help filter premature signals.
@@ -189,3 +221,29 @@ Calibration automatically updates every 30s (or on sufficient new samples) when 
 - (Done) Extract MasterAnalyzer into `core/orchestration/master_analyzer.py`
 - (Done) AI v2.1 reliability + pattern precision upgrade
 - (Done) Probability calibration (Platt) integrated into final scoring
+
+## Trading Bot (Local Only Safety)
+
+The trading endpoint `/api/bot/run` is disabled by default in hosted environments (e.g., Railway). It responds with HTTP 403 and message "Trading disabled on this deployment (analysis-only mode).".
+
+To enable locally, set in your `.env`:
+
+```
+ALLOW_TRADING=true
+```
+
+On Railway (any `RAILWAY_*` env present), trading remains disabled regardless of this flag to protect your account.
+
+## Minimal UI on Railway (Analysis-only)
+On Railway the root page `/` automatically shows a compact interface powered by `/api/decision/<symbol>` that returns:
+- Decision: LONG / SHORT / NEUTRAL
+- 2–4 concise reasons (e.g., Trend, RSI, MACD, MTF, AI, Pattern)
+
+Preview minimal UI locally by setting:
+```bash
+ANALYSIS_MODE=minimal python app.py
+```
+
+## Local vs Railway behavior
+- Local (developer machine): Full dashboard + all analysis endpoints. Trading can be enabled locally with `ALLOW_TRADING=true`.
+- Railway (hosted): Minimal dashboard + minimal decision API only; trading endpoints return 403 by design.
