@@ -43,6 +43,11 @@ try:
 except Exception:
     ML_AVAILABLE = False
 try:
+    from core.ml.scalp_model import ScalpLogReg, ScalpTrainConfig
+    SCALP_ML_AVAILABLE = True
+except Exception:
+    SCALP_ML_AVAILABLE = False
+try:
     from core.scalper.engine import scan_scalp_signals, ScalpConfig
     from core.scalper.executor import SimpleScalpExecutor, ScalpRunConfig
     SCALPER_AVAILABLE = True
@@ -1147,6 +1152,49 @@ def api_scalper_execute():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# --- Scalper ML endpoints ---
+@app.route('/api/scalper/ml/train', methods=['POST'])
+def api_scalper_ml_train():
+    try:
+        if not SCALP_ML_AVAILABLE:
+            return jsonify({'success': False, 'error': 'scalper_ml_unavailable'}), 400
+        p = request.get_json(force=True) or {}
+        cfg = ScalpTrainConfig(
+            symbol=(p.get('symbol') or 'BTCUSDT').upper(),
+            interval=(p.get('interval') or '1m').lower(),
+            limit=int(p.get('limit', 3000)),
+            horizon_bars=int(p.get('horizon_bars', 8)),
+            target_up_pct=float(p.get('target_up_pct', 0.35)),
+            stop_down_pct=float(p.get('stop_down_pct', 0.35)),
+        )
+        from core.ml.scalp_model import prepare_training_data
+        X, y, events = prepare_training_data(cfg.symbol, cfg.interval, cfg.limit, cfg.horizon_bars, cfg.target_up_pct, cfg.stop_down_pct)
+        model = ScalpLogReg()
+        res = model.fit(X, y)
+        model.save()
+        return jsonify({'success': True, 'result': {**res, 'events': int(events)}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/scalper/ml/predict')
+def api_scalper_ml_predict():
+    try:
+        if not SCALP_ML_AVAILABLE:
+            return jsonify({'success': False, 'error': 'scalper_ml_unavailable'}), 400
+        symbol = (request.args.get('symbol') or 'BTCUSDT').upper()
+        tf = (request.args.get('tf') or '1m').lower()
+        model = ScalpLogReg()
+        ok = model.load()
+        if not ok:
+            return jsonify({'success': False, 'error': 'no_model'}), 400
+        x, ctx = model.latest_features(symbol, tf)
+        if x.size == 0:
+            return jsonify({'success': False, 'error': 'insufficient_data'}), 400
+        prob = model.predict_proba(x)
+        return jsonify({'success': True, 'symbol': symbol, 'interval': tf, 'prob_up_pct': prob, 'ctx': ctx})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/version')
 def api_version():
     commit = 'unknown'
@@ -1987,6 +2035,12 @@ DASHBOARD_HTML = """
                     </div>
                     <pre id="scalp-exec-out" style="font-size:.65rem; color:var(--text-secondary); max-height:160px; overflow:auto; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:8px; border-radius:10px;"></pre>
                 </details>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+                    <button class="btn-ghost" id="scalp-ml-train" style="font-size:0.7rem;">🤖 Train (KI-Scalp)</button>
+                    <button class="btn-ghost" id="scalp-ml-predict" style="font-size:0.7rem;">🤖 Predict (Up%)</button>
+                    <div id="scalp-ml-status" style="font-size:.65rem;color:var(--text-dim);"></div>
+                </div>
+                <div id="scalp-ml-out" style="font-size:.7rem;color:var(--text-secondary);"></div>
             </div>
 
             <!-- Key Metrics -->
@@ -2535,6 +2589,10 @@ DASHBOARD_HTML = """
         const scalpEquity = document.getElementById('scalp-equity');
         const scalpRisk = document.getElementById('scalp-risk');
         const scalpExecOut = document.getElementById('scalp-exec-out');
+    const scalpMlTrainBtn = document.getElementById('scalp-ml-train');
+    const scalpMlPredictBtn = document.getElementById('scalp-ml-predict');
+    const scalpMlStatus = document.getElementById('scalp-ml-status');
+    const scalpMlOut = document.getElementById('scalp-ml-out');
 
         async function scalpScanOnce(){
             try{
@@ -2576,6 +2634,37 @@ DASHBOARD_HTML = """
         }
         // do an initial scan shortly after load
         setTimeout(()=>{ try{ scalpScanOnce(); }catch{} }, 1200);
+
+        // Scalp ML actions
+        if(scalpMlTrainBtn){
+            scalpMlTrainBtn.addEventListener('click', async ()=>{
+                try{
+                    if(scalpMlStatus) scalpMlStatus.textContent = 'Training…';
+                    const body = {
+                        symbol: (scalpSymbol?.value || currentSymbol || 'BTCUSDT').toUpperCase(),
+                        interval: scalpTf?.value || '1m',
+                        limit: 3000, horizon_bars: 8, target_up_pct: 0.35, stop_down_pct: 0.35,
+                    };
+                    const r = await fetch('/api/scalper/ml/train', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                    const j = await r.json();
+                    if(scalpMlStatus) scalpMlStatus.textContent = j.success? `OK • Events ${j.result?.events} • Acc ${(j.result?.acc*100||0).toFixed(1)}%` : `Fehler: ${j.error}`;
+                }catch(e){ if(scalpMlStatus) scalpMlStatus.textContent = `Fehler: ${e?.message||String(e)}`; }
+            });
+        }
+        if(scalpMlPredictBtn){
+            scalpMlPredictBtn.addEventListener('click', async ()=>{
+                try{
+                    if(scalpMlStatus) scalpMlStatus.textContent = 'Predict…';
+                    const sym = (scalpSymbol?.value || currentSymbol || 'BTCUSDT').toUpperCase();
+                    const tf = scalpTf?.value || '1m';
+                    const r = await fetch(`/api/scalper/ml/predict?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`);
+                    const j = await r.json();
+                    if(!j.success){ if(scalpMlStatus) scalpMlStatus.textContent = `Fehler: ${j.error}`; return; }
+                    if(scalpMlStatus) scalpMlStatus.textContent = 'Fertig';
+                    if(scalpMlOut) scalpMlOut.textContent = `Up%: ${j.prob_up_pct}% • RSI: ${j.ctx?.rsi ?? '-'} • ATR%: ${j.ctx?.atr_pct ?? '-'}`;
+                }catch(e){ if(scalpMlStatus) scalpMlStatus.textContent = `Fehler: ${e?.message||String(e)}`; }
+            });
+        }
 
     // Live Scanner (client-side, 1-minute interval, scans 5m timeframe only)
         function toggleLiveScan(){
