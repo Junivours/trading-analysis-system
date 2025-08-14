@@ -1286,6 +1286,7 @@ DASHBOARD_HTML = """
                 <div class="toolbar">
                     <button id="themeToggle" class="btn-ghost" title="Theme umschalten">🌓 Theme</button>
                     <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">🔄 Refresh</button>
+                    <button id="liveScanToggle" class="btn-ghost" title="Live Scan im 1-Minuten-Takt">▶ Live</button>
                     <select id="baseTfSelect" class="btn-ghost" title="Basis-Zeiteinheit" style="padding:8px 10px;">
                         <option value="15m">15m</option>
                         <option value="1h" selected>1h</option>
@@ -1325,6 +1326,15 @@ DASHBOARD_HTML = """
             <div class="glass-card" id="diagnosticsCard">
                 <div class="section-title">Diagnostics <span class="tag">BETA</span></div>
                 <div id="diagnosticsPanel" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
+            <!-- Live Scanner -->
+            <div class="glass-card" id="liveScannerCard">
+                <div class="section-title"><span class="icon">⏱️</span> Live Scanner <span class="tag">1m</span></div>
+                <div id="liveScanner" style="display:flex;flex-direction:column;gap:8px;">
+                    <div id="liveScannerStatus" style="font-size:.65rem;color:var(--text-secondary);">Ausgeschaltet. Tippe auf ▶ Live, um 1h & 4h jede Minute zu scannen.</div>
+                    <div id="liveScannerEvents" style="display:flex;flex-direction:column;gap:6px;"></div>
+                </div>
             </div>
 
             <!-- Key Metrics -->
@@ -1518,6 +1528,13 @@ DASHBOARD_HTML = """
         let analysisData = null;
         let tradeSetupFilter = 'ALL'; // ALL | LONG | SHORT
         let tradeSetupMax = 2; // default user preference: only see top 2 setups
+        let liveScanEnabled = false;
+        let liveScanTimer = null;
+        let liveScanBusy = false;
+        let liveScanState = {
+            last: { '1h': { patterns: new Set(), setups: new Set() }, '4h': { patterns: new Set(), setups: new Set() } },
+            events: [] // {ts, tf, kind, text}
+        };
 
         function setTradeSetupFilter(f) {
             tradeSetupFilter = f;
@@ -1562,6 +1579,10 @@ DASHBOARD_HTML = """
                 if (result.success) {
                     analysisData = result.data;
                     displayAnalysis(analysisData);
+                    // Reset live scan caches for new symbol
+                    liveScanState = { last: { '1h': { patterns: new Set(), setups: new Set() }, '4h': { patterns: new Set(), setups: new Set() } }, events: [] };
+                    updateLiveScannerUI();
+                    if (liveScanEnabled) runLiveScanOnce();
                 } else {
                     alert(`Error: ${result.error}`);
                 }
@@ -1606,6 +1627,110 @@ DASHBOARD_HTML = """
             displayFeatureContributions(data);
             displayDiagnostics(data);
             displayLiquidationTables(data);
+        }
+
+        // Live Scanner (client-side, 1-minute interval, scans 1h & 4h)
+        function toggleLiveScan(){
+            liveScanEnabled = !liveScanEnabled;
+            const btn = document.getElementById('liveScanToggle');
+            if(liveScanEnabled){
+                startLiveScan();
+                if(btn){ btn.textContent = '⏸ Live'; }
+            } else {
+                stopLiveScan();
+                if(btn){ btn.textContent = '▶ Live'; }
+            }
+            updateLiveScannerUI();
+        }
+        function startLiveScan(){
+            if(liveScanTimer) clearInterval(liveScanTimer);
+            runLiveScanOnce();
+            liveScanTimer = setInterval(runLiveScanOnce, 60*1000);
+        }
+        function stopLiveScan(){
+            if(liveScanTimer){ clearInterval(liveScanTimer); liveScanTimer = null; }
+        }
+        async function runLiveScanOnce(){
+            if(!liveScanEnabled || liveScanBusy) return;
+            if(!currentSymbol){ updateLiveScannerUI('Kein Symbol ausgewählt.'); return; }
+            liveScanBusy = true; updateLiveScannerUI();
+            try{
+                const tfs = ['1h','4h'];
+                const results = await Promise.all(tfs.map(tf=> fetch(`/api/analyze/${currentSymbol}?tf=${tf}`)).map(p=>p.then(r=>r.json()).catch(()=>({success:false,error:'net'}))));
+                results.forEach((res, idx)=>{
+                    const tf = tfs[idx];
+                    if(!res || !res.success || !res.data){
+                        addLiveEvent(tf, 'error', `Scan fehlgeschlagen: ${res?.error||'Unbekannt'}`);
+                        return;
+                    }
+                    const data = res.data;
+                    const patterns = ((data.pattern_analysis||{}).patterns)||[];
+                    const setups = Array.isArray(data.trade_setups)? data.trade_setups : [];
+                    // Build signatures
+                    const patSigs = new Set(patterns.map(p=>`${p.type||p.name}|${p.timeframe||tf}|${p.signal||''}`));
+                    const stpSigs = new Set(setups.map(s=>{
+                        const dir = s.direction||''; const strat = s.strategy||s.pattern_name||'tech'; const t = s.timeframe||s.pattern_timeframe||tf;
+                        const e = Math.round(((s.entry??s.entry_price)||0)*100)/100; const sl = Math.round((s.stop_loss||0)*100)/100;
+                        const rr = s.risk_reward_ratio||s.primary_rr||0; const rnk = s.refined_rank||'';
+                        return `${dir}|${strat}|${t}|${e}|${sl}|${rr}|${rnk}`;
+                    }));
+                    // Compare with last
+                    diffAndRecord(tf, 'pattern', liveScanState.last[tf].patterns, patSigs, patterns, p=>`${p.type||p.name} ${p.signal||''} (${p.timeframe||tf})`);
+                    diffAndRecord(tf, 'setup', liveScanState.last[tf].setups, stpSigs, setups, s=>`${s.direction} ${s.strategy||s.pattern_name||''} RR:${s.risk_reward_ratio||s.primary_rr||'-'} (${s.timeframe||s.pattern_timeframe||tf})`);
+                    // Store new sets
+                    liveScanState.last[tf].patterns = patSigs;
+                    liveScanState.last[tf].setups = stpSigs;
+                });
+            }catch(e){
+                addLiveEvent('all','error',`Scan Fehler: ${e?.message||e}`);
+            }finally{
+                liveScanBusy = false; updateLiveScannerUI();
+            }
+        }
+        function diffAndRecord(tf, kind, prevSet, nextSet, fullList, mkText){
+            try{
+                const newOnes = [];
+                nextSet.forEach(sig=>{ if(!prevSet.has(sig)) newOnes.push(sig); });
+                if(newOnes.length){
+                    // Try to map back to readable lines
+                    const lines = [];
+                    for(const sig of newOnes){
+                        let txt = sig;
+                        try{ const item = fullList.find(x=>{
+                            // lightweight match using key parts
+                            if(kind==='pattern'){
+                                const t = (x.type||x.name)||''; const s=x.signal||''; const tfc=(x.timeframe||tf)||''; return sig.startsWith(`${t}|${tfc}|${s}`);
+                            } else {
+                                const dir=x.direction||''; const strat=x.strategy||x.pattern_name||'tech'; const t=(x.timeframe||x.pattern_timeframe||tf)||''; return sig.includes(`${dir}|${strat}|${t}`);
+                            }
+                        }); txt = item? mkText(item) : sig; }catch{}
+                        lines.push(txt);
+                    }
+                    addLiveEvent(tf, kind, `Neu (${newOnes.length}): ${lines.slice(0,3).join(' • ')}${newOnes.length>3? ' …':''}`);
+                }
+            }catch{}
+        }
+        function addLiveEvent(tf, kind, text){
+            const evt = { ts: Date.now(), tf, kind, text };
+            liveScanState.events.unshift(evt);
+            liveScanState.events = liveScanState.events.slice(0,20);
+            updateLiveScannerUI();
+        }
+        function updateLiveScannerUI(extraMsg){
+            const statusEl = document.getElementById('liveScannerStatus');
+            const listEl = document.getElementById('liveScannerEvents');
+            if(!statusEl||!listEl) return;
+            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 1h & 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 1h & 4h jede Minute zu scannen.';
+            if(extraMsg) txt += ` • ${extraMsg}`;
+            statusEl.textContent = txt;
+            const colorForKind = k=> k==='pattern'?'#8b5cf6': k==='setup'?'#26c281':'#ffc107';
+            listEl.innerHTML = liveScanState.events.map(e=>{
+                const d = new Date(e.ts).toLocaleTimeString();
+                return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-left:3px solid ${colorForKind(e.kind)};border-radius:10px;">
+                    <div style="font-size:.55rem;color:var(--text-secondary);">[${e.tf}] ${e.text}</div>
+                    <div style="font-size:.5rem;opacity:.55;">${d}</div>
+                </div>`;
+            }).join('') || '<div style="font-size:.55rem;color:var(--text-dim);">Noch keine Ereignisse.</div>';
         }
 
         function displayDiagnostics(data){
@@ -2591,57 +2716,75 @@ DASHBOARD_HTML = """
                 function displayAdaptiveRiskTargets(data) {
                     const adaptiveContainer = document.getElementById('adaptiveRiskTargets');
                     if (!adaptiveContainer || !data.adaptive_risk_targets) return;
-                    
+
                     const risk = data.adaptive_risk_targets;
                     if (risk.error) {
                         adaptiveContainer.innerHTML = `<div class="alert alert-warning">⚠️ ${risk.error}</div>`;
                         return;
                     }
-                    
-                    const riskColors = {
-                        'low': '#28a745',
-                        'medium': '#ffc107',
-                        'high': '#dc3545'
-                    };
-                    
+
+                    const riskColors = { low: '#28a745', medium: '#ffc107', high: '#dc3545' };
                     const targets = risk.targets || {};
-                    
+                    const adj = risk.adjustments || {};
+                    const regime = (data.regime_analysis && (data.regime_analysis.regime || data.regime_analysis.regime_type)) || 'unknown';
+                    const ai = data.ai_analysis || {};
+                    const unc = (ai.uncertainty || {});
+                    const ens = (ai.ensemble || {});
+
+                    // Helper to render a multiplier bar (visual only)
+                    const multBar = (label, val, color) => {
+                        const v = (typeof val === 'number' ? val : 1.0);
+                        const pct = Math.max(10, Math.min(100, (v / 2.0) * 100)); // map 0..2x -> 0..100%
+                        return `
+                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                <div style="display:flex;justify-content:space-between;font-size:0.55rem;color:var(--text-secondary);"><span>${label}</span><span>x${v.toFixed ? v.toFixed(2) : v}</span></div>
+                                <div style="height:6px;border-radius:6px;background:rgba(255,255,255,0.08);overflow:hidden;">
+                                    <div style="height:100%;width:${pct}%;background:${color};opacity:.6;"></div>
+                                </div>
+                            </div>`;
+                    };
+
+                    // AI influence explanation
+                    const aiColor = (ai.confidence || 0) > 70 ? '#28a745' : (ai.confidence || 0) > 50 ? '#ffc107' : '#dc3545';
+                    const rel = (typeof ai.reliability_score === 'number') ? `${ai.reliability_score.toFixed(1)}%` : '-';
+                    const entropy = (typeof ai.entropy === 'number') ? ai.entropy.toFixed(3) : (typeof unc.entropy === 'number' ? unc.entropy.toFixed(3) : 'n/a');
+                    const avgStd = (typeof unc.avg_std === 'number') ? unc.avg_std.toFixed(3) : 'n/a';
+                    const align = ens.alignment || 'n/a';
+                    const aiExplain = `KI: <strong style="color:${aiColor}">${ai.signal || 'HOLD'} (${(ai.confidence||0).toFixed?ai.confidence.toFixed(1):ai.confidence||0}%)</strong> • Zuverlässigkeit: <strong>${rel}</strong> • Unsicherheit: entropy=<strong>${entropy}</strong>, σ≈<strong>${avgStd}</strong> • Ensemble: <strong>${align}</strong> → <span style="color:#8b5cf6">conf.mult x${(adj.confidence_multiplier||1).toFixed?adj.confidence_multiplier.toFixed(2):adj.confidence_multiplier||'1.00'}</span>, <span style="color:#8b5cf6">uncert.mult x${(adj.uncertainty_multiplier||1).toFixed?adj.uncertainty_multiplier.toFixed(2):adj.uncertainty_multiplier||'1.00'}</span>`;
+
                     adaptiveContainer.innerHTML = `
                         <div class="adaptive-risk-display" style="border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:18px 18px 16px; margin:10px 0; background:linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); backdrop-filter:blur(6px); box-shadow:0 4px 18px -6px rgba(0,0,0,0.55);">
-                            <h5 style="margin:0 0 14px; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🎯 Adaptive Risk Management</h5>
-                            
-                            <!-- Risk Overview -->
-                            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px;">
-                                <div class="risk-metric">
-                                    <strong style="color:var(--text-secondary);">Risk %:</strong>
-                                    <span style="color:${riskColors[risk.risk_category]}; font-weight:700;">
-                                        ${risk.adaptive_risk_pct}%
-                                    </span>
-                                </div>
-                                
-                                <div class="risk-metric">
-                                    <strong style="color:var(--text-secondary);">Reward Ratio:</strong>
-                                    <span style="color:#0d6efd; font-weight:700;">
-                                        1:${risk.adaptive_reward_ratio}
-                                    </span>
-                                </div>
-                                
-                                <div class="risk-metric">
-                                    <strong style="color:var(--text-secondary);">Position Size:</strong>
-                                    <span>${risk.position_size}</span>
-                                </div>
-                                
-                                <div class="risk-metric">
-                                    <strong style="color:var(--text-secondary);">Risk Amount:</strong>
-                                    <span style="color:${riskColors[risk.risk_category]}; font-weight:600;">
-                                        $${risk.risk_amount_usd}
-                                    </span>
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+                                <h5 style="margin:0; font-size:0.8rem; letter-spacing:.5px; font-weight:600; color:var(--text-primary);">🎯 Adaptive Risk Management</h5>
+                                <span style="font-size:0.55rem;background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:10px;letter-spacing:.6px;color:${riskColors[risk.risk_category]}">RISK: ${String(risk.risk_category).toUpperCase()}</span>
+                            </div>
+
+                            <!-- Overview -->
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin:0 0 12px;">
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Risk %</strong><div style="color:${riskColors[risk.risk_category]};font-weight:700;">${risk.adaptive_risk_pct}%</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Reward Ratio</strong><div style="color:#0d6efd;font-weight:700;">1:${risk.adaptive_reward_ratio}</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Position Size</strong><div>${risk.position_size}</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Risk Amount</strong><div style="color:${riskColors[risk.risk_category]};font-weight:600;">$${risk.risk_amount_usd}</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Stop Distance</strong><div>${risk.stop_distance_pct ?? '-'}%</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">ATR %</strong><div>${risk.atr_pct ?? '-'}%</div></div>
+                                <div class="risk-metric"><strong style="color:var(--text-secondary);">Regime</strong><div style="text-transform:capitalize;">${regime}</div></div>
+                            </div>
+
+                            <!-- Multipliers -->
+                            <div style="margin:6px 0 12px;">
+                                <h6 style="margin:0 0 8px; font-size:0.65rem; letter-spacing:.5px; font-weight:700; color:var(--text-secondary);">⚙️ Multiplikatoren</h6>
+                                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+                                    ${multBar('Volatilität', adj.volatility_multiplier || 1, 'linear-gradient(90deg, rgba(13,110,253,0.5), rgba(13,110,253,0.15))')}
+                                    ${multBar('Regime', adj.regime_multiplier || 1, 'linear-gradient(90deg, rgba(139,92,246,0.5), rgba(139,92,246,0.15))')}
+                                    ${multBar('KI Confidence', adj.confidence_multiplier || 1, 'linear-gradient(90deg, rgba(38,194,129,0.5), rgba(38,194,129,0.15))')}
+                                    ${multBar('Unsicherheit', adj.uncertainty_multiplier || 1, 'linear-gradient(90deg, rgba(255,193,7,0.5), rgba(255,193,7,0.15))')}
+                                    ${multBar('Reward', adj.reward_multiplier || 1, 'linear-gradient(90deg, rgba(23,162,184,0.5), rgba(23,162,184,0.15))')}
                                 </div>
                             </div>
-                            
+
                             <!-- Stop Loss & Targets -->
                             <div class="stop-targets" style="margin:0 0 12px;">
-                                <h6 style="margin:0 0 10px; font-size:0.65rem; letter-spacing:.5px; font-weight:600; color:var(--text-secondary);">📍 Stop Loss & Targets</h6>
+                                <h6 style="margin:0 0 8px; font-size:0.65rem; letter-spacing:.5px; font-weight:700; color:var(--text-secondary);">📍 Stop Loss & Ziele</h6>
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px;">
                                     <div style="padding:10px 8px; background:rgba(255,77,79,0.08); border:1px solid rgba(255,77,79,0.35); border-radius:12px; text-align:center;">
                                         <div style="font-size:0.55rem; letter-spacing:.5px; color:#ff4d4f; font-weight:600;">Stop Loss</div>
@@ -2661,14 +2804,54 @@ DASHBOARD_HTML = """
                                     </div>
                                 </div>
                             </div>
-                            
-                            ${risk.reasoning ? `
-                                <div style="margin-top:8px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
-                                    💡 ${risk.reasoning}
-                                </div>
-                            ` : ''}
-                        </div>
-                    `;
+
+                            <!-- KI Erklärung -->
+                            <div style="margin-top:4px; font-size:0.55rem; color:var(--text-secondary); padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
+                                🤖 ${aiExplain}
+                            </div>
+
+                            ${risk.reasoning ? `<div style="margin-top:8px; font-size:0.55rem; color:var(--text-secondary); font-style:italic; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">💡 ${risk.reasoning}</div>` : ''}
+
+                            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                                <button id="exportRiskJsonBtn" class="btn-ghost" style="font-size:0.55rem;padding:5px 10px;">Export Risk JSON</button>
+                                <span style="font-size:0.5rem;color:var(--text-dim);">Hinweis: Werte sind heuristisch und passen sich Volatilität, Regime und KI-Signalqualität an.</span>
+                            </div>
+                        </div>`;
+
+                    // Wire export button
+                    try {
+                        const btn = document.getElementById('exportRiskJsonBtn');
+                        if (btn) {
+                            btn.addEventListener('click', () => {
+                                try {
+                                    const payload = {
+                                        timestamp: new Date().toISOString(),
+                                        symbol: data.symbol,
+                                        base_interval: data.base_interval,
+                                        regime,
+                                        adaptive_risk: risk,
+                                        ai_summary: {
+                                            signal: ai.signal,
+                                            confidence: ai.confidence,
+                                            reliability: ai.reliability_score,
+                                            ensemble_alignment: ens.alignment,
+                                            entropy: ai.entropy ?? unc.entropy,
+                                            avg_std: unc.avg_std
+                                        }
+                                    };
+                                    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `adaptive_risk_${data.symbol || 'symbol'}_${Date.now()}.json`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                } catch (e) { console.warn('Export failed', e); }
+                            });
+                        }
+                    } catch (e) { /* noop */ }
                 }
 
         // Fetch AI status
@@ -2928,6 +3111,8 @@ DASHBOARD_HTML = """
                     document.body.classList.toggle('dim');
                 });
             }
+            const liveBtn = document.getElementById('liveScanToggle');
+            if(liveBtn){ liveBtn.addEventListener('click', toggleLiveScan); }
 
             // Smooth scroll to results after first analysis
             const observer = new MutationObserver(() => {
