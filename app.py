@@ -154,7 +154,7 @@ def analyze_symbol(symbol):
             log_event('info', 'Cache cleared for analyze', symbol=symbol.upper())
         base_tf = (request.args.get('tf') or '1h').lower()
         # Limit to supported set
-        if base_tf not in ('15m','1h','4h','1d'):
+        if base_tf not in ('3m','5m','15m','1h','4h','1d'):
             base_tf = '1h'
         log_id = log_event('info', 'Analyze request start', symbol=symbol.upper(), refresh=request.args.get('refresh')=='1', tf=base_tf)
         analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=base_tf)
@@ -1532,7 +1532,13 @@ DASHBOARD_HTML = """
         let liveScanTimer = null;
         let liveScanBusy = false;
         let liveScanState = {
-            last: { '1h': { patterns: new Set(), setups: new Set() }, '4h': { patterns: new Set(), setups: new Set() } },
+            last: {
+                '3m': { patterns: new Set(), setups: new Set() },
+                '5m': { patterns: new Set(), setups: new Set() },
+                '15m': { patterns: new Set(), setups: new Set() },
+                '1h': { patterns: new Set(), setups: new Set() },
+                '4h': { patterns: new Set(), setups: new Set() }
+            },
             events: [] // {ts, tf, kind, text}
         };
 
@@ -1580,7 +1586,13 @@ DASHBOARD_HTML = """
                     analysisData = result.data;
                     displayAnalysis(analysisData);
                     // Reset live scan caches for new symbol
-                    liveScanState = { last: { '1h': { patterns: new Set(), setups: new Set() }, '4h': { patterns: new Set(), setups: new Set() } }, events: [] };
+                    liveScanState = { last: {
+                        '3m': { patterns: new Set(), setups: new Set() },
+                        '5m': { patterns: new Set(), setups: new Set() },
+                        '15m': { patterns: new Set(), setups: new Set() },
+                        '1h': { patterns: new Set(), setups: new Set() },
+                        '4h': { patterns: new Set(), setups: new Set() }
+                    }, events: [] };
                     updateLiveScannerUI();
                     if (liveScanEnabled) runLiveScanOnce();
                 } else {
@@ -1655,7 +1667,7 @@ DASHBOARD_HTML = """
             if(!currentSymbol){ updateLiveScannerUI('Kein Symbol ausgewählt.'); return; }
             liveScanBusy = true; updateLiveScannerUI();
             try{
-                const tfs = ['1h','4h'];
+                const tfs = ['3m','5m','15m','1h','4h'];
                 const results = await Promise.all(tfs.map(tf=> fetch(`/api/analyze/${currentSymbol}?tf=${tf}`)).map(p=>p.then(r=>r.json()).catch(()=>({success:false,error:'net'}))));
                 results.forEach((res, idx)=>{
                     const tf = tfs[idx];
@@ -1720,7 +1732,7 @@ DASHBOARD_HTML = """
             const statusEl = document.getElementById('liveScannerStatus');
             const listEl = document.getElementById('liveScannerEvents');
             if(!statusEl||!listEl) return;
-            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 1h & 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 1h & 4h jede Minute zu scannen.';
+            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 3m • 5m • 15m • 1h • 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 3m/5m/15m/1h/4h jede Minute zu scannen.';
             if(extraMsg) txt += ` • ${extraMsg}`;
             statusEl.textContent = txt;
             const colorForKind = k=> k==='pattern'?'#8b5cf6': k==='setup'?'#26c281':'#ffc107';
