@@ -164,10 +164,14 @@ def _trading_enabled() -> bool:
 def dashboard():
     """Render dashboard. On Railway show a minimal UI with one-line decision."""
     try:
-        minimal = _is_on_railway() or (os.getenv('ANALYSIS_MODE','full').lower() == 'minimal')
+        # Show full UI everywhere by default; only switch to minimal if explicitly requested
+        minimal = (os.getenv('ANALYSIS_MODE','full').lower() == 'minimal')
     except Exception:
         minimal = False
-    return render_template_string(MINIMAL_DASHBOARD_HTML if minimal else DASHBOARD_HTML)
+    if minimal:
+        return render_template_string(MINIMAL_DASHBOARD_HTML)
+    # Pass whether trading is enabled to the template (for UI toggle/button state)
+    return render_template_string(DASHBOARD_HTML, tradingEnabled=_trading_enabled())
 
 @app.route('/api/search/<query>')
 def search_symbols(query):
@@ -522,6 +526,42 @@ def quick_price(symbol):
             'error': str(e)
         }), 500
 
+# ---- Trading bot status endpoints (read-only; safe for Railway) ----
+@app.route('/api/bot/positions')
+def bot_positions():
+    try:
+        if not TRADING_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Trading module not available'}), 400
+        store = TradeStorage()
+        return jsonify({'success': True, 'positions': store.get_positions()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/bot/orders')
+def bot_orders():
+    try:
+        if not TRADING_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Trading module not available'}), 400
+        limit = int(request.args.get('limit', '50'))
+        limit = max(1, min(limit, 500))
+        store = TradeStorage()
+        path = store.orders_path
+        lines = []
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        tail = lines[-limit:]
+        orders = []
+        for ln in tail:
+            try:
+                orders.append(json.loads(ln))
+            except Exception:
+                continue
+        orders = list(reversed(orders))  # newest first
+        return jsonify({'success': True, 'orders': orders, 'count': len(orders)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # --- Minimal decision (read-only) ---
 def _extract_minimal_decision(analysis: dict) -> dict:
     """Summarize analysis into LONG/SHORT/NEUTRAL with short reasons.
@@ -537,126 +577,105 @@ def _extract_minimal_decision(analysis: dict) -> dict:
         ai = (analysis or {}).get('ai_analysis') or {}
         pat = (analysis or {}).get('pattern_analysis') or {}
 
-        # Decision mapping
+        # Decision mapping (prefer final_score.signal, then MTF, then AI)
         sig = str(fs.get('signal') or '').upper()
         if 'BUY' in sig:
             decision = 'LONG'
         elif 'SELL' in sig:
             decision = 'SHORT'
         else:
-            # fallback to MTF
-            prim = str(mtc.get('primary') or '').upper()
-            if prim == 'BULLISH':
-                decision = 'LONG'
-            elif prim == 'BEARISH':
-                decision = 'SHORT'
+            mtf_sig = str(mtc.get('final_decision') or '').upper()
+            if mtf_sig in ('LONG','SHORT'):
+                decision = mtf_sig
             else:
-                decision = 'NEUTRAL'
-        s = fs.get('score')
-        if isinstance(s,(int,float)):
-            score = float(s)
+                ai_sig = str(ai.get('signal') or '').upper()
+                if ai_sig in ('LONG','BUY'):
+                    decision = 'LONG'
+                elif ai_sig in ('SHORT','SELL'):
+                    decision = 'SHORT'
 
-        # Reasons
-        trend = (tech.get('trend') or {}).get('trend')
+        # Score (best-effort)
+        sc = fs.get('score') or fs.get('value') or fs.get('weighted_score')
+        if isinstance(sc, (int, float)):
+            score = round(float(sc), 2)
+
+        # Reasons (short bullets)
+        trend = tech.get('trend') or tech.get('trend_strength')
         if trend:
-            reasons.append(f"Trend: {str(trend).upper()}")
-        rsi = ((tech.get('rsi') or {}).get('rsi'))
-        try:
-            if isinstance(rsi,(int,float)):
-                reasons.append(f"RSI: {rsi:.1f}")
-        except Exception:
-            pass
-        macd = (tech.get('macd') or {}).get('curve_direction')
-        if macd:
-            reasons.append(f"MACD: {str(macd).lower()}")
-        prim = mtc.get('primary')
-        if prim:
-            reasons.append(f"MTF: {prim}")
-        if pat.get('overall_signal'):
-            reasons.append(f"Pattern: {str(pat.get('overall_signal')).upper()}")
-        if ai.get('signal'):
+            if isinstance(trend, dict):
+                tdir = trend.get('direction') or trend.get('trend')
+            else:
+                tdir = trend
+            if tdir:
+                reasons.append(f"Trend: {str(tdir).upper()}")
+
+        rsi = tech.get('rsi') or tech.get('RSI')
+        if isinstance(rsi, (int, float)):
+            reasons.append(f"RSI {round(rsi, 1)}")
+
+        macd = tech.get('macd') or tech.get('MACD')
+        if isinstance(macd, dict):
+            if macd.get('signal'):
+                reasons.append(f"MACD {str(macd.get('signal'))}")
+            elif isinstance(macd.get('hist'), (int, float)):
+                reasons.append(f"MACD hist {round(macd.get('hist'), 2)}")
+
+        mtf = mtc.get('summary') or mtc.get('bias') or mtc.get('final_decision')
+        if mtf:
+            reasons.append(f"MTF {str(mtf).upper()}")
+
+        if isinstance(ai.get('confidence'), (int, float)):
+            reasons.append(f"AI conf {round(ai['confidence'], 1)}%")
+
+        if isinstance(pat, dict):
             try:
-                ac = ai.get('confidence')
-                if isinstance(ac,(int,float)):
-                    reasons.append(f"AI: {ai['signal']} ({ac:.1f}%)")
-                else:
-                    reasons.append(f"AI: {ai['signal']}")
+                key = next((k for k, v in pat.items() if isinstance(v, dict) and v.get('detected')), None)
+                if key:
+                    reasons.append(f"Pattern {key}")
             except Exception:
-                reasons.append(f"AI: {ai.get('signal')}")
-
-        # Keep concise
-        reasons = [str(x) for x in reasons if x][:4]
+                pass
     except Exception as e:
-        reasons = [f'Analyse Fehler: {e}']
-        decision = 'NEUTRAL'
-        score = None
-    return {'decision': decision, 'score': score, 'reasons': reasons}
+        reasons.append(f"parse error: {e}")
 
+    return {'decision': decision, 'reasons': reasons[:6], 'score': score}
 
 @app.route('/api/decision/<symbol>')
-def api_minimal_decision(symbol):
-    """Return LONG/SHORT/NEUTRAL with short reasons (no trading)."""
+def api_decision(symbol):
+    """Return a compact LONG/SHORT/NEUTRAL decision with short reasons."""
     try:
         tf = (request.args.get('tf') or '1h').lower()
-        if tf not in ('3m','5m','15m','30m','1h','4h','1d'):
+        if tf not in ('3m', '5m', '15m', '1h', '4h', '1d'):
             tf = '1h'
-        if request.args.get('refresh') == '1':
-            master_analyzer.binance_client.clear_symbol_cache(symbol.upper())
         analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=tf)
-        out = _extract_minimal_decision(analysis)
-        return jsonify({'success': True, 'symbol': symbol.upper(), 'timeframe': tf, **out})
+        summary = _extract_minimal_decision(analysis)
+        return jsonify({'success': True, 'symbol': symbol.upper(), 'timeframe': tf, **summary})
     except Exception as e:
-        err_id = log_event('error', 'Decision exception', symbol=symbol.upper(), error=str(e))
-        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
-
-@app.route('/favicon.ico')
-def favicon():
-    # Serve a tiny inline favicon (16x16) to prevent browser 404/502 spam.
-    # If behind a proxy sometimes an empty 204 can show as 502 when worker restarts.
-    import base64
-    ico_b64 = (
-        b'AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAA\n'
-        b'AAAAAACZmZkAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZmAGZmZgBmZmYAZmZm\n'
-        b'AGZmZgBmZmYA///////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
-        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////////\n'
-        b'////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
-        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
-        b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n'
-    )
-    data = base64.b64decode(ico_b64)
-    return app.response_class(data, mimetype='image/x-icon')
-
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    base_path = os.path.join(os.path.dirname(__file__), 'static')
-    return send_from_directory(base_path, filename)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/ai/status')
 def ai_status():
+    """Return AI subsystem status. Always 200 with success True to be dashboard-safe."""
     try:
-        status_data = {}
         try:
-            if hasattr(master_analyzer, 'ai_system') and master_analyzer.ai_system:
-                status_data = master_analyzer.ai_system.get_status()
-                # Ensure UI fields exist to avoid 'undefined'
-                if isinstance(status_data, dict):
-                    status_data.setdefault('model_version', 'unknown')
-                    # samples_collected might come from calibration status if not present
-                    if 'samples_collected' not in status_data:
-                        try:
-                            cal = master_analyzer.ai_system.get_calibration_status() or {}
-                            status_data['samples_collected'] = int(cal.get('count', 0))
-                        except Exception:
-                            status_data['samples_collected'] = 0
-                    # provide a stable last_train placeholder (can be extended later)
-                    status_data.setdefault('last_train', {'updated': ''})
-            else:
-                status_data = {'initialized': False, 'model_version': 'unavailable'}
-        except Exception as inner:
-            status_data = {'initialized': False, 'model_version': 'error', 'error': str(inner)}
+            status_data = master_analyzer.ai_system.get_status() or {}
+        except Exception:
+            status_data = {}
+
+        if isinstance(status_data, dict):
+            status_data.setdefault('model_version', 'unknown')
+            if 'samples_collected' not in status_data:
+                try:
+                    cal = master_analyzer.ai_system.get_calibration_status() or {}
+                    status_data['samples_collected'] = int(cal.get('count', 0))
+                except Exception:
+                    status_data['samples_collected'] = 0
+            status_data.setdefault('last_train', {'updated': ''})
+        else:
+            status_data = {'initialized': False, 'model_version': 'unavailable'}
+
         return jsonify({'success': True, 'data': status_data})
     except Exception as e:
-    # Absolute fallback – never raise 500 for status endpoint
+        # Absolute fallback – never raise 500 for status endpoint
         return jsonify({'success': True, 'data': {'initialized': False, 'model_version': 'unavailable', 'error': str(e)}}), 200
 
 @app.route('/api/ai/compare/<symbol>')
@@ -3521,6 +3540,107 @@ DASHBOARD_HTML = """
 </body>
 </html>
 """
+
+# Inject a compact Trading Bot panel (full UI only). Uses /api/bot/run, /api/bot/positions, /api/bot/orders
+# The template gets tradingEnabled via Jinja variable 'tradingEnabled'. We'll append the panel right after body tag.
+DASHBOARD_HTML = DASHBOARD_HTML.replace(
+    "<body>",
+    """
+<body>
+    {% if tradingEnabled %}
+    <!-- Trading Bot Panel (Local only; disabled on Railway) -->
+    <div style=\"position:fixed; right:16px; bottom:16px; max-width:420px; z-index:9999;\">
+            <div style=\"background:rgba(15,18,28,0.95); border:1px solid rgba(255,255,255,0.12); border-radius:14px; padding:14px; color:#fff; box-shadow:0 6px 24px rgba(0,0,0,0.35)\">
+                <div style=\"display:flex; justify-content:space-between; align-items:center; gap:8px;\">
+                    <div style=\"font-weight:700\">Trading Bot</div>
+                    <div id=\"tb-status\" style=\"font-size:.85rem; opacity:.8\"></div>
+                </div>
+                <div style=\"display:flex; gap:6px; margin-top:10px; flex-wrap:wrap\">
+                    <input id=\"tb-symbol\" placeholder=\"BTCUSDT\" value=\"BTCUSDT\" style=\"flex:1; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                    <select id=\"tb-tf\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\">
+                        <option>15m</option><option selected>1h</option><option>4h</option><option>1d</option>
+                    </select>
+                    <select id=\"tb-ex\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\">
+                        <option value=\"binance\">Binance</option>
+                        <option value=\"mexc\">MEXC</option>
+                    </select>
+                </div>
+                <div style=\"display:flex; gap:6px; margin-top:8px; flex-wrap:wrap\">
+                    <input id=\"tb-equity\" type=\"number\" placeholder=\"Equity (USDT)\" value=\"1000\" min=\"10\" style=\"flex:1; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                    <input id=\"tb-risk\" type=\"number\" step=\"0.1\" placeholder=\"Risk %\" value=\"0.5\" style=\"width:110px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                    <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-paper\" type=\"checkbox\" checked/> Paper</label>
+                </div>
+                <div style=\"display:flex; gap:8px; margin-top:10px\">
+                    <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Run once</button>
+                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Refresh</button>
+                </div>
+            <div id=\"tb-out\" style=\"margin-top:10px; max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; line-height:1.35\"></div>
+            </div>
+    </div>
+        <script>
+            const TRADING_ENABLED = {{ tradingEnabled | tojson }};
+            function fmtTs(ms){ try{ const d=new Date(ms); return d.toLocaleString(); }catch(e){ return ms; } }
+            async function tbRefresh(){
+                const st = document.getElementById('tb-status'); const out = document.getElementById('tb-out');
+                try{
+                    const [p,o] = await Promise.all([
+                        fetch('/api/bot/positions').then(r=>r.json()).catch(()=>({success:false})),
+                        fetch('/api/bot/orders?limit=20').then(r=>r.json()).catch(()=>({success:false}))
+                    ]);
+                    let html = '';
+                    if(p.success){
+                        html += '<div style="opacity:.7;margin-bottom:4px">Positions</div>';
+                        const keys = Object.keys(p.positions||{});
+                        if(!keys.length) html += '<div style="opacity:.6">Keine offenen Positionen</div>';
+                        keys.forEach(k=>{ const v=p.positions[k]; html += `<div>• ${k}: qty=${v.qty} @ ${v.avg_entry}</div>`; });
+                    }
+                    if(o.success){
+                        html += '<div style="opacity:.7;margin:8px 0 4px">Letzte Orders</div>';
+                        (o.orders||[]).forEach(x=>{ html += `<div>• ${x.side||''} ${x.qty||''} ${x.symbol||''} (${fmtTs(x.ts)}) ${x.dry_run?'[paper]':''}</div>`; });
+                    }
+                    out.innerHTML = html || '<div style="opacity:.6">Keine Daten</div>';
+                    st.innerText = TRADING_ENABLED ? 'bereit' : 'deaktiviert';
+                    document.getElementById('tb-run').disabled = !TRADING_ENABLED;
+                    if(!TRADING_ENABLED){ document.getElementById('tb-run').title = 'Trading ist auf diesem Deployment deaktiviert'; }
+                }catch(e){ out.innerText = 'Fehler beim Laden'; }
+            }
+                    async function tbRun(){
+                const s = (document.getElementById('tb-symbol').value||'BTCUSDT').toUpperCase();
+                const tf = (document.getElementById('tb-tf').value||'1h');
+                const ex = (document.getElementById('tb-ex').value||'binance');
+                const eq = parseFloat(document.getElementById('tb-equity').value||'1000');
+                const rk = parseFloat(document.getElementById('tb-risk').value||'0.5');
+                const pap = !!document.getElementById('tb-paper').checked;
+                const out = document.getElementById('tb-out'); out.innerText = 'Running…';
+                try{
+                    const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap})});
+                    const j = await r.json();
+                    if(!j.success){ out.innerText = 'Fehler: '+(j.error||'unknown'); }
+                    else {
+                                const exed = (j.data && j.data.executed) || [];
+                                const ctx = (j.data && j.data.context) || {};
+                                let html = `<div style=\"opacity:.7\">Ergebnis (max 1 Trade) • ${ex.toUpperCase()} • Paper: ${j.paper?'JA':'NEIN'}</div>`;
+                                html += `<div style=\"opacity:.7\">Kontext: decision=${ctx.decision||'-'}, mtf=${ctx.mtf||'-'}, RSI=${ctx.rsi??'-'}, MACD=${ctx.macd||'-'}, AI=${ctx.ai_signal||'-'} (${ctx.ai_confidence??'-'}%)</div>`;
+                                if(!exed.length){ html += '<div>Keine Ausführungen (Filter oder Bedingungen nicht erfüllt)</div>'; }
+                                exed.forEach((e,i)=>{
+                                    if(e.skipped){
+                                        const st = e.setup||{}; const why = e.reason||''; const dir = st.direction||'-'; const rr = st.risk_reward_ratio||st.primary_rr; const prob = st.probability_estimate_pct;
+                                        html += `<div>• SKIPPED (${dir}) — Gründe: ${why} • RR=${rr??'-'} • P=${prob??'-'}% • TF=${st.timeframe||'-'} • Strat=${st.strategy||st.label||'-'}</div>`
+                                    } else {
+                                        html += `<div>• EXECUTED ${e.direction} ${e.qty} @ ${e.entry} • RR=${e.rr??'-'} • P=${e.probability_estimate_pct??'-'}% • TF=${e.timeframe||'-'} • Strat=${e.strategy||'-'}</div>`
+                                        if(e.rationale){ html += `<div style=\"opacity:.7\">   Begründung: ${e.rationale}</div>`; }
+                                    }
+                                });
+                        out.innerHTML = html;
+                    }
+                    tbRefresh();
+                }catch(e){ out.innerText = 'Fehler: '+e; }
+            }
+            document.addEventListener('DOMContentLoaded', ()=>{ tbRefresh(); });
+        </script>
+    {% endif %}
+        """
+)
 
 # Minimal dashboard shown on Railway (analysis-only): simple decision and short reasons
 MINIMAL_DASHBOARD_HTML = """
