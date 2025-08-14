@@ -149,6 +149,10 @@ class FeatureEngineNeutral:
                 vec.append(0.0)
         return np.array(vec, dtype=np.float32)
 
+    def vectorize(self, features: dict) -> np.ndarray:
+        """Public vectorize method for adapters."""
+        return self._vectorize(features)
+
     def get_feature_schema(self):
         return list(self.schema)
 
@@ -205,8 +209,8 @@ class TorchAIAdapter(_BaseAI):
             # Fallback: produce a HOLD-like neutral output without JAX
             return self._neutral_output(features)
         try:
-            # Vectorize using JAX helper for consistent order + standardization
-            vec = self._feature_helper._vectorize(features)
+            # Vectorize using feature helper for consistent order + standardization
+            vec = self._feature_helper.vectorize(features)
             t = self._torch
             x = t.tensor(vec, dtype=t.float32).view(1, -1)
             logits = self.model(x)
@@ -253,7 +257,7 @@ class TorchAIAdapter(_BaseAI):
 
     def _neutral_output(self, features):
         # Simple heuristic to assign mild probabilities without JAX
-        vec = self._feature_helper._vectorize(features)
+        vec = self._feature_helper.vectorize(features)
         # Use rsi and mt scores proxy if present
         rsi = features.get('rsi', 50.0)
         bull = max(0.0, min(1.0, (rsi - 50.0) / 30.0))
@@ -323,7 +327,7 @@ class TensorFlowAIAdapter(_BaseAI):
         if not self.initialized or self._tf is None:
             return self._neutral_output(features)
         try:
-            vec = self._feature_helper._vectorize(features)
+            vec = self._feature_helper.vectorize(features)
             logits = self.model(self._tf.convert_to_tensor(vec.reshape(1, -1), dtype=self._tf.float32))
             probs = self._tf.nn.softmax(logits, axis=-1).numpy().squeeze()
             idx = int(np.argmax(probs))
@@ -497,25 +501,17 @@ def get_ai_system(backend: str | None = None):
     backend = (backend or os.getenv('AI_BACKEND') or 'ensemble').strip().lower()
     engine = FeatureEngineNeutral()
     if backend == 'torch':
-        try:
-            return TorchAIAdapter(feature_engine=engine)
-        except Exception:
-            return TorchAIAdapter(feature_engine=engine)  # will neutral-fallback
+        return TorchAIAdapter(feature_engine=engine)
     if backend in ('tf', 'tensorflow'):
-        try:
-            return TensorFlowAIAdapter(feature_engine=engine)
-        except Exception:
-            return TensorFlowAIAdapter(feature_engine=engine)  # neutral-fallback
-    if backend in ('ensemble', 'ens'):
-        members: List[_BaseAI] = []
-        try:
-            members.append(TorchAIAdapter(feature_engine=engine))
-        except Exception:
-            pass
-        try:
-            members.append(TensorFlowAIAdapter(feature_engine=engine))
-        except Exception:
-            pass
-        return EnsembleAI(members, feature_engine=engine)
-    # default to ensemble to avoid JAX
-    return EnsembleAI([TorchAIAdapter(feature_engine=engine), TensorFlowAIAdapter(feature_engine=engine)], feature_engine=engine)
+        return TensorFlowAIAdapter(feature_engine=engine)
+    # default: ensemble (uses both torch + tf)
+    members: List[_BaseAI] = []
+    try:
+        members.append(TorchAIAdapter(feature_engine=engine))
+    except Exception:
+        pass
+    try:
+        members.append(TensorFlowAIAdapter(feature_engine=engine))
+    except Exception:
+        pass
+    return EnsembleAI(members, feature_engine=engine)
