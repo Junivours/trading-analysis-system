@@ -7,65 +7,63 @@ from typing import Dict, List, Any, Optional
 
 class SignalEnhancer:
     """Erweiterte Signal-Analyse für höhere Präzision und Erfolgswahrscheinlichkeit"""
-    
+
     @staticmethod
     def detect_micro_patterns(candles: List[Dict], lookback: int = 20) -> List[Dict]:
         """Mikro-Pattern Erkennung für kurzfristige Präzisions-Signale"""
-        patterns = []
-        
+        patterns: List[Dict] = []
         if len(candles) < lookback:
             return patterns
-            
+
         highs = [c['high'] for c in candles[-lookback:]]
         lows = [c['low'] for c in candles[-lookback:]]
         closes = [c['close'] for c in candles[-lookback:]]
         volumes = [c['volume'] for c in candles[-lookback:]]
-        
+
         # 1. Smart Money Footprints
         smart_money = SignalEnhancer._detect_smart_money_footprints(highs, lows, closes, volumes)
         if smart_money:
             patterns.append(smart_money)
-            
+
         # 2. Volume-Price Analysis (VPA)
         vpa = SignalEnhancer._detect_vpa_signals(highs, lows, closes, volumes)
         if vpa:
             patterns.extend(vpa)
-            
+
         # 3. Institutional Order Flow
         institutional = SignalEnhancer._detect_institutional_flow(highs, lows, volumes)
         if institutional:
             patterns.append(institutional)
-            
+
         # 4. Liquidity Sweep Patterns
         sweeps = SignalEnhancer._detect_liquidity_sweeps(highs, lows, closes)
         if sweeps:
             patterns.extend(sweeps)
-            
+
         return patterns
-    
+
     @staticmethod
     def _detect_smart_money_footprints(highs, lows, closes, volumes):
-        """Smart Money Accumulation/Distribution Erkennung"""
-        if len(closes) < 10:
+        """Smart Money Accumulation/Distribution Erkennung (relaxed thresholds, 5m)"""
+        if len(closes) < 8:
             return None
-            
+
         recent_vol = volumes[-5:]
         avg_vol = np.mean(volumes[:-5]) if len(volumes) > 5 else np.mean(volumes)
-        
+
         # Hohe Volumen bei kleinen Körpern = Smart Money Aktivität
         for i in range(-3, 0):
             if i >= -len(closes):
-                body_size = abs(closes[i] - closes[i-1]) / closes[i-1] if i > 0 else 0
+                body_size = abs(closes[i] - closes[i - 1]) / closes[i - 1] if i > 0 else 0
                 vol_ratio = volumes[i] / avg_vol if avg_vol > 0 else 1
-                
-                if vol_ratio > 2.0 and body_size < 0.008:  # Hohe Vol, kleine Bewegung
-                    trend = 'accumulation' if closes[i] > closes[i-5] else 'distribution'
-                    
+
+                if vol_ratio > 1.6 and body_size < 0.012:
+                    trend = 'accumulation' if closes[i] > closes[i - 5] else 'distribution'
                     return {
                         'type': f'Smart Money {trend.title()}',
                         'signal': 'bullish' if trend == 'accumulation' else 'bearish',
                         'confidence': min(85, 65 + int(vol_ratio * 8)),
-                        'timeframe': '1h',
+                        'timeframe': '5m',
                         'strength': 'HIGH',
                         'description': f'{trend} bei {vol_ratio:.1f}x Volumen, kleine Körper',
                         'reliability_score': 78,
@@ -73,146 +71,127 @@ class SignalEnhancer:
                         'entry_zone': closes[-1] * (1.002 if trend == 'accumulation' else 0.998)
                     }
         return None
-    
+
     @staticmethod
     def _detect_vpa_signals(highs, lows, closes, volumes):
-        """Volume Price Analysis - Wyckoff Methodik"""
-        signals = []
-        
-        if len(closes) < 8:
+        """Volume Price Analysis - Wyckoff Methodik (relaxed, 5m)"""
+        signals: List[Dict] = []
+        if len(closes) < 6:
             return signals
-            
+
         # Test für Strength/Weakness
         for i in range(-3, -1):
             if abs(i) < len(closes):
                 vol_curr = volumes[i]
-                vol_prev = volumes[i-1] if i-1 >= -len(volumes) else vol_curr
-                price_change = (closes[i] - closes[i-1]) / closes[i-1] if i > 0 else 0
-                
+                vol_prev = volumes[i - 1] if i - 1 >= -len(volumes) else vol_curr
+                price_change = (closes[i] - closes[i - 1]) / closes[i - 1] if i > 0 else 0
+
                 # Effort vs Result Analysis
-                if vol_curr > vol_prev * 1.5:  # Hoher Effort (Volumen)
-                    if abs(price_change) < 0.005:  # Niedriges Result (Preis)
-                        # No Supply (Bullish) oder No Demand (Bearish)
-                        close_pos = (closes[i] - lows[i]) / (highs[i] - lows[i]) if highs[i] != lows[i] else 0.5
-                        
-                        if close_pos > 0.7:  # Close im oberen Bereich
-                            signals.append({
-                                'type': 'VPA No Supply',
-                                'signal': 'bullish',
-                                'confidence': 72,
-                                'timeframe': '1h',
-                                'strength': 'MEDIUM',
-                                'description': f'Hohe Vol, wenig Bewegung, Close oben',
-                                'reliability_score': 68,
-                                'quality_grade': 'B'
-                            })
-                        elif close_pos < 0.3:  # Close im unteren Bereich  
-                            signals.append({
-                                'type': 'VPA No Demand',
-                                'signal': 'bearish',
-                                'confidence': 72,
-                                'timeframe': '1h',
-                                'strength': 'MEDIUM',
-                                'description': f'Hohe Vol, wenig Bewegung, Close unten',
-                                'reliability_score': 68,
-                                'quality_grade': 'B'
-                            })
-                            
+                if vol_curr > vol_prev * 1.3 and abs(price_change) < 0.007:
+                    close_pos = (closes[i] - lows[i]) / (highs[i] - lows[i]) if highs[i] != lows[i] else 0.5
+                    if close_pos > 0.7:
+                        signals.append({
+                            'type': 'VPA No Supply',
+                            'signal': 'bullish',
+                            'confidence': 72,
+                            'timeframe': '5m',
+                            'strength': 'MEDIUM',
+                            'description': 'Hohe Vol, wenig Bewegung, Close oben',
+                            'reliability_score': 68,
+                            'quality_grade': 'B'
+                        })
+                    elif close_pos < 0.3:
+                        signals.append({
+                            'type': 'VPA No Demand',
+                            'signal': 'bearish',
+                            'confidence': 72,
+                            'timeframe': '5m',
+                            'strength': 'MEDIUM',
+                            'description': 'Hohe Vol, wenig Bewegung, Close unten',
+                            'reliability_score': 68,
+                            'quality_grade': 'B'
+                        })
         return signals
-    
+
     @staticmethod
     def _detect_institutional_flow(highs, lows, volumes):
-        """Institutional Order Flow Detection"""
-        if len(volumes) < 6:
+        """Institutional Order Flow Detection (relaxed, 5m)"""
+        if len(volumes) < 5:
             return None
-            
-        # Sudden Volume Spike = Institutional Entry
+
         recent_vol = volumes[-3:]
         baseline_vol = np.mean(volumes[:-3]) if len(volumes) > 3 else np.mean(volumes)
-        
         max_recent = max(recent_vol)
-        if max_recent > baseline_vol * 3.0:  # 3x Volume Spike
-            spike_idx = recent_vol.index(max_recent) - 3  # Relative zum Ende
-            
-            # Price Action während Spike analysieren
+        if max_recent > baseline_vol * 2.2:
+            spike_idx = recent_vol.index(max_recent) - 3
             spike_high = highs[spike_idx]
             spike_low = lows[spike_idx]
             range_size = (spike_high - spike_low) / spike_low if spike_low > 0 else 0
-            
-            if range_size > 0.015:  # Signifikante Bewegung mit hohem Volumen
+            if range_size > 0.010:
                 direction = 'bullish' if spike_high > np.mean(highs[-6:-3]) else 'bearish'
-                
                 return {
                     'type': 'Institutional Flow',
                     'signal': direction,
                     'confidence': 82,
-                    'timeframe': '1h',
+                    'timeframe': '5m',
                     'strength': 'VERY_HIGH',
-                    'description': f'{max_recent/baseline_vol:.1f}x Vol-Spike, {range_size*100:.1f}% Range',
+                    'description': f'{max_recent / baseline_vol:.1f}x Vol-Spike, {range_size * 100:.1f}% Range',
                     'reliability_score': 79,
                     'quality_grade': 'A',
-                    'volume_ratio': max_recent/baseline_vol
+                    'volume_ratio': max_recent / baseline_vol
                 }
         return None
-    
-    @staticmethod 
+
+    @staticmethod
     def _detect_liquidity_sweeps(highs, lows, closes):
-        """Liquidity Sweep Pattern - Stop Hunting Detection"""
-        sweeps = []
-        
-        if len(closes) < 10:
+        """Liquidity Sweep Pattern - Stop Hunting Detection (relaxed, 5m)"""
+        sweeps: List[Dict] = []
+        if len(closes) < 8:
             return sweeps
-            
-        # Suche nach vorherigen Highs/Lows die "getestet" werden
+
         recent_highs = []
         recent_lows = []
-        
         for i in range(-8, -2):
             if abs(i) < len(highs):
-                # Lokale Highs/Lows identifizieren
                 if i > -len(highs) and i < -1:
-                    if highs[i] > highs[i-1] and highs[i] > highs[i+1]:
+                    if highs[i] > highs[i - 1] and highs[i] > highs[i + 1]:
                         recent_highs.append((i, highs[i]))
-                    if lows[i] < lows[i-1] and lows[i] < lows[i+1]:
+                    if lows[i] < lows[i - 1] and lows[i] < lows[i + 1]:
                         recent_lows.append((i, lows[i]))
-        
+
         current_high = highs[-1]
         current_low = lows[-1]
         current_close = closes[-1]
-        
-        # Liquidity Sweep Detection
+
         for idx, high_level in recent_highs:
-            if current_high > high_level * 1.002:  # Sweep über altes High
-                if current_close < high_level * 0.998:  # Aber Close darunter = Fake Breakout
-                    sweeps.append({
-                        'type': 'Liquidity Sweep High',
-                        'signal': 'bearish',
-                        'confidence': 76,
-                        'timeframe': '1h', 
-                        'strength': 'HIGH',
-                        'description': f'Sweep über {high_level:.4f}, Close {current_close:.4f}',
-                        'reliability_score': 74,
-                        'quality_grade': 'B',
-                        'sweep_level': high_level,
-                        'false_breakout': True
-                    })
-                    
+            if current_high > high_level * 1.0015 and current_close < high_level * 0.9985:
+                sweeps.append({
+                    'type': 'Liquidity Sweep High',
+                    'signal': 'bearish',
+                    'confidence': 76,
+                    'timeframe': '5m',
+                    'strength': 'HIGH',
+                    'description': f'Sweep über {high_level:.4f}, Close {current_close:.4f}',
+                    'reliability_score': 74,
+                    'quality_grade': 'B',
+                    'sweep_level': high_level,
+                    'false_breakout': True
+                })
+
         for idx, low_level in recent_lows:
-            if current_low < low_level * 0.998:  # Sweep unter altes Low
-                if current_close > low_level * 1.002:  # Aber Close darüber = Fake Breakdown
-                    sweeps.append({
-                        'type': 'Liquidity Sweep Low',
-                        'signal': 'bullish',
-                        'confidence': 76,
-                        'timeframe': '1h',
-                        'strength': 'HIGH', 
-                        'description': f'Sweep unter {low_level:.4f}, Close {current_close:.4f}',
-                        'reliability_score': 74,
-                        'quality_grade': 'B',
-                        'sweep_level': low_level,
-                        'false_breakout': True
-                    })
-        
+            if current_low < low_level * 0.9985 and current_close > low_level * 1.0015:
+                sweeps.append({
+                    'type': 'Liquidity Sweep Low',
+                    'signal': 'bullish',
+                    'confidence': 76,
+                    'timeframe': '5m',
+                    'strength': 'HIGH',
+                    'description': f'Sweep unter {low_level:.4f}, Close {current_close:.4f}',
+                    'reliability_score': 74,
+                    'quality_grade': 'B',
+                    'sweep_level': low_level,
+                    'false_breakout': True
+                })
         return sweeps
     
     @staticmethod

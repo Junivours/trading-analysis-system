@@ -1599,8 +1599,8 @@ class MasterAnalyzer:
             # NEW: Enhanced Signal Detection für detailliertere Erfolgssignale
             enhanced_signals = []
             try:
-                # Hole Candlestick-Daten für Mikro-Pattern-Analyse (nutze TechnicalAnalysis API)
-                candles = self.technical_analysis.get_candle_data(symbol, limit=20, interval='1h')
+                # Hole Candlestick-Daten für Mikro-Pattern-Analyse (5m für höhere Frequenz)
+                candles = self.technical_analysis.get_candle_data(symbol, limit=60, interval='5m')
                 if candles and isinstance(candles, list) and len(candles) > 5:
                     # Erweiterte Signal-Erkennung ohne Breaking Changes
                     micro_patterns = SignalEnhancer.detect_micro_patterns(candles)
