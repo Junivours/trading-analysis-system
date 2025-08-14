@@ -3611,8 +3611,18 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
                     <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Aktualisieren</button>
                     <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Fortschrittlich</button>
                 </div>
-                <div id=\"tb-adv\" style=\"display:none; margin-top:10px; padding:10px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
-                    <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px\">
+                        <div id=\"tb-adv\" style=\"display:none; margin-top:10px; padding:10px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
+                            <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px\">
+                                <div>
+                                    <label style=\"font-size:.75rem; opacity:.8\">Min Wahrscheinlichkeit (%)</label>
+                                    <input id=\"tb-minprob\" type=\"number\" step=\"1\" min=\"0\" max=\"100\" value=\"55\" title=\"Mindestwahrscheinlichkeit des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                    <div style=\"font-size:.7rem; opacity:.6\">z. B. 55%</div>
+                                </div>
+                                <div>
+                                    <label style=\"font-size:.75rem; opacity:.8\">Min RR</label>
+                                    <input id=\"tb-minrr\" type=\"number\" step=\"0.1\" min=\"0.5\" value=\"1.5\" title=\"Mindest Risk/Reward des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                    <div style=\"font-size:.7rem; opacity:.6\">z. B. 1.5</div>
+                                </div>
                         <div>
                             <label style=\"font-size:.75rem; opacity:.8\">Cooldown (min)</label>
                             <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" value=\"5\" title=\"Mindestzeit zwischen Trades pro Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
@@ -3678,6 +3688,8 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
         const out = document.getElementById('tb-out'); if(out) out.innerText = 'Running…';
         try{
             const adv = {};
+            const mp = parseFloat(document.getElementById('tb-minprob')?.value || ''); if(!isNaN(mp)) adv.min_probability = mp;
+            const mr = parseFloat(document.getElementById('tb-minrr')?.value || ''); if(!isNaN(mr)) adv.min_rr = mr;
             const cd = parseFloat(document.getElementById('tb-cooldown')?.value || ''); if(!isNaN(cd)) adv.cooldown_minutes = cd;
             const dl = parseInt(document.getElementById('tb-daily')?.value || ''); if(!isNaN(dl)) adv.max_trades_per_day = dl;
             const mn = parseFloat(document.getElementById('tb-maxnotional')?.value || ''); if(!isNaN(mn)) adv.max_notional_pct = mn;
