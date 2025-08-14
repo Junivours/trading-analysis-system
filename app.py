@@ -1364,7 +1364,7 @@ DASHBOARD_HTML = """
 
             <!-- Live Scanner -->
             <div class="glass-card" id="liveScannerCard">
-                <div class="section-title"><span class="icon">⏱️</span> Live Scanner <span class="tag">1m</span></div>
+                <div class="section-title"><span class="icon">⏱️</span> Live Scanner <span class="tag">5m</span></div>
                 <div id="liveScanner" style="display:flex;flex-direction:column;gap:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                         <div id="liveScannerStatus" style="font-size:.65rem;color:var(--text-secondary);"></div>
@@ -1583,9 +1583,7 @@ DASHBOARD_HTML = """
         let liveScanBusy = false;
         let liveScanState = {
             last: {
-                '15m': { patterns: new Set(), setups: new Set() },
-                '1h': { patterns: new Set(), setups: new Set() },
-                '4h': { patterns: new Set(), setups: new Set() }
+                '5m': { patterns: new Set(), setups: new Set() }
             },
             events: [] // {ts, tf, kind, text}
         };
@@ -1636,9 +1634,7 @@ DASHBOARD_HTML = """
                     displayAnalysis(analysisData);
                     // Reset live scan caches for new symbol
                     liveScanState = { last: {
-                        '15m': { patterns: new Set(), setups: new Set() },
-                        '1h': { patterns: new Set(), setups: new Set() },
-                        '4h': { patterns: new Set(), setups: new Set() }
+                        '5m': { patterns: new Set(), setups: new Set() }
                     }, events: [] };
                     updateLiveScannerUI();
                     if (liveScanEnabled) runLiveScanOnce();
@@ -1689,7 +1685,7 @@ DASHBOARD_HTML = """
             displayLiquidationTables(data);
         }
 
-        // Live Scanner (client-side, 1-minute interval, scans 1h & 4h)
+    // Live Scanner (client-side, 1-minute interval, scans 5m timeframe only)
         function toggleLiveScan(){
             liveScanEnabled = !liveScanEnabled;
             const btn = document.getElementById('liveScanToggle');
@@ -1723,9 +1719,18 @@ DASHBOARD_HTML = """
         async function runLiveScanOnce(){
             if(!liveScanEnabled || liveScanBusy) return;
             if(!currentSymbol){ updateLiveScannerUI('Kein Symbol ausgewählt.'); return; }
+            // Clear past events each run – show only current
+            liveScanState.events = [];
+            // Ensure last state exists for 5m and reset so current appears
+            if(!liveScanState.last['5m']){
+                liveScanState.last['5m'] = { patterns: new Set(), setups: new Set() };
+            } else {
+                liveScanState.last['5m'].patterns = new Set();
+                liveScanState.last['5m'].setups = new Set();
+            }
             liveScanBusy = true; updateLiveScannerUI();
             try{
-                const tfs = ['15m','1h','4h'];
+                const tfs = ['5m'];
                 const results = await Promise.all(tfs.map(tf=> fetch(`/api/analyze/${currentSymbol}?tf=${tf}`)).map(p=>p.then(r=>r.json()).catch(()=>({success:false,error:'net'}))));
                 results.forEach((res, idx)=>{
                     const tf = tfs[idx];
@@ -1791,7 +1796,7 @@ DASHBOARD_HTML = """
             const statusEl = document.getElementById('liveScannerStatus');
             const listEl = document.getElementById('liveScannerEvents');
             if(!statusEl||!listEl) return;
-            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 15m • 1h • 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 15m/1h/4h jede Minute zu scannen.';
+            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv: 5m') : 'Ausgeschaltet. Tippe auf ▶ Live, um 5m zu scannen.';
             if(extraMsg) txt += ` • ${extraMsg}`;
             statusEl.textContent = txt;
             const colorForKind = k=> k==='pattern'?'#8b5cf6': k==='setup'?'#26c281':'#ffc107';
