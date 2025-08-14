@@ -10,6 +10,7 @@ from core.ai_backends import get_ai_system
 from core.binance_client import BinanceClient
 from core.liquidation import LiquidationCalculator
 from core.profiling import SymbolBehaviorProfiler
+from core.enhancements.signal_enhancer import SignalEnhancer
 
 class MasterAnalyzer:
     def __init__(self):
@@ -678,6 +679,10 @@ class MasterAnalyzer:
             timings['total_ms'] = round((time.time()-phase_t0)*1000,2)
             # Adaptive risk
             adaptive_risk = self._calculate_adaptive_risk_targets(symbol, current_price, tech_analysis, regime_data, ai_analysis)
+            
+            # Enhanced signals collection
+            enhanced_signals = getattr(self, 'enhanced_signals', [])
+            
             # Price timestamp / freshness
             price_ts = None; freshness_ms=None
             try:
@@ -733,6 +738,7 @@ class MasterAnalyzer:
                 'trade_setups': refined_setups,
                 'precision_filter_meta': precision_meta,
                 'trade_filter_meta': ntz_meta,
+                'enhanced_signals': enhanced_signals,  # NEW: Enhanced signals for UI
                 'weights': self.weights,
                 'final_score': safe_final_score,
                 'phase_timings_ms': timings,
@@ -1590,6 +1596,25 @@ class MasterAnalyzer:
         Returns up to 12 setups (core strategies + pattern trades) with confidence, targets & rationale."""
         setups = []
         try:
+            # NEW: Enhanced Signal Detection für detailliertere Erfolgssignale
+            enhanced_signals = []
+            try:
+                # Hole Candlestick-Daten für Mikro-Pattern-Analyse
+                candles = self.binance_client.get_klines(symbol, '1h', 20)
+                if candles and len(candles) > 5:
+                    # Erweiterte Signal-Erkennung ohne Breaking Changes
+                    micro_patterns = SignalEnhancer.detect_micro_patterns(candles)
+                    enhanced_signals.extend(micro_patterns)
+                    
+                    # Log für Debugging
+                    if micro_patterns:
+                        self.logger.info(f"Enhanced signals detected for {symbol}: {len(micro_patterns)} micro-patterns")
+            except Exception as e:
+                self.logger.warning(f"Enhanced signal detection failed for {symbol}: {e}")
+                # Fallback: Continue with standard signal generation
+                
+            # Store enhanced signals for return
+            self.enhanced_signals = enhanced_signals
             # Configurable thresholds (soften to ensure at least some setups)
             RISK_HARD_CAP = 3.2  # previously 3.0
             RISK_CONF_THRESHOLD = 2.5  # previously 2.2
@@ -2485,6 +2510,30 @@ class MasterAnalyzer:
         if not setups:
             return [], {'steps': ['no_setups']}
         safe = []
+        
+        # NEW: Enhanced Confluence Scoring Integration
+        enhanced_setups = []
+        for setup in setups:
+            try:
+                # Erweiterte Confluence-Bewertung anwenden
+                enhanced_setup = SignalEnhancer.enhance_confluence_scoring(
+                    setup, tech_analysis, {}, multi_timeframe, order_flow
+                )
+                
+                # Timing-Präzision hinzufügen wenn Candle-Daten verfügbar
+                try:
+                    candles = self.binance_client.get_klines(symbol, '1h', 5)
+                    if candles:
+                        enhanced_setup = SignalEnhancer.add_timing_precision(enhanced_setup, candles)
+                except Exception:
+                    pass  # Fallback: Continue ohne Timing Enhancement
+                    
+                enhanced_setups.append(enhanced_setup)
+            except Exception:
+                enhanced_setups.append(setup)  # Fallback: Original Setup verwenden
+        
+        # Continue mit den enhanced setups anstatt der originalen
+        setups = enhanced_setups
         # Extract AI ensemble context
         ens = (ai_analysis or {}).get('ensemble', {}) if isinstance(ai_analysis, dict) else {}
         ai_sig = None

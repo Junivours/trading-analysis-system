@@ -26,6 +26,235 @@ class AdvancedPatternDetector:
         rate = st['success'] / max(1, st['observed'])
         # leichte Kalibrierung: 0.8 .. 1.15
         return max(0.8, min(1.15, 0.8 + rate * 0.35))
+        
+    @staticmethod
+    def detect_enhanced_market_structure(candles):
+        """Detaillierte Market Structure Analysis für bessere Signale"""
+        if len(candles) < 15:
+            return []
+        
+        signals = []
+        highs = [c['high'] for c in candles]
+        lows = [c['low'] for c in candles] 
+        closes = [c['close'] for c in candles]
+        volumes = [c['volume'] for c in candles]
+        
+        # 1. Break of Structure (BOS) Detection
+        bos_signals = AdvancedPatternDetector._detect_break_of_structure(highs, lows, closes)
+        signals.extend(bos_signals)
+        
+        # 2. Change of Character (CHoCH) Detection  
+        choch_signals = AdvancedPatternDetector._detect_change_of_character(highs, lows, closes)
+        signals.extend(choch_signals)
+        
+        # 3. Order Block Detection
+        ob_signals = AdvancedPatternDetector._detect_order_blocks(highs, lows, closes, volumes)
+        signals.extend(ob_signals)
+        
+        # 4. Fair Value Gap (FVG) Detection
+        fvg_signals = AdvancedPatternDetector._detect_fair_value_gaps(highs, lows, closes)
+        signals.extend(fvg_signals)
+        
+        return signals
+    
+    @staticmethod
+    def _detect_break_of_structure(highs, lows, closes):
+        """Break of Structure - Trendwechsel-Signale"""
+        signals = []
+        
+        # Finde lokale Highs und Lows
+        local_highs = []
+        local_lows = []
+        
+        for i in range(2, len(highs) - 2):
+            if highs[i] > highs[i-1] and highs[i] > highs[i+1] and highs[i] > highs[i-2] and highs[i] > highs[i+2]:
+                local_highs.append((i, highs[i]))
+            if lows[i] < lows[i-1] and lows[i] < lows[i+1] and lows[i] < lows[i-2] and lows[i] < lows[i+2]:
+                local_lows.append((i, lows[i]))
+        
+        # BOS Bullish: Break über das letzte höhere High
+        if len(local_highs) >= 2:
+            last_high = local_highs[-1][1]
+            recent_high = highs[-1]
+            if recent_high > last_high * 1.002:  # Break mit Puffer
+                signals.append({
+                    'type': 'Break of Structure Bullish',
+                    'signal': 'bullish',
+                    'confidence': 78,
+                    'timeframe': '1h',
+                    'strength': 'HIGH',
+                    'description': f'BOS über {last_high:.4f}, aktuell {recent_high:.4f}',
+                    'reliability_score': 75,
+                    'quality_grade': 'A',
+                    'break_level': last_high,
+                    'current_level': recent_high
+                })
+        
+        # BOS Bearish: Break unter das letzte tiefere Low  
+        if len(local_lows) >= 2:
+            last_low = local_lows[-1][1]
+            recent_low = lows[-1]
+            if recent_low < last_low * 0.998:  # Break mit Puffer
+                signals.append({
+                    'type': 'Break of Structure Bearish', 
+                    'signal': 'bearish',
+                    'confidence': 78,
+                    'timeframe': '1h',
+                    'strength': 'HIGH',
+                    'description': f'BOS unter {last_low:.4f}, aktuell {recent_low:.4f}',
+                    'reliability_score': 75,
+                    'quality_grade': 'A',
+                    'break_level': last_low,
+                    'current_level': recent_low
+                })
+        
+        return signals
+    
+    @staticmethod
+    def _detect_change_of_character(highs, lows, closes):
+        """Change of Character - Trend-Schwächung"""
+        signals = []
+        
+        if len(closes) < 10:
+            return signals
+        
+        # Trend der letzten 8 Candles analysieren
+        recent_trend = 'neutral'
+        price_changes = [closes[i] - closes[i-1] for i in range(-8, 0) if i >= -len(closes)]
+        
+        bullish_count = sum(1 for change in price_changes if change > 0)
+        bearish_count = sum(1 for change in price_changes if change < 0)
+        
+        if bullish_count >= 6:
+            recent_trend = 'bullish'
+        elif bearish_count >= 6:
+            recent_trend = 'bearish'
+        
+        # CHoCH: Trend bricht aber bildet noch keine neue Struktur
+        last_3_changes = price_changes[-3:] if len(price_changes) >= 3 else price_changes
+        
+        if recent_trend == 'bullish' and sum(last_3_changes) < 0:
+            signals.append({
+                'type': 'Change of Character Bearish',
+                'signal': 'bearish',
+                'confidence': 65,
+                'timeframe': '1h',
+                'strength': 'MEDIUM',
+                'description': 'Bullisher Trend zeigt Schwäche, möglicher Trendwechsel',
+                'reliability_score': 62,
+                'quality_grade': 'B',
+                'previous_trend': 'bullish',
+                'character_change': 'weakening'
+            })
+        elif recent_trend == 'bearish' and sum(last_3_changes) > 0:
+            signals.append({
+                'type': 'Change of Character Bullish',
+                'signal': 'bullish', 
+                'confidence': 65,
+                'timeframe': '1h',
+                'strength': 'MEDIUM',
+                'description': 'Bearisher Trend zeigt Schwäche, möglicher Trendwechsel',
+                'reliability_score': 62,
+                'quality_grade': 'B',
+                'previous_trend': 'bearish',
+                'character_change': 'weakening'
+            })
+        
+        return signals
+    
+    @staticmethod
+    def _detect_order_blocks(highs, lows, closes, volumes):
+        """Order Block Detection - Institutionelle Zonen"""
+        signals = []
+        
+        if len(closes) < 8:
+            return signals
+        
+        avg_volume = np.mean(volumes[:-3]) if len(volumes) > 3 else np.mean(volumes)
+        
+        # Suche nach hohem Volumen + starker Bewegung (Order Block)
+        for i in range(-5, -1):
+            if abs(i) < len(closes):
+                vol_ratio = volumes[i] / avg_volume if avg_volume > 0 else 1
+                price_move = abs(closes[i] - closes[i-1]) / closes[i-1] if i > -len(closes) else 0
+                
+                if vol_ratio > 1.8 and price_move > 0.012:  # Hohe Vol + starke Bewegung
+                    direction = 'bullish' if closes[i] > closes[i-1] else 'bearish'
+                    ob_high = highs[i]
+                    ob_low = lows[i]
+                    
+                    signals.append({
+                        'type': f'Order Block {direction.title()}',
+                        'signal': direction,
+                        'confidence': 72,
+                        'timeframe': '1h',
+                        'strength': 'HIGH',
+                        'description': f'OB bei {ob_low:.4f}-{ob_high:.4f}, {vol_ratio:.1f}x Vol',
+                        'reliability_score': 70,
+                        'quality_grade': 'B',
+                        'order_block_high': ob_high,
+                        'order_block_low': ob_low,
+                        'volume_ratio': vol_ratio,
+                        'price_move_pct': price_move * 100
+                    })
+        
+        return signals
+    
+    @staticmethod 
+    def _detect_fair_value_gaps(highs, lows, closes):
+        """Fair Value Gap Detection - Imbalance Zonen"""
+        signals = []
+        
+        if len(closes) < 5:
+            return signals
+        
+        # FVG: Gap zwischen Candle 1 und Candle 3 (Candle 2 springt über)
+        for i in range(-3, -1):
+            if abs(i) >= 3 and abs(i) < len(closes):
+                candle1_high = highs[i-2]
+                candle1_low = lows[i-2]
+                candle2_high = highs[i-1] 
+                candle2_low = lows[i-1]
+                candle3_high = highs[i]
+                candle3_low = lows[i]
+                
+                # Bullish FVG: Gap zwischen C1 high und C3 low
+                if candle1_high < candle3_low and candle2_low > candle1_high:
+                    gap_size = (candle3_low - candle1_high) / candle1_high
+                    if gap_size > 0.003:  # Mindest-Gap von 0.3%
+                        signals.append({
+                            'type': 'Fair Value Gap Bullish',
+                            'signal': 'bullish',
+                            'confidence': 68,
+                            'timeframe': '1h',
+                            'strength': 'MEDIUM',
+                            'description': f'FVG {candle1_high:.4f}-{candle3_low:.4f} ({gap_size*100:.2f}%)',
+                            'reliability_score': 65,
+                            'quality_grade': 'B',
+                            'gap_low': candle1_high,
+                            'gap_high': candle3_low,
+                            'gap_size_pct': gap_size * 100
+                        })
+                
+                # Bearish FVG: Gap zwischen C1 low und C3 high
+                elif candle1_low > candle3_high and candle2_high < candle1_low:
+                    gap_size = (candle1_low - candle3_high) / candle3_high
+                    if gap_size > 0.003:  # Mindest-Gap von 0.3%
+                        signals.append({
+                            'type': 'Fair Value Gap Bearish',
+                            'signal': 'bearish',
+                            'confidence': 68,
+                            'timeframe': '1h', 
+                            'strength': 'MEDIUM',
+                            'description': f'FVG {candle3_high:.4f}-{candle1_low:.4f} ({gap_size*100:.2f}%)',
+                            'reliability_score': 65,
+                            'quality_grade': 'B',
+                            'gap_low': candle3_high,
+                            'gap_high': candle1_low,
+                            'gap_size_pct': gap_size * 100
+                        })
+        
+        return signals
     @staticmethod
     def detect_advanced_patterns(candles):
         if len(candles) < 30:
@@ -36,6 +265,8 @@ class AdvancedPatternDetector:
         volumes = [c['volume'] for c in candles]
         patterns = []
         visual_signals = []
+        
+        # Bestehende Pattern-Erkennung
         tri = AdvancedPatternDetector._detect_enhanced_triangle(highs, lows, volumes)
         if tri:
             patterns.append(tri); visual_signals.append(f"📐 {tri['type']} erkannt")
@@ -49,6 +280,27 @@ class AdvancedPatternDetector:
         if cup:
             patterns.append(cup); visual_signals.append("☕ Cup & Handle")
         brk = AdvancedPatternDetector._detect_breakout_patterns(highs, lows, closes, volumes)
+        
+        # NEW: Enhanced Market Structure Analysis für detailliertere Signale
+        try:
+            market_structure_signals = AdvancedPatternDetector.detect_enhanced_market_structure(candles)
+            for ms_signal in market_structure_signals:
+                patterns.append(ms_signal)
+                
+                # Visual signals für UI
+                signal_type = ms_signal.get('type', '')
+                if 'Break of Structure' in signal_type:
+                    visual_signals.append(f"🔥 {signal_type}")
+                elif 'Change of Character' in signal_type:
+                    visual_signals.append(f"⚡ {signal_type}")
+                elif 'Order Block' in signal_type:
+                    visual_signals.append(f"🏢 {signal_type}")
+                elif 'Fair Value Gap' in signal_type:
+                    visual_signals.append(f"📊 {signal_type}")
+                    
+        except Exception as e:
+            # Fallback: Continue without market structure signals
+            pass
         if brk:
             patterns.append(brk); visual_signals.append(f"🏃 {brk['direction']} Breakout")
         bullish = sum(1 for p in patterns if p.get('signal')=='bullish')

@@ -1471,6 +1471,14 @@ DASHBOARD_HTML = """
                     </div>
                 </div>
 
+                <!-- Enhanced Signals -->
+                <div class="glass-card">
+                    <div class="section-title"><span class="icon">🎯</span> Enhanced Signals <span class="tag">NEW</span></div>
+                    <div id="enhancedSignals" style="font-size:0.65rem; line-height:1.1rem; color:var(--text-secondary);">
+                        <!-- Enhanced signals will be inserted here -->
+                    </div>
+                </div>
+
                 <!-- Backtest -->
                 <div class="glass-card">
                     <div class="section-title"><span class="icon">🧪</span> Backtest <span class="tag">BETA</span></div>
@@ -1641,6 +1649,7 @@ DASHBOARD_HTML = """
             displayOrderFlowAnalysis(data);
             displayMarketBias(data);
             displayAIAnalysis(data);
+            displayEnhancedSignals(data);
             displayFeatureContributions(data);
             displayDiagnostics(data);
             displayLiquidationTables(data);
@@ -2538,6 +2547,88 @@ DASHBOARD_HTML = """
                 </div>
                 ${explainBlock}`;
             document.getElementById('aiAnalysis').innerHTML = html;
+        }
+
+        // Display Enhanced Signals
+        function displayEnhancedSignals(data) {
+            const el = document.getElementById('enhancedSignals');
+            const enhanced = data.enhanced_signals || [];
+            
+            if (!enhanced || !enhanced.length) {
+                el.innerHTML = '<small style="color:var(--text-dim)">Keine erweiterten Signale erkannt</small>';
+                return;
+            }
+            
+            // Gruppiere Signale nach Typ
+            const grouped = enhanced.reduce((acc, signal) => {
+                const category = signal.type?.includes('Smart Money') ? 'Smart Money' :
+                               signal.type?.includes('VPA') ? 'Volume Analysis' :
+                               signal.type?.includes('Institutional') ? 'Institutional Flow' :
+                               signal.type?.includes('Liquidity') ? 'Liquidity Sweeps' :
+                               signal.type?.includes('Break of Structure') ? 'Market Structure' :
+                               signal.type?.includes('Change of Character') ? 'Character Change' :
+                               signal.type?.includes('Order Block') ? 'Order Blocks' :
+                               signal.type?.includes('Fair Value Gap') ? 'Fair Value Gaps' :
+                               'Other';
+                
+                if (!acc[category]) acc[category] = [];
+                acc[category].push(signal);
+                return acc;
+            }, {});
+            
+            const renderSignalGroup = (category, signals) => {
+                const icon = {
+                    'Smart Money': '🧠',
+                    'Volume Analysis': '📊', 
+                    'Institutional Flow': '🏛️',
+                    'Liquidity Sweeps': '🌊',
+                    'Market Structure': '🔥',
+                    'Character Change': '⚡',
+                    'Order Blocks': '🏢',
+                    'Fair Value Gaps': '📈',
+                    'Other': '🎯'
+                }[category] || '•';
+                
+                const signalItems = signals.map(signal => {
+                    const confColor = signal.confidence >= 75 ? '#26c281' : 
+                                    signal.confidence >= 60 ? '#ffc107' : '#ff4d4f';
+                    const signalColor = signal.signal === 'bullish' ? '#26c281' : 
+                                      signal.signal === 'bearish' ? '#ff4d4f' : '#f5b041';
+                    
+                    return `<div style="display:flex; align-items:center; gap:6px; margin:2px 0; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                        <div style="font-size:0.5rem; color:${signalColor}; font-weight:600; min-width:50px;">${signal.signal?.toUpperCase() || 'NEUTRAL'}</div>
+                        <div style="font-size:0.48rem; color:${confColor}; font-weight:600; min-width:30px;">${signal.confidence}%</div>
+                        <div style="font-size:0.48rem; color:var(--text-secondary); flex:1;">${signal.description || signal.type}</div>
+                        <div style="font-size:0.45rem; color:var(--text-dim); background:rgba(255,255,255,0.05); padding:2px 4px; border-radius:4px;">${signal.quality_grade || 'B'}</div>
+                    </div>`;
+                }).join('');
+                
+                return `<div style="margin-bottom:8px;">
+                    <div style="font-size:0.55rem; font-weight:600; color:#8b5cf6; margin-bottom:4px; letter-spacing:0.4px;">
+                        ${icon} ${category} <span style="color:var(--text-dim); font-weight:400;">(${signals.length})</span>
+                    </div>
+                    ${signalItems}
+                </div>`;
+            };
+            
+            const totalSignals = enhanced.length;
+            const bullishCount = enhanced.filter(s => s.signal === 'bullish').length;
+            const bearishCount = enhanced.filter(s => s.signal === 'bearish').length;
+            const neutralCount = totalSignals - bullishCount - bearishCount;
+            
+            const summary = `<div style="font-size:0.5rem; color:var(--text-dim); margin-bottom:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:8px;">
+                Gesamt: ${totalSignals} Signale • 
+                <span style="color:#26c281;">Bull: ${bullishCount}</span> • 
+                <span style="color:#ff4d4f;">Bear: ${bearishCount}</span> • 
+                <span style="color:#f5b041;">Neutral: ${neutralCount}</span>
+            </div>`;
+            
+            const groupsHtml = Object.entries(grouped)
+                .sort(([,a], [,b]) => b.length - a.length) // Sort by signal count
+                .map(([category, signals]) => renderSignalGroup(category, signals))
+                .join('');
+            
+            el.innerHTML = summary + groupsHtml;
         }
 
                 function displayMultiTimeframe(data) {
