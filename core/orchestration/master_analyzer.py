@@ -722,6 +722,45 @@ class MasterAnalyzer:
                 refined_setups = sanitized_setups
                 precision_meta = {'error': f'refine_failed: {str(_e_ref)}'}
 
+            # Liquidity hunting recognition: extract recent sweep events and annotate setups
+            try:
+                enh = getattr(self, 'enhanced_signals', []) if hasattr(self, 'enhanced_signals') else []
+                liquidity_events = []
+                for ev in (enh or []):
+                    t = str(ev.get('type',''))
+                    if t.startswith('Liquidity Sweep'):
+                        liquidity_events.append({
+                            'type': t,
+                            'signal': ev.get('signal'),
+                            'timeframe': ev.get('timeframe','5m'),
+                            'sweep_level': ev.get('sweep_level'),
+                            'confidence': ev.get('confidence'),
+                            'description': ev.get('description')
+                        })
+                if liquidity_events and isinstance(refined_setups, list):
+                    has_bull_sweep = any(le.get('signal')=='bullish' for le in liquidity_events)
+                    has_bear_sweep = any(le.get('signal')=='bearish' for le in liquidity_events)
+                    ann = []
+                    for s in refined_setups:
+                        try:
+                            sd = (s.get('direction') or '').upper()
+                            if (sd=='LONG' and has_bull_sweep) or (sd=='SHORT' and has_bear_sweep):
+                                s = dict(s)
+                                # add tag and condition for UI
+                                tags = s.get('tags') or []
+                                if 'LIQUIDITY' not in tags:
+                                    tags.append('LIQUIDITY')
+                                s['tags'] = tags
+                                conds = s.get('conditions') or []
+                                conds.append({'t': 'Liquidity Sweep', 's': 'ok'})
+                                s['conditions'] = conds
+                        except Exception:
+                            pass
+                        ann.append(s)
+                    refined_setups = ann
+            except Exception:
+                liquidity_events = []
+
             result = make_json_safe({
                 'symbol': symbol,
                 'current_price': float(current_price),
@@ -748,6 +787,7 @@ class MasterAnalyzer:
                 'precision_filter_meta': precision_meta,
                 'trade_filter_meta': ntz_meta,
                 'enhanced_signals': enhanced_signals,  # NEW: Enhanced signals for UI
+                'liquidity_events': liquidity_events,   # NEW: Explicit liquidity hunting events
                 'weights': self.weights,
                 'final_score': safe_final_score,
                 'phase_timings_ms': timings,
@@ -1734,6 +1774,96 @@ class MasterAnalyzer:
 
             # Baseline ATR floor
             min_atr = max(atr_val, current_price * 0.0025)
+
+            # ---- Strong Zone Retest Setups (anchored to clustered zones) ----
+            try:
+                sz = (tech_analysis or {}).get('support_zones') or []
+                rz = (tech_analysis or {}).get('resistance_zones') or []
+
+                def _pick_zone(zones, side):
+                    # Prefer high strength, then nearest on the relevant side
+                    if not isinstance(zones, list) or not zones:
+                        return None
+                    # Filter zones below price for support (LONG), above price for resistance (SHORT)
+                    if side == 'LONG':
+                        cands = [z for z in zones if isinstance(z, dict) and isinstance(z.get('center'), (int,float)) and z['center'] < current_price]
+                        cands.sort(key=lambda z: (-int(z.get('strength', 0)), current_price - float(z['center'])))
+                    else:
+                        cands = [z for z in zones if isinstance(z, dict) and isinstance(z.get('center'), (int,float)) and z['center'] > current_price]
+                        cands.sort(key=lambda z: (-int(z.get('strength', 0)), float(z['center']) - current_price))
+                    return cands[0] if cands else None
+
+                # ATR-aware buffer (tight in calm, wider in high vol)
+                # Use 0.15..0.35 ATR, min 0.08% of price
+                atr_buffer = max(min_atr * 0.35, current_price * 0.0008)
+
+                # LONG retest at strong support zone
+                s_zone = _pick_zone(sz, 'LONG')
+                if s_zone:
+                    z_low = float(s_zone.get('low', s_zone['center']))
+                    z_high = float(s_zone.get('high', s_zone['center']))
+                    z_center = float(s_zone['center'])
+                    # Entry slightly above top of zone (confirmation of bounce)
+                    entry_zl = max(z_center, z_high) + atr_buffer * 0.2
+                    # Stop under the zone low with buffer
+                    stop_zl = z_low - atr_buffer
+                    targets_zl, smart_stop_zl = _targets(entry_zl, stop_zl, 'LONG', [('Resistance', resistance)])
+                    stop_zl = smart_stop_zl
+                    # Confidence boosted by zone strength, reduced by distance
+                    dist_pct = abs(entry_zl - current_price) / max(1e-9, current_price) * 100.0
+                    zone_str = int(s_zone.get('strength', 5))
+                    base_conf = 62 + min(12, zone_str * 2)
+                    conf_adj = - min(10, dist_pct * 1.5)
+                    confidence = max(40, min(92, int(base_conf + conf_adj)))
+                    setups.append({
+                        'id': 'L-ZR', 'direction': 'LONG', 'strategy': 'Strong Zone Retest',
+                        'entry': round(entry_zl, 2), 'stop_loss': round(stop_zl, 2),
+                        'risk_percent': round((entry_zl - stop_zl) / entry_zl * 100, 2),
+                        'targets': targets_zl,
+                        'confidence': confidence,
+                        'conditions': [
+                            {'t': f"Support-Zone Stufe {zone_str}", 's': 'ok'},
+                            {'t': 'Bounce-Bestätigung', 's': 'ok'}
+                        ],
+                        'rationale': 'Re-Test der starken Support-Zone mit ATR-Puffer',
+                        'zone_anchor': {'type': 'support', 'center': z_center, 'low': z_low, 'high': z_high, 'strength': zone_str},
+                        'entry_is_zone_anchored': True
+                    })
+
+                # SHORT retest at strong resistance zone
+                r_zone = _pick_zone(rz, 'SHORT')
+                if r_zone:
+                    z_low = float(r_zone.get('low', r_zone['center']))
+                    z_high = float(r_zone.get('high', r_zone['center']))
+                    z_center = float(r_zone['center'])
+                    # Entry slightly below bottom of zone (confirmation of rejection)
+                    entry_zs = min(z_center, z_low) - atr_buffer * 0.2
+                    # Stop above the zone high with buffer
+                    stop_zs = z_high + atr_buffer
+                    targets_zs, smart_stop_zs = _targets(entry_zs, stop_zs, 'SHORT', [('Support', support)])
+                    stop_zs = smart_stop_zs
+                    dist_pct = abs(entry_zs - current_price) / max(1e-9, current_price) * 100.0
+                    zone_str = int(r_zone.get('strength', 5))
+                    base_conf = 62 + min(12, zone_str * 2)
+                    conf_adj = - min(10, dist_pct * 1.5)
+                    confidence = max(40, min(92, int(base_conf + conf_adj)))
+                    setups.append({
+                        'id': 'S-ZR', 'direction': 'SHORT', 'strategy': 'Strong Zone Retest',
+                        'entry': round(entry_zs, 2), 'stop_loss': round(stop_zs, 2),
+                        'risk_percent': round((stop_zs - entry_zs) / entry_zs * 100, 2),
+                        'targets': targets_zs,
+                        'confidence': confidence,
+                        'conditions': [
+                            {'t': f"Resistance-Zone Stufe {zone_str}", 's': 'ok'},
+                            {'t': 'Rejection-Bestätigung', 's': 'ok'}
+                        ],
+                        'rationale': 'Re-Test der starken Resistance-Zone mit ATR-Puffer',
+                        'zone_anchor': {'type': 'resistance', 'center': z_center, 'low': z_low, 'high': z_high, 'strength': zone_str},
+                        'entry_is_zone_anchored': True
+                    })
+            except Exception as _zerr:
+                # Be robust: zone-based setups are optional, proceed with the rest
+                pass
 
             def _structural_targets(direction, entry):
                 ext_mult = 8.0  # Wide swing extension for realistic R multiples

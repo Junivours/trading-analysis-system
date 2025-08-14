@@ -36,6 +36,18 @@ from core.binance_client import BinanceClient
 from core.liquidation import LiquidationCalculator
 from core.profiling import SymbolBehaviorProfiler
 from core.orchestration.master_analyzer import MasterAnalyzer
+from core.probability import DropOutcomeModel
+try:
+    from core.ml.drop_model import DropLogReg, TrainConfig
+    ML_AVAILABLE = True
+except Exception:
+    ML_AVAILABLE = False
+try:
+    from core.scalper.engine import scan_scalp_signals, ScalpConfig
+    from core.scalper.executor import SimpleScalpExecutor, ScalpRunConfig
+    SCALPER_AVAILABLE = True
+except Exception:
+    SCALPER_AVAILABLE = False
 from core.diagnostics import run_symbol_diagnostics
 from collections import deque
 import json, hashlib, logging, uuid
@@ -537,6 +549,43 @@ def bot_positions():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# --- Lightweight ML: Train & Predict bounce probability after drop ---
+@app.route('/api/ai/train', methods=['POST'])
+def api_ai_train():
+    try:
+        if not ML_AVAILABLE:
+            return jsonify({'success': False, 'error': 'ML module not available'}), 400
+        j = request.json or {}
+        cfg = TrainConfig(
+            symbol=(j.get('symbol') or 'BTCUSDT').upper(),
+            interval=(j.get('interval') or '1h').lower(),
+            limit=int(j.get('limit') or 3000),
+            drop_pct=float(j.get('drop_pct') or 10.0),
+            window_bars=int(j.get('window_bars') or 24),
+            horizon_bars=int(j.get('horizon_bars') or 6),
+        )
+        model = DropLogReg()
+        out = model.fit(cfg)
+        model.save()
+        return jsonify({'success': True, 'result': out})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/ai/predict')
+def api_ai_predict():
+    try:
+        if not ML_AVAILABLE:
+            return jsonify({'success': False, 'error': 'ML module not available'}), 400
+        symbol = (request.args.get('symbol') or 'BTCUSDT').upper()
+        interval = (request.args.get('tf') or '1h').lower()
+        model = DropLogReg()
+        model.load()
+        x = model.latest_features(symbol, interval)
+        p = model.predict_proba(x)
+        return jsonify({'success': True, 'symbol': symbol, 'interval': interval, 'bounce_prob_pct': round(p*100.0,2)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/bot/orders')
 def bot_orders():
     try:
@@ -649,6 +698,162 @@ def api_decision(symbol):
         analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=tf)
         summary = _extract_minimal_decision(analysis)
         return jsonify({'success': True, 'symbol': symbol.upper(), 'timeframe': tf, **summary})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/recommendation/<symbol>')
+def api_recommendation(symbol):
+    """Return a concise market-situation based recommendation with risk and context.
+    Response fields: recommendation (LONG/SHORT/WAIT), risk_level, distances to S/R, indicators, warnings, reasons.
+    Optional: ?tf=3m|5m|15m|1h|4h|1d (default 1h)
+    """
+    try:
+        tf = (request.args.get('tf') or '1h').lower()
+        if tf not in ('3m', '5m', '15m', '1h', '4h', '1d'):
+            tf = '1h'
+        analysis = master_analyzer.analyze_symbol(symbol.upper(), base_interval=tf)
+        fs = (analysis or {}).get('final_score') or {}
+        tech = (analysis or {}).get('technical_analysis') or {}
+        # Ensure we have validation
+        validation = fs.get('validation') if isinstance(fs.get('validation'), dict) else _compute_enterprise_validation(analysis)
+
+        def s(x):
+            try:
+                if isinstance(x, bool):
+                    return None
+                if isinstance(x, (int, float)) and math.isfinite(float(x)):
+                    return float(x)
+            except Exception:
+                return None
+            return None
+
+        price = s(analysis.get('current_price') or (tech.get('current_price') if isinstance(tech.get('current_price'), (int,float)) else None))
+        support = s(tech.get('support'))
+        resistance = s(tech.get('resistance'))
+        dist_to_res = ((resistance - price) / price * 100.0) if price and resistance else None
+        dist_to_sup = ((price - support) / price * 100.0) if price and support else None
+
+        # Indicators summary
+        trend = None
+        try:
+            t = tech.get('trend') or tech.get('trend_strength')
+            if isinstance(t, dict):
+                trend = (t.get('direction') or t.get('trend') or '').upper() or None
+            elif isinstance(t, str):
+                trend = t.upper()
+        except Exception:
+            pass
+
+        rsi_val = None
+        try:
+            rsi_obj = tech.get('rsi') or tech.get('RSI')
+            if isinstance(rsi_obj, dict):
+                rsi_val = s(rsi_obj.get('rsi'))
+            elif isinstance(rsi_obj, (int, float)):
+                rsi_val = s(rsi_obj)
+        except Exception:
+            pass
+
+        macd_hist = None
+        macd_sig = None
+        try:
+            macd = tech.get('macd') or tech.get('MACD') or {}
+            if isinstance(macd, dict):
+                macd_hist = s(macd.get('hist') or macd.get('histogram'))
+                m_sig = macd.get('signal')
+                if isinstance(m_sig, str):
+                    macd_sig = m_sig
+        except Exception:
+            pass
+
+        # Action mapping: prefer validation, else minimal decision
+        action = str(validation.get('trading_action') or '').upper()
+        if not action or action == 'UNKNOWN':
+            md = _extract_minimal_decision(analysis)
+            action = md.get('decision', 'NEUTRAL')
+        # Normalize to LONG/SHORT/WAIT
+        rec = 'WAIT'
+        if action in ('BUY', 'LONG', 'STRONG_BUY', 'TRADE'):
+            rec = 'LONG'
+        elif action in ('SELL', 'SHORT', 'STRONG_SELL'):
+            rec = 'SHORT'
+
+        # Build reasons
+        reasons = []
+        if trend:
+            reasons.append(f"Trend {trend}")
+        if rsi_val is not None:
+            reasons.append(f"RSI({tf}) {rsi_val:.1f}")
+        if macd_sig:
+            reasons.append(f"MACD {macd_sig}")
+        elif macd_hist is not None:
+            reasons.append(f"MACD hist {macd_hist:+.2f}")
+        if dist_to_res is not None:
+            reasons.append(f"~{dist_to_res:.1f}% unter Resistenz")
+        if dist_to_sup is not None:
+            reasons.append(f"~{dist_to_sup:.1f}% über Support")
+
+        # Compact warnings list (messages only)
+        warnings_out = []
+        try:
+            for w in (validation.get('warnings') or [])[:5]:
+                msg = w.get('message') if isinstance(w, dict) else None
+                if msg:
+                    warnings_out.append(msg)
+        except Exception:
+            pass
+
+        payload = {
+            'success': True,
+            'symbol': symbol.upper(),
+            'timeframe': tf,
+            'recommendation': rec,
+            'risk_level': validation.get('risk_level') or 'UNKNOWN',
+            'enterprise_ready': bool(validation.get('enterprise_ready')),
+            'score': fs.get('score') if isinstance(fs.get('score'), (int,float)) else None,
+            'distances': {
+                'to_resistance_pct': round(dist_to_res, 2) if dist_to_res is not None else None,
+                'to_support_pct': round(dist_to_sup, 2) if dist_to_sup is not None else None,
+            },
+            'indicators': {
+                'trend': trend,
+                'rsi': rsi_val,
+                'macd_hist': macd_hist,
+                'macd_signal': macd_sig,
+                'price': price,
+                'support': support,
+                'resistance': resistance,
+            },
+            'reasons': reasons[:6],
+            'warnings': warnings_out,
+        }
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- Technical-only empirical probability: bounce vs continuation after a drop ---
+@app.route('/api/probability/drop/<symbol>')
+def api_probability_drop(symbol):
+    try:
+        # Query params
+        interval = (request.args.get('tf') or '1h').lower()
+        if interval not in ('3m','5m','15m','1h','4h','1d'):
+            interval = '1h'
+        drop_pct = float(request.args.get('drop', '10'))
+        window_bars = int(request.args.get('window', '24'))
+        horizon_bars = int(request.args.get('horizon', '6'))
+        limit = int(request.args.get('limit', '1500'))
+        limit = max(300, min(limit, 3000))
+
+        stats = DropOutcomeModel.estimate_drop_outcomes(
+            symbol=symbol.upper(),
+            interval=interval,
+            limit=limit,
+            drop_pct=drop_pct,
+            window_bars=window_bars,
+            horizon_bars=horizon_bars,
+        )
+        return jsonify(stats)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -806,6 +1011,142 @@ def backtest_vector_scapling(symbol):
         err_id = log_event('error', 'Vector backtest exception', symbol=symbol.upper(), interval=interval, limit=limit, error=str(e))
         return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
 
+@app.route('/api/scan/fast/<symbol>')
+def api_scan_fast(symbol):
+    """Low-latency 1m/3m scanner for early scalp signals and forming patterns.
+    Params: tf=1m|3m (default 1m), limit (<= 240, default 180)
+    Returns: signals[], forming_patterns[], latency_ms
+    """
+    import time as _t
+    t0 = _t.time()
+    try:
+        tf = (request.args.get('tf') or '1m').lower()
+        if tf not in ('1m','3m'):
+            tf = '1m'
+        try:
+            limit = int(request.args.get('limit', '180'))
+        except Exception:
+            limit = 180
+        limit = max(60, min(limit, 240))
+
+        # Fetch candles
+        try:
+            candles = TechnicalAnalysis.get_candle_data(symbol.upper(), limit=limit, interval=tf)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'data_fetch_failed: {e}'}), 500
+        if not candles or len(candles) < 60:
+            return jsonify({'success': False, 'error': 'insufficient_data', 'have': len(candles) if candles else 0}), 400
+
+        closes = np.array([c['close'] for c in candles], dtype=float)
+        highs = np.array([c['high'] for c in candles], dtype=float)
+        lows  = np.array([c['low'] for c in candles], dtype=float)
+
+        # Lightweight indicators
+        def ema(arr, n):
+            if len(arr) < n:
+                return np.array([])
+            k = 2.0/(n+1)
+            out = np.zeros_like(arr)
+            out[0] = arr[0]
+            for i in range(1,len(arr)):
+                out[i] = arr[i]*k + out[i-1]*(1-k)
+            return out
+        ema9 = ema(closes, 9)
+        ema20 = ema(closes, 20)
+
+        # Scalp conditions (very simple and fast; tweakable)
+        signals = []
+        try:
+            i = len(closes) - 1
+            prev_hi = float(highs[i-1]) if i-1>=0 else float('nan')
+            prev_lo = float(lows[i-1]) if i-1>=0 else float('nan')
+            last = float(closes[i])
+            e9 = float(ema9[i]) if i < len(ema9) and len(ema9)>0 else last
+            e20 = float(ema20[i]) if i < len(ema20) and len(ema20)>0 else last
+            rsi_obj = TechnicalAnalysis._calculate_advanced_rsi(closes)
+            rsi = float(rsi_obj.get('rsi')) if isinstance(rsi_obj, dict) else 50.0
+            # BUY scalp: above EMAs and breaking previous high, RSI not overbought
+            if last > e9 > e20 and last > prev_hi and rsi < 70:
+                signals.append({'type':'SCALP_BUY','reason':'Close>EMA9>EMA20 & Break prev high & RSI<70','price': last})
+            # SELL scalp: below EMAs and breaking previous low, RSI not oversold
+            if last < e9 < e20 and last < prev_lo and rsi > 30:
+                signals.append({'type':'SCALP_SELL','reason':'Close<EMA9<EMA20 & Break prev low & RSI>30','price': last})
+        except Exception:
+            pass
+
+        # Forming pattern (wedge/channel pre-confirmation via pivot convergence)
+        def find_forming_wedge(H, L, lookback=60):
+            try:
+                ll = max(20, min(lookback, len(H)))
+                Hs = H[-ll:]
+                Ls = L[-ll:]
+                # crude upper/lower lines
+                idx = np.arange(len(Hs))
+                # upper: fit line to recent local highs (approx by top quantile)
+                uh_mask = Hs >= (np.quantile(Hs, 0.8))
+                lh_mask = Ls <= (np.quantile(Ls, 0.2))
+                if np.sum(uh_mask) >= 3 and np.sum(lh_mask) >= 3:
+                    x_u = idx[uh_mask]; y_u = Hs[uh_mask]
+                    x_l = idx[lh_mask]; y_l = Ls[lh_mask]
+                    su, iu = np.polyfit(x_u, y_u, 1)  # slope upper
+                    sl, il = np.polyfit(x_l, y_l, 1)  # slope lower
+                    # converging if upper slope < 0 and lower slope > 0 and band narrows
+                    band_now = float(np.max(Hs) - np.min(Ls))
+                    band_past = float((iu + su*0) - (il + sl*0)) if (iu is not None and il is not None) else band_now
+                    if su < 0 and sl > 0 and band_now < band_past*0.85:
+                        return {'type':'WEDGE_FORMING','details': {'su': su, 'sl': sl, 'band_now': band_now, 'band_past': band_past}}
+            except Exception:
+                return None
+            return None
+
+        forming = []
+        fw = find_forming_wedge(highs, lows, lookback=60)
+        if fw:
+            forming.append(fw)
+
+        dt_ms = int(( _t.time() - t0) * 1000)
+        return jsonify({'success': True, 'symbol': symbol.upper(), 'interval': tf, 'signals': signals, 'forming_patterns': forming, 'latency_ms': dt_ms})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- Isolated scalper API (independent of long-term logic) ---
+@app.route('/api/scalper/scan/<symbol>')
+def api_scalper_scan(symbol):
+    try:
+        if not SCALPER_AVAILABLE:
+            return jsonify({'success': False, 'error': 'scalper_unavailable'}), 400
+        tf = (request.args.get('tf') or '1m').lower()
+        if tf not in ('1m','3m'):
+            tf = '1m'
+        limit = int(request.args.get('limit', '180'))
+        limit = max(60, min(limit, 240))
+        res = scan_scalp_signals(symbol.upper(), ScalpConfig(tf=tf, limit=limit))
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/scalper/execute', methods=['POST'])
+def api_scalper_execute():
+    try:
+        if not SCALPER_AVAILABLE:
+            return jsonify({'success': False, 'error': 'scalper_unavailable'}), 400
+        # Safety: rely on existing deployment guards; executor also checks env
+        payload = request.get_json(force=True) or {}
+        cfg = ScalpRunConfig(
+            symbol=(payload.get('symbol') or 'BTCUSDT').upper(),
+            tf=(payload.get('tf') or '1m').lower(),
+            exchange=(payload.get('exchange') or 'binance').lower(),
+            paper=bool(payload.get('paper', True)),
+            equity=float(payload.get('equity', 1000)),
+            risk_pct=float(payload.get('risk_pct', 0.25)),
+        )
+        execu = SimpleScalpExecutor()
+        out = execu.run_once(cfg)
+        code = 200 if out.get('success', False) else 400
+        return jsonify(out), code
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/version')
 def api_version():
     commit = 'unknown'
@@ -869,6 +1210,9 @@ def bot_run_once():
             except: pass
         if payload.get('min_notional') is not None:
             try: cfg['min_notional'] = float(payload.get('min_notional'))
+            except: pass
+        if payload.get('ignore_enterprise_ready') is not None:
+            try: cfg['ignore_enterprise_ready'] = _bool(payload.get('ignore_enterprise_ready'))
             except: pass
         
         # Determine paper mode based on exchange and API keys
@@ -1097,8 +1441,8 @@ DASHBOARD_HTML = """
     .header-inner { display:flex; flex-direction:column; gap:10px; align-items:center; }
     .header h1 { font-size: 2.55rem; font-weight:700; background: var(--gradient-accent); -webkit-background-clip:text; color:transparent; letter-spacing:1px; }
     .header p { font-size:1.05rem; color: var(--text-secondary); letter-spacing:.4px; }
-    .toolbar { display:flex; gap:12px; margin-top:4px; }
-    .btn-ghost { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); padding:8px 16px; border-radius: var(--radius-sm); font-size:.8rem; letter-spacing:.6px; cursor:pointer; color:var(--text-secondary); display:inline-flex; gap:6px; align-items:center; transition:all .25s; }
+    .toolbar { display:flex; gap:12px; margin-top:4px; position: sticky; top: 8px; z-index: 1000; padding: 8px 10px; border-radius: 12px; backdrop-filter: blur(10px) saturate(140%); background: linear-gradient(160deg, rgba(26,37,50,0.55) 0%, rgba(15,21,29,0.7) 100%); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 6px 18px -8px rgba(0,0,0,0.5); }
+    .btn-ghost { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); padding:8px 16px; border-radius: var(--radius-sm); font-size:.8rem; letter-spacing:.6px; cursor:pointer; color:var(--text-secondary); display:inline-flex; gap:6px; align-items:center; transition:all .25s; position: relative; }
     .btn-ghost:hover { color:#fff; border-color:var(--text-secondary); }
     .btn-ghost:active { transform:translateY(1px); }
 
@@ -1500,6 +1844,7 @@ DASHBOARD_HTML = """
                     <button id="themeToggle" class="btn-ghost" title="Theme umschalten">🌓 Theme</button>
                     <button id="refreshBtn" class="btn-ghost" onclick="searchSymbol()" title="Neu analysieren">🔄 Refresh</button>
                     <button id="liveScanToggle" class="btn-ghost" title="Live Scan im 1-Minuten-Takt">▶ Live</button>
+                    <button id="viewModeToggle" class="btn-ghost" title="Einfach/Pro Ansicht umschalten">🧭 Modus: Einfach</button>
                     <select id="baseTfSelect" class="btn-ghost" title="Basis-Zeiteinheit" style="padding:8px 10px;">
                         <option value="15m">15m</option>
                         <option value="1h" selected>1h</option>
@@ -1520,6 +1865,10 @@ DASHBOARD_HTML = """
                        placeholder="Enter symbol (e.g., BTC, ETH, DOGE...)" 
                        onkeypress="if(event.key==='Enter') searchSymbol()">
                 <button class="search-btn" onclick="searchSymbol()">🔍 Analyze</button>
+                <div style="display:flex; gap:8px; justify-content:center; margin-top:10px;">
+                    <button class="btn-ghost" onclick="quickSelect('ETHUSDT')" title="ETH schnell wählen">ETH</button>
+                    <button class="btn-ghost" onclick="quickSelect('SOLUSDT')" title="SOL schnell wählen">SOL</button>
+                </div>
             </div>
         </div>
 
@@ -1532,9 +1881,43 @@ DASHBOARD_HTML = """
         <!-- Analysis Results -->
         <div id="analysisResults" class="analysis-results">
             <!-- Main Signal Display -->
-            <div class="glass-card">
+            <div class="glass-card" id="mainSignalCard">
                 <div id="signalDisplay" class="signal-display">
                     <!-- Signal content will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Market Recommendation (concise) -->
+            <div class="glass-card" id="recommendationCard">
+                <div class="section-title"><span class="icon">🧭</span> Empfehlung nach Marktsituation</div>
+                <div id="recommendationBox" style="font-size:.7rem;color:var(--text-secondary)">Noch keine Empfehlung.</div>
+            </div>
+
+            <!-- Drop Probability (technical-only, empirical) -->
+            <div class="glass-card" id="dropProbCard">
+                <div class="section-title"><span class="icon">📉</span> Drop Probability <span class="tag">EMPIRICAL</span></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                    <label style="font-size:.65rem;color:var(--text-secondary);">Drop %
+                        <input id="dpDrop" class="search-input" type="number" step="0.5" min="2" max="40" value="10" style="width:90px; padding:8px 10px; font-size:0.7rem;">
+                    </label>
+                    <label style="font-size:.65rem;color:var(--text-secondary);">Window (bars)
+                        <input id="dpWindow" class="search-input" type="number" min="6" max="200" value="24" style="width:100px; padding:8px 10px; font-size:0.7rem;">
+                    </label>
+                    <label style="font-size:.65rem;color:var(--text-secondary);">Horizon (bars)
+                        <input id="dpHorizon" class="search-input" type="number" min="1" max="48" value="6" style="width:100px; padding:8px 10px; font-size:0.7rem;">
+                    </label>
+                    <button class="btn-ghost" onclick="fetchDropProbability()" style="font-size:0.7rem;">▶️ Run</button>
+                    <button class="btn-ghost" onclick="runDropPresetSOL()" style="font-size:0.7rem;">SOL 10% @ 1h</button>
+                    <button class="btn-ghost" onclick="runDropPresetETH()" style="font-size:0.7rem;">ETH 8% @ 1h</button>
+                    <button class="btn-ghost" onclick="runDropPresetBTC()" style="font-size:0.7rem;">BTC 6% @ 4h</button>
+                    <div id="dpStatus" style="font-size:0.65rem; color:var(--text-dim); align-self:center;"></div>
+                </div>
+                <div id="dpLiveChip" style="display:none; margin-bottom:8px;"></div>
+                <div id="dropProbResults" style="font-size:0.7rem; color:var(--text-secondary);"></div>
+                <div id="aiDropRow" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+                    <button class="btn-ghost" onclick="trainDropAI()" style="font-size:0.7rem;">🤖 Train (KI)</button>
+                    <button class="btn-ghost" onclick="predictDropAI()" style="font-size:0.7rem;">🤖 Predict (Bounce%)</button>
+                    <div id="aiDropStatus" style="font-size:0.65rem; color:var(--text-dim);"></div>
                 </div>
             </div>
 
@@ -1561,8 +1944,53 @@ DASHBOARD_HTML = """
                 </div>
             </div>
 
+            <!-- Scalper (1m/3m) Panel: independent fast signals -->
+            <div class="glass-card" id="scalperCard">
+                <div class="section-title"><span class="icon">⚡</span> Scalper <span class="tag">1m/3m</span></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
+                    <label style="font-size:.65rem;color:var(--text-secondary);">Symbol
+                        <input id="scalp-symbol" class="search-input" value="BTCUSDT" style="width:120px; padding:8px 10px; font-size:0.7rem;" />
+                    </label>
+                    <label style="font-size:.65rem;color:var(--text-secondary);">TF
+                        <select id="scalp-tf" class="search-input" style="width:90px; padding:8px 10px; font-size:0.7rem;">
+                            <option value="1m">1m</option>
+                            <option value="3m">3m</option>
+                        </select>
+                    </label>
+                    <button class="btn-ghost" id="scalp-scan" style="font-size:0.7rem;">▶️ Scan</button>
+                    <label style="font-size:.65rem;color:var(--text-secondary); display:flex; gap:6px; align-items:center;">
+                        <input id="scalp-auto" type="checkbox" checked /> Auto-refresh
+                    </label>
+                    <div id="scalp-status" style="font-size:.65rem;color:var(--text-dim);"></div>
+                </div>
+                <pre id="scalp-output" style="font-size:.65rem; color:var(--text-secondary); max-height:220px; overflow:auto; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:8px; border-radius:10px;"></pre>
+                <details style="margin-top:10px;">
+                    <summary style="cursor:pointer; font-size:.7rem;">Local Execute (Independent Scalper)</summary>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center;">
+                        <label style="font-size:.65rem;color:var(--text-secondary);">Exchange
+                            <select id="scalp-exchange" class="search-input" style="width:120px; padding:8px 10px; font-size:0.7rem;">
+                                <option value="binance">Binance</option>
+                                <option value="mexc">MEXC</option>
+                            </select>
+                        </label>
+                        <label style="font-size:.65rem;color:var(--text-secondary); display:flex; gap:6px; align-items:center;">
+                            <input id="scalp-paper" type="checkbox" checked /> Paper
+                        </label>
+                        <label style="font-size:.65rem;color:var(--text-secondary);">Equity $
+                            <input id="scalp-equity" class="search-input" type="number" value="1000" min="100" step="50" style="width:120px; padding:8px 10px; font-size:0.7rem;"/>
+                        </label>
+                        <label style="font-size:.65rem;color:var(--text-secondary);">Risk %
+                            <input id="scalp-risk" class="search-input" type="number" value="0.25" min="0.05" max="1.0" step="0.05" style="width:110px; padding:8px 10px; font-size:0.7rem;"/>
+                        </label>
+                        <button class="btn-ghost" id="scalp-exec" style="font-size:0.7rem;">🚀 Execute once</button>
+                        <span style="font-size:.6rem; color:var(--text-dim);">Trading is only allowed locally. Hosted deployments are analysis-only.</span>
+                    </div>
+                    <pre id="scalp-exec-out" style="font-size:.65rem; color:var(--text-secondary); max-height:160px; overflow:auto; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:8px; border-radius:10px;"></pre>
+                </details>
+            </div>
+
             <!-- Key Metrics -->
-            <div class="glass-card">
+            <div class="glass-card" id="keyMetricsCard">
                 <div class="section-title">Key Metrics <span class="tag">LIVE</span></div>
                 <div id="metricsGrid" class="metrics-grid">
                     <!-- Metrics will be inserted here -->
@@ -1577,6 +2005,7 @@ DASHBOARD_HTML = """
                     <button class="btn-ghost" onclick="setTradeSetupFilter('LONG')" id="filterLong" style="padding:4px 10px;">Long</button>
                     <button class="btn-ghost" onclick="setTradeSetupFilter('SHORT')" id="filterShort" style="padding:4px 10px;">Short</button>
                     <button class="btn-ghost" onclick="toggleMaxSetups()" id="maxSetupToggle" style="padding:4px 10px;">Max: 2</button>
+                    <button class="btn-ghost" onclick="toggleNearEntry()" id="nearEntryToggle" style="padding:4px 10px;">Nahe: AUS</button>
                 </div>
                 <div id="tradeSetupsContent" class="setup-grid"></div>
                 <div id="tradeSetupsStatus" style="font-size:0.75rem; color:rgba(255,255,255,0.6); margin-top:10px;"></div>
@@ -1611,9 +2040,9 @@ DASHBOARD_HTML = """
             </div>
 
             <!-- Two Column Layout -->
-            <div class="grid">
+            <div class="grid" id="analysisGrid">
                 <!-- Position Management -->
-                <div class="glass-card">
+                <div class="glass-card" id="positionMgmtCard">
                     <div class="section-title"><span class="icon">🎯</span> Intelligent Position Management</div>
                     <div id="positionRecommendations">
                         <!-- Position recommendations will be inserted here -->
@@ -1621,7 +2050,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Technical Analysis -->
-                <div class="glass-card">
+                <div class="glass-card" id="technicalCard">
                     <div class="section-title"><span class="icon">📈</span> Technical Analysis</div>
                     <div id="technicalAnalysis">
                         <!-- Technical analysis will be inserted here -->
@@ -1629,7 +2058,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Pattern Recognition -->
-                <div class="glass-card">
+                <div class="glass-card" id="patternCard">
                     <div class="section-title"><span class="icon">🔍</span> Chart Patterns</div>
                     <div id="patternAnalysis">
                         <!-- Pattern analysis will be inserted here -->
@@ -1637,7 +2066,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Multi-Timeframe -->
-                <div class="glass-card">
+                <div class="glass-card" id="mtfCard">
                     <div class="section-title"><span class="icon">🕒</span> Multi-Timeframe</div>
                     <div id="multiTimeframe">
                         <!-- MTF analysis -->
@@ -1645,7 +2074,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Market Regime -->
-                <div class="glass-card">
+                <div class="glass-card" id="regimeCard">
                     <div class="section-title"><span class="icon">📉</span> Market Regime <span class="tag">BETA</span></div>
                     <div id="regimeAnalysis">
                         <!-- Regime analysis -->
@@ -1653,7 +2082,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Adaptive Risk & Targets -->
-                <div class="glass-card">
+                <div class="glass-card" id="adaptiveRiskCard">
                     <div class="section-title"><span class="icon">🎯</span> Adaptive Risk Management <span class="tag">NEW</span></div>
                     <div id="adaptiveRiskTargets">
                         <!-- Adaptive risk and targets -->
@@ -1661,7 +2090,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Order Flow Analysis -->
-                <div class="glass-card">
+                <div class="glass-card" id="orderFlowCard">
                     <div class="section-title">Order Flow <span class="tag">NEW</span></div>
                     <div id="orderFlowAnalysis">
                         <!-- Order flow analysis -->
@@ -1669,7 +2098,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- AI Analysis -->
-                <div class="glass-card">
+                <div class="glass-card" id="aiCard">
                     <div class="section-title"><span class="icon">🤖</span> AI Engine</div>
                     <div id="aiAnalysis">
                         <!-- AI analysis will be inserted here -->
@@ -1680,7 +2109,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Feature Contributions -->
-                <div class="glass-card">
+                <div class="glass-card" id="featureContribCard">
                     <div class="section-title"><span class="icon">🧪</span> AI Explainability <span class="tag">NEW</span></div>
                     <div id="featureContributions">
                         <!-- Feature contributions analysis -->
@@ -1688,7 +2117,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Enhanced Signals -->
-                <div class="glass-card">
+                <div class="glass-card" id="enhancedSignalsCard">
                     <div class="section-title"><span class="icon">🎯</span> Enhanced Signals <span class="tag">NEW</span></div>
                     <div id="enhancedSignals" style="font-size:0.65rem; line-height:1.1rem; color:var(--text-secondary);">
                         <!-- Enhanced signals will be inserted here -->
@@ -1696,7 +2125,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Backtest -->
-                <div class="glass-card">
+                <div class="glass-card" id="backtestCard">
                     <div class="section-title"><span class="icon">🧪</span> Backtest <span class="tag">BETA</span></div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                         <select id="btInterval" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;">
@@ -1714,7 +2143,7 @@ DASHBOARD_HTML = """
                 </div>
 
                 <!-- Vector Scalp Backtest -->
-                <div class="glass-card">
+                <div class="glass-card" id="vectorBacktestCard">
                     <div class="section-title"><span class="icon">⚡</span> Vector Scalp Backtest <span class="tag">NEW</span></div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                         <select id="vbtInterval" class="search-input" style="flex:0 0 110px; padding:8px 10px; font-size:0.65rem;">
@@ -1731,7 +2160,7 @@ DASHBOARD_HTML = """
             </div>
 
             <!-- Liquidation Calculator -->
-            <div class="glass-card grid-full">
+            <div class="glass-card grid-full" id="liquidationCard">
                 <div class="section-title"><span class="icon">💰</span> Liquidation Calculator</div>
                 <div class="grid">
                     <div>
@@ -1756,10 +2185,38 @@ DASHBOARD_HTML = """
     </div>
 
     <script>
+        // View mode: hide advanced sections by default for a cleaner overview
+        let simpleMode = true;
+        const SIMPLE_HIDE_IDS = [
+            'diagnosticsCard','liveScannerCard','tradeSetupsCard','positionSizerCard',
+            'positionMgmtCard','patternCard','regimeCard','adaptiveRiskCard','orderFlowCard',
+            'aiCard','featureContribCard','enhancedSignalsCard','backtestCard','vectorBacktestCard','liquidationCard','scalperCard'
+        ];
+        function applyViewMode(){
+            const hideList = simpleMode ? SIMPLE_HIDE_IDS : [];
+            const allIds = Array.from(new Set([...SIMPLE_HIDE_IDS]));
+            allIds.forEach(id=>{
+                const el = document.getElementById(id);
+                if(!el) return;
+                if(hideList.includes(id)) el.style.display = 'none'; else el.style.display = '';
+            });
+            const btn = document.getElementById('viewModeToggle');
+            if(btn) btn.textContent = simpleMode ? '🧭 Modus: Einfach' : '🧭 Modus: Pro';
+        }
+        function toggleViewMode(){ simpleMode = !simpleMode; applyViewMode(); }
+        // Hook up toolbar toggle
+        document.addEventListener('DOMContentLoaded', ()=>{
+            const vm = document.getElementById('viewModeToggle');
+            if(vm){ vm.addEventListener('click', toggleViewMode); }
+            applyViewMode();
+        });
+
         let currentSymbol = '';
         let analysisData = null;
         let tradeSetupFilter = 'ALL'; // ALL | LONG | SHORT
         let tradeSetupMax = 2; // default user preference: only see top 2 setups
+    let nearEntryOnly = false; // filter setups far away from current price
+    let nearEntryThresholdPct = 2.0; // <= 2% Distanz
         let liveScanEnabled = false;
         let liveScanTimer = null;
         let liveScanBusy = false;
@@ -1782,6 +2239,12 @@ DASHBOARD_HTML = """
             if (btn) btn.textContent = tradeSetupMax === 2 ? 'Max: 2' : 'Max: ALL';
             if (analysisData) displayTradeSetups(analysisData);
         }
+        function toggleNearEntry(){
+            nearEntryOnly = !nearEntryOnly;
+            const btn = document.getElementById('nearEntryToggle');
+            if(btn) btn.textContent = nearEntryOnly ? `Nahe: ≤${nearEntryThresholdPct}%` : 'Nahe: AUS';
+            if (analysisData) displayTradeSetups(analysisData);
+        }
         function updateTradeSetupFilterButtons(){
             ['All','Long','Short'].forEach(n=>{
                 const el = document.getElementById('filter'+n);
@@ -1792,6 +2255,13 @@ DASHBOARD_HTML = """
                     el.style.color = active ? '#000' : 'var(--text-primary)';
                 }
             });
+        }
+
+        // Quick select helper
+        function quickSelect(sym){
+            const inp = document.getElementById('searchInput');
+            if(inp){ inp.value = sym; }
+            searchSymbol();
         }
 
         // Search and analyze symbol
@@ -1814,6 +2284,8 @@ DASHBOARD_HTML = """
                 if (result.success) {
                     analysisData = result.data;
                     displayAnalysis(analysisData);
+                    // Run empirical drop probability once for context
+                    fetchDropProbability();
                     // Reset live scan caches for new symbol
                     liveScanState = { last: {
                         '5m': { patterns: new Set(), setups: new Set() }
@@ -1848,6 +2320,7 @@ DASHBOARD_HTML = """
         // Display complete analysis
         function displayAnalysis(data) {
             displayMainSignal(data);
+            fetchRecommendation();
             displayEnterpriseValidation(data); // NEW: Enterprise Validation
             displayMetrics(data);
             displayTradeSetups(data);
@@ -1866,6 +2339,243 @@ DASHBOARD_HTML = """
             displayDiagnostics(data);
             displayLiquidationTables(data);
         }
+
+        async function fetchRecommendation(){
+            try{
+                const tfSel = document.getElementById('baseTfSelect');
+                const tf = tfSel && tfSel.value ? tfSel.value : '1h';
+                if(!currentSymbol) return;
+                const res = await fetch(`/api/recommendation/${currentSymbol}?tf=${tf}`);
+                const j = await res.json();
+                if(!j.success) { renderRecommendationError(j.error||'Fehler'); return; }
+                renderRecommendation(j);
+            }catch(e){ renderRecommendationError(e?.message||String(e)); }
+        }
+        function renderRecommendationError(msg){
+            const box = document.getElementById('recommendationBox');
+            if(!box) return;
+            box.innerHTML = `<div style="font-size:.6rem;color:#ff4d4f;">${msg}</div>`;
+        }
+        function recBadge(text,color){
+            return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:10px;font-weight:700;background:${color}20;border:1px solid ${color}55;color:${color};font-size:.6rem;">${text}</span>`;
+        }
+        function renderRecommendation(j){
+            const box = document.getElementById('recommendationBox'); if(!box) return;
+            const rec = (j.recommendation||'WAIT').toUpperCase();
+            const risk = (j.risk_level||'UNKNOWN').toUpperCase();
+            const ready = !!j.enterprise_ready;
+            const col = rec==='LONG'? '#26c281' : rec==='SHORT'? '#ff4d4f' : '#ffc107';
+            const dist = j.distances||{}; const toR = dist.to_resistance_pct; const toS = dist.to_support_pct;
+            const ind = j.indicators||{}; const rsi = typeof ind.rsi==='number'? ind.rsi.toFixed(1) : '-';
+            const trend = ind.trend || '-';
+            const parts = [];
+            parts.push(`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">${recBadge(rec,col)} ${recBadge('TF '+(j.timeframe||'-'),'#0d6efd')} ${recBadge('RISIKO '+risk, risk==='LOW'?'#26c281': risk==='HIGH'?'#ff4d4f':'#ffc107')} ${recBadge(ready?'READY':'NOT READY', ready?'#26c281':'#ff4d4f')}</div>`);
+            parts.push(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:10px;">`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">RSI(${j.timeframe})</div><div style="font-weight:700;">${rsi}</div></div>`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">Trend</div><div style="font-weight:700;">${trend||'-'}</div></div>`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">Distanz Resistenz</div><div style="font-weight:700;">${toR==null?'-':toR.toFixed(2)+'%'}</div></div>`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">Distanz Support</div><div style="font-weight:700;">${toS==null?'-':toS.toFixed(2)+'%'}</div></div>`
+                + `</div>`);
+            const reasons = Array.isArray(j.reasons)? j.reasons : [];
+            const warns = Array.isArray(j.warnings)? j.warnings : [];
+            if(reasons.length){
+                parts.push(`<div style="font-size:.55rem;color:var(--text-secondary);margin-bottom:6px;">Gründe: ${reasons.slice(0,6).map(r=>`<span style=\"background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);padding:2px 6px;border-radius:8px;margin-right:6px;\">${r}</span>`).join(' ')}</div>`);
+            }
+            if(warns.length){
+                parts.push(`<div style="font-size:.55rem;color:#ffc107;">Warnungen: ${warns.slice(0,4).map(w=>`<span style=\"background:rgba(255,193,7,0.12);border:1px solid rgba(255,193,7,0.3);color:#ffc107;padding:2px 6px;border-radius:8px;margin-right:6px;\">${w}</span>`).join(' ')}</div>`);
+            }
+            box.innerHTML = parts.join('');
+        }
+
+        // Drop Probability API integration
+        async function fetchDropProbability(){
+            try{
+                const sym = currentSymbol || (document.getElementById('searchInput').value||'').toUpperCase();
+                if(!sym){ return; }
+                const tfSel = document.getElementById('baseTfSelect');
+                const tf = tfSel && tfSel.value ? tfSel.value : '1h';
+                const drop = parseFloat(document.getElementById('dpDrop').value)||10;
+                const windowBars = parseInt(document.getElementById('dpWindow').value)||24;
+                const horizon = parseInt(document.getElementById('dpHorizon').value)||6;
+                const st = document.getElementById('dpStatus'); if(st){ st.textContent = 'Berechne…'; }
+                const res = await fetch(`/api/probability/drop/${sym}?tf=${tf}&drop=${drop}&window=${windowBars}&horizon=${horizon}`);
+                const j = await res.json();
+                renderDropProbability(j);
+                renderLiveDropChip(j);
+            }catch(e){ renderDropProbability({success:false,error:e?.message||String(e)}); }
+        }
+        function probBadge(label, val, color){
+            return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:${color}18;border:1px solid ${color}44;color:${color};padding:6px 10px;border-radius:10px;">
+                <span style="font-weight:700;">${label}</span>
+                <div style="display:flex;align-items:center;gap:8px;"><div style=\"width:120px;height:6px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden;\"><div style=\"width:${val}%;height:100%;background:${color};\"></div></div><span style="font-weight:800;">${val?.toFixed? val.toFixed(2): val}%</span></div>
+            </div>`;
+        }
+        function renderDropProbability(j){
+            const box = document.getElementById('dropProbResults');
+            const st = document.getElementById('dpStatus');
+            if(!box) return;
+            if(!j || j.success===false){ box.innerHTML = `<div style="color:#ff4d4f;font-size:.65rem;">${j?.error||'Fehler'}</div>`; if(st) st.textContent=''; return; }
+            if(st) st.textContent = j.events? `${j.events} Events • TF ${j.interval} • Drop ≥ ${j.drop_pct}% • Horizon ${j.horizon_bars}` : '';
+            const p = j.probabilities||{};
+            const mag = j.magnitudes||{};
+            const parts = [];
+            parts.push(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">`+
+                probBadge('Bounce (hoch)', p.bounce_up_pct||0, '#26c281')+
+                probBadge('Weiterfall (runter)', p.continue_down_pct||0, '#ff4d4f')+
+                probBadge('Neutral', p.neutral_pct||0, '#ffc107')+
+                `</div>`);
+            parts.push(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:8px;">`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">Ø Future Return</div><div style="font-weight:700;">${(mag.avg_future_return_pct??0).toFixed(3)}%</div></div>`
+                + `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;"><div style="font-size:.55rem;color:var(--text-dim);">Median Future Return</div><div style="font-weight:700;">${(mag.median_future_return_pct??0).toFixed(3)}%</div></div>`
+                + `</div>`);
+            // Optional: RSI conditioning summary (compact)
+            try{
+                const cond = j.conditioning||{};
+                const keys = Object.keys(cond).filter(k=>cond[k]?.events>0);
+                if(keys.length){
+                    parts.push(`<div style="margin-top:8px;font-size:.6rem;color:var(--text-secondary);">Nach RSI-Bedingung (bei Event):</div>`);
+                    parts.push(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;">`+
+                        keys.slice(0,6).map(k=>{
+                            const r = cond[k];
+                            return `<div style=\"background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:6px 8px;\"><div style=\"font-size:.55rem;color:var(--text-dim);\">${k} (${r.events})</div><div style=\"font-weight:700;\">↑ ${r.bounce_up_pct}% • ↓ ${r.continue_down_pct}%</div></div>`;
+                        }).join('') + `</div>`);
+                }
+            }catch(e){}
+            box.innerHTML = parts.join('');
+        }
+
+        function renderLiveDropChip(j){
+            const el = document.getElementById('dpLiveChip');
+            if(!el){ return; }
+            try{
+                const cur = j?.current_event || {};
+                if(!cur.detected){ el.style.display='none'; el.innerHTML=''; return; }
+                const k = cur.k_bars; const rsi = cur.rsi_now; const drop = (cur.drop_from_pct!=null)? cur.drop_from_pct.toFixed(2): '-';
+                const color = '#ff4d4f';
+                el.style.display='block';
+                el.innerHTML = `<div style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:${color}18;border:1px solid ${color}44;color:${color};font-size:.7rem;">`
+                    + `<span>Live-Event: Drop erkannt</span>`
+                    + `<span style="opacity:.8;">k=${k} Bars</span>`
+                    + `<span style="opacity:.8;">Δ=${drop}%</span>`
+                    + `<span style="opacity:.8;">RSI=${rsi==null?'-':rsi.toFixed(1)}</span>`
+                    + `</div>`;
+            }catch(e){ el.style.display='none'; el.innerHTML=''; }
+        }
+
+        // One-click preset for SOL on 1h with 10%/24/6
+        function runDropPresetSOL(){
+            try{
+                const inp = document.getElementById('searchInput'); if(inp) inp.value = 'SOLUSDT';
+                const tfSel = document.getElementById('baseTfSelect'); if(tfSel) tfSel.value = '1h';
+                const d = document.getElementById('dpDrop'); if(d) d.value = 10;
+                const w = document.getElementById('dpWindow'); if(w) w.value = 24;
+                const h = document.getElementById('dpHorizon'); if(h) h.value = 6;
+                // Trigger full analysis; drop probability will auto-run afterwards
+                searchSymbol();
+            }catch(e){ console.warn('Preset failed', e); }
+        }
+        function runDropPresetETH(){
+            try{
+                const inp = document.getElementById('searchInput'); if(inp) inp.value = 'ETHUSDT';
+                const tfSel = document.getElementById('baseTfSelect'); if(tfSel) tfSel.value = '1h';
+                const d = document.getElementById('dpDrop'); if(d) d.value = 8;
+                const w = document.getElementById('dpWindow'); if(w) w.value = 24;
+                const h = document.getElementById('dpHorizon'); if(h) h.value = 6;
+                searchSymbol();
+            }catch(e){ console.warn('Preset failed', e); }
+        }
+        function runDropPresetBTC(){
+            try{
+                const inp = document.getElementById('searchInput'); if(inp) inp.value = 'BTCUSDT';
+                const tfSel = document.getElementById('baseTfSelect'); if(tfSel) tfSel.value = '4h';
+                const d = document.getElementById('dpDrop'); if(d) d.value = 6;
+                const w = document.getElementById('dpWindow'); if(w) w.value = 36;
+                const h = document.getElementById('dpHorizon'); if(h) h.value = 6;
+                searchSymbol();
+            }catch(e){ console.warn('Preset failed', e); }
+        }
+
+        // ML Train/Predict hooks
+        async function trainDropAI(){
+            try{
+                const sym = (document.getElementById('searchInput').value||'BTCUSDT').toUpperCase();
+                const tfSel = document.getElementById('baseTfSelect');
+                const tf = tfSel && tfSel.value ? tfSel.value : '1h';
+                const drop = parseFloat(document.getElementById('dpDrop').value)||10;
+                const windowBars = parseInt(document.getElementById('dpWindow').value)||24;
+                const horizon = parseInt(document.getElementById('dpHorizon').value)||6;
+                const s = document.getElementById('aiDropStatus'); if(s){ s.textContent = 'Training läuft…'; }
+                const res = await fetch('/api/ai/train', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({symbol: sym, interval: tf, drop_pct: drop, window_bars: windowBars, horizon_bars: horizon, limit: 3000}) });
+                const j = await res.json();
+                if(j.success){ if(s) s.textContent = `Training fertig • Events=${j.result?.events}`; } else { if(s) s.textContent = `Fehler: ${j.error}`; }
+            }catch(e){ const s = document.getElementById('aiDropStatus'); if(s) s.textContent = `Fehler: ${e?.message||String(e)}`; }
+        }
+        async function predictDropAI(){
+            try{
+                const sym = (document.getElementById('searchInput').value||'BTCUSDT').toUpperCase();
+                const tfSel = document.getElementById('baseTfSelect');
+                const tf = tfSel && tfSel.value ? tfSel.value : '1h';
+                const s = document.getElementById('aiDropStatus'); if(s){ s.textContent = 'Predict…'; }
+                const res = await fetch(`/api/ai/predict?symbol=${sym}&tf=${tf}`);
+                const j = await res.json();
+                if(j.success){ if(s) s.textContent = `KI Bounce%: ${j.bounce_prob_pct}%`; } else { if(s) s.textContent = `Fehler: ${j.error}`; }
+            }catch(e){ const s = document.getElementById('aiDropStatus'); if(s) s.textContent = `Fehler: ${e?.message||String(e)}`; }
+        }
+
+        // --- Scalper UI wiring (independent) ---
+        const scalpSymbol = document.getElementById('scalp-symbol');
+        const scalpTf = document.getElementById('scalp-tf');
+        const scalpScanBtn = document.getElementById('scalp-scan');
+        const scalpAuto = document.getElementById('scalp-auto');
+        const scalpStatus = document.getElementById('scalp-status');
+        const scalpOut = document.getElementById('scalp-output');
+        const scalpExecBtn = document.getElementById('scalp-exec');
+        const scalpExchange = document.getElementById('scalp-exchange');
+        const scalpPaper = document.getElementById('scalp-paper');
+        const scalpEquity = document.getElementById('scalp-equity');
+        const scalpRisk = document.getElementById('scalp-risk');
+        const scalpExecOut = document.getElementById('scalp-exec-out');
+
+        async function scalpScanOnce(){
+            try{
+                const sym = (scalpSymbol?.value || currentSymbol || 'BTCUSDT').toUpperCase();
+                if(scalpSymbol && !scalpSymbol.value) scalpSymbol.value = sym;
+                const tf = scalpTf?.value || '1m';
+                if(scalpStatus) scalpStatus.textContent = '…';
+                const t0 = performance.now();
+                const r = await fetch(`/api/scalper/scan/${encodeURIComponent(sym)}?tf=${encodeURIComponent(tf)}`);
+                const j = await r.json();
+                const dt = (performance.now()-t0).toFixed(0);
+                if(scalpStatus) scalpStatus.textContent = `dt ${dt}ms`;
+                if(scalpOut) scalpOut.textContent = JSON.stringify(j, null, 2);
+            }catch(e){
+                if(scalpStatus) scalpStatus.textContent = 'error';
+                if(scalpOut) scalpOut.textContent = String(e);
+            }
+        }
+        if(scalpScanBtn){ scalpScanBtn.addEventListener('click', scalpScanOnce); }
+        let scalpTimer = setInterval(()=>{ if(scalpAuto?.checked) scalpScanOnce(); }, 7000);
+        if(scalpAuto){ scalpAuto.addEventListener('change', ()=>{ if(scalpAuto.checked) scalpScanOnce(); }); }
+        if(scalpExecBtn){
+            scalpExecBtn.addEventListener('click', async ()=>{
+                try{
+                    if(scalpExecOut) scalpExecOut.textContent = 'running…';
+                    const body = {
+                        symbol: (scalpSymbol?.value || currentSymbol || 'BTCUSDT').toUpperCase(),
+                        tf: scalpTf?.value || '1m',
+                        exchange: scalpExchange?.value || 'binance',
+                        paper: !!(scalpPaper?.checked),
+                        equity: Number(scalpEquity?.value || 1000),
+                        risk_pct: Number(scalpRisk?.value || 0.25),
+                    };
+                    const r = await fetch('/api/scalper/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                    const j = await r.json();
+                    if(scalpExecOut) scalpExecOut.textContent = JSON.stringify(j, null, 2);
+                }catch(e){ if(scalpExecOut) scalpExecOut.textContent = String(e); }
+            });
+        }
+        // do an initial scan shortly after load
+        setTimeout(()=>{ try{ scalpScanOnce(); }catch{} }, 1200);
 
     // Live Scanner (client-side, 1-minute interval, scans 5m timeframe only)
         function toggleLiveScan(){
@@ -2326,6 +3036,7 @@ DASHBOARD_HTML = """
             const status = document.getElementById('tradeSetupsStatus');
             const all = Array.isArray(data.trade_setups) ? data.trade_setups : [];
             const prec = data.precision_filter_meta || {};
+            const cp = Number((data?.technical_analysis?.current_price ?? data?.current_price ?? NaN));
             if (all.length === 0) {
                 container.innerHTML = '';
                 status.textContent = 'Keine Setups generiert (Bedingungen nicht erfüllt).';
@@ -2333,6 +3044,16 @@ DASHBOARD_HTML = """
             }
             // Filter by direction
             let filtered = all.filter(s => tradeSetupFilter === 'ALL' || s.direction === tradeSetupFilter);
+            // Optional: filter by proximity to current price
+            let filteredCountBeforeProx = filtered.length;
+            if (nearEntryOnly && Number.isFinite(cp) && cp > 0){
+                filtered = filtered.filter(s=>{
+                    const entry = Number(s.entry ?? s.entry_price ?? NaN);
+                    if(!Number.isFinite(entry) || entry<=0) return false;
+                    const dist = Math.abs(entry - cp) / cp * 100.0;
+                    return dist <= nearEntryThresholdPct;
+                });
+            }
             // Sort: confidence desc then (risk_reward_ratio || primary_rr) desc
             filtered.sort((a,b)=> (b.confidence||0) - (a.confidence||0) || ((b.risk_reward_ratio||b.primary_rr||0) - (a.risk_reward_ratio||a.primary_rr||0)) );
             const limited = filtered.slice(0, tradeSetupMax);
@@ -2354,6 +3075,9 @@ DASHBOARD_HTML = """
                         const rr = t.rr ? ` ${t.rr}R` : '';
                         return `<span class="target-pill pattern-target">${label}: ${price}${percentage}${rr}</span>`;
                     }).join('');
+                    const entry = Number(s.entry_price ?? s.entry ?? NaN);
+                    const dist = (Number.isFinite(cp) && Number.isFinite(entry) && cp>0) ? (Math.abs(entry-cp)/cp*100) : null;
+                    const distHtml = dist!==null ? `<div class="setup-line"><span>Entry Δ</span><span>${dist.toFixed(2)}%</span></div>` : '';
                     return `<div class="setup-card pattern-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
                         <div class="setup-title">${s.direction} <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background:linear-gradient(45deg,#FFD700,#FFA500); color:#000;">${s.pattern_name || s.strategy}</span>
@@ -2362,6 +3086,7 @@ DASHBOARD_HTML = """
                         </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry_price || s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
+                        ${distHtml}
                         ${s.risk_percent || s.risk_reward_ratio ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>` : ''}
                         ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color:#28a745;">${s.risk_reward_ratio}</span></div>`:''}
                         ${typeof s.refined_rank === 'number' ? `<div class="setup-line"><span>Refined</span><span>${s.refined_rank}</span></div>` : ''}
@@ -2379,6 +3104,9 @@ DASHBOARD_HTML = """
                 html += regularTrades.map(s=>{
                     const confClass = s.confidence >= 70 ? '' : (s.confidence >= 55 ? 'mid' : 'low');
                     const targets = (s.targets||[]).map(t=>`<span class="target-pill">${t.label}: ${t.price}${t.rr?` (${t.rr}R)`:''}</span>`).join('');
+                    const entry = Number(s.entry ?? s.entry_price ?? NaN);
+                    const dist = (Number.isFinite(cp) && Number.isFinite(entry) && cp>0) ? (Math.abs(entry-cp)/cp*100) : null;
+                    const distHtml = dist!==null ? `<div class="setup-line"><span>Entry Δ</span><span>${dist.toFixed(2)}%</span></div>` : '';
                     return `<div class="setup-card" style="border-left:4px solid ${s.direction==='LONG'?'#28a745':'#dc3545'};">
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
                         <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span>
@@ -2387,6 +3115,7 @@ DASHBOARD_HTML = """
                         </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
+                        ${distHtml}
                         ${s.risk_percent ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>`:''}
                         ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style=\"color:#28a745;\">${s.primary_rr}R</span></div>`:''}
                         ${typeof s.refined_rank === 'number' ? `<div class="setup-line"><span>Refined</span><span>${s.refined_rank}</span></div>` : ''}
@@ -2398,7 +3127,9 @@ DASHBOARD_HTML = """
             }
             container.innerHTML = html || '<div style="font-size:.65rem; color:var(--text-dim);">Keine passenden Setups nach Filter.</div>';
             const steps = Array.isArray(prec.steps) ? prec.steps.join(' + ') : null;
-            status.innerHTML = `Zeige ${limited.length} von ${filtered.length} (${all.length} gesamt) | Filter: ${tradeSetupFilter} | Limit: ${tradeSetupMax===2?'2':'ALLE'} ` +
+            const nearInfo = nearEntryOnly && Number.isFinite(cp) ? ` | Nahe ≤${nearEntryThresholdPct}%` : '';
+            const proxTxt = nearEntryOnly ? ` | Proximity gefiltert (${filteredCountBeforeProx}→${filtered.length})` : '';
+            status.innerHTML = `Zeige ${limited.length} von ${filtered.length} (${all.length} gesamt) | Filter: ${tradeSetupFilter} | Limit: ${tradeSetupMax===2?'2':'ALLE'}${nearInfo}${proxTxt} ` +
                 `<span style="margin-left:6px; font-size:.55rem; background:rgba(13,110,253,0.15); color:#8ab4ff; padding:2px 6px; border-radius:8px;">Precision: ON${steps?` (${steps})`:''}</span>`;
         }
 
@@ -3570,114 +4301,163 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
                 "</body>",
                 """
 {% if tradingEnabled %}
-<!-- Handelsbot Modal -->
+<!-- Floating Refresh Button (unten rechts) -->
+<button id=\"fabRefresh\" title=\"Neu analysieren\" onclick=\"searchSymbol()\" style=\"position:fixed; right:18px; bottom:18px; z-index:9998; width:54px; height:54px; border-radius:999px; border:1px solid rgba(255,255,255,0.18); background:linear-gradient(145deg, rgba(13,110,253,0.18), rgba(255,255,255,0.06)); color:#fff; backdrop-filter:blur(6px); box-shadow:0 8px 24px rgba(0,0,0,0.35); cursor:pointer;\">🔄</button>
+
+<!-- Handelsbot Modal (modernisiert) -->
 <div id=\"botModal\" style=\"display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.45);\">
-    <div style=\"position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(95vw, 560px);\">
+    <div style=\"position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(95vw, 680px);\">
         <div style=\"background:rgba(15,18,28,0.98); border:1px solid rgba(255,255,255,0.12); border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.45); color:#fff; overflow:hidden;\">
-            <div style=\"display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,0.08)\">
-                <div style=\"font-weight:700\">Handelsbot</div>
-                <div id=\"tb-status\" style=\"font-size:.85rem; opacity:.8\"></div>
+            <div style=\"display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,0.08); background:linear-gradient(180deg, rgba(139,92,246,0.12), rgba(255,255,255,0.02))\">
+                <div style=\"display:flex; align-items:center; gap:8px;\">
+                    <div style=\"font-weight:700; letter-spacing:.4px\">Handelsbot</div>
+                    <span id=\"tb-status-chip\" style=\"display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.06); font-size:.72rem; opacity:.9\">Status</span>
+                </div>
                 <button id=\"botClose\" style=\"background:transparent; border:none; color:#fff; font-size:1.1rem; cursor:pointer\">✕</button>
             </div>
-            <div style=\"padding:14px\">
-                <div style=\"display:flex; gap:6px; flex-wrap:wrap\">
-                    <div style=\"flex:1; min-width:140px\">
-                        <label style=\"font-size:.75rem; opacity:.8\">Symbol</label>
-                        <input id=\"tb-symbol\" placeholder=\"BTCUSDT\" value=\"BTCUSDT\" title=\"Handelspaar, z.B. BTCUSDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                    </div>
-                    <div>
-                        <label style=\"font-size:.75rem; opacity:.8\">TF</label>
-                        <select id=\"tb-tf\" title=\"Zeiteinheit der Analyse\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select>
-                    </div>
-                    <div>
-                        <label style=\"font-size:.75rem; opacity:.8\">Exchange</label>
-                        <select id=\"tb-ex\" title=\"Börse für Orderausführung\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option value=\"binance\">Binance</option><option value=\"mexc\">MEXC</option></select>
+            <div style=\"padding:12px 14px 10px\">
+                <div id=\"tb-tabs\" style=\"display:flex; gap:6px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;\">
+                    <button class=\"tb-tab active\" data-tab=\"status\" style=\"padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:#fff; cursor:pointer\">Status</button>
+                    <button class=\"tb-tab\" data-tab=\"config\" style=\"padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:#fff; cursor:pointer\">Konfiguration</button>
+                    <button class=\"tb-tab\" data-tab=\"logs\" style=\"padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:#fff; cursor:pointer\">Logs</button>
+                </div>
+
+                <!-- TAB: STATUS -->
+                <div id=\"tb-tab-status\" style=\"display:block; padding-top:10px;\">
+                    <div id=\"tb-status-chips\" style=\"display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;\"></div>
+                    <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;\">
+                        <div style=\"background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px\">
+                            <div style=\"font-size:.75rem; opacity:.8; margin-bottom:6px\">Offene Positionen</div>
+                            <div id=\"tb-positions\" style=\"font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem\">–</div>
+                        </div>
+                        <div style=\"background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px\">
+                            <div style=\"font-size:.75rem; opacity:.8; margin-bottom:6px\">Letzte Orders</div>
+                            <div id=\"tb-orders\" style=\"font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem\">–</div>
+                        </div>
                     </div>
                 </div>
-                <div style=\"display:flex; gap:6px; margin-top:8px; flex-wrap:wrap\">
-                    <div style=\"flex:1; min-width:160px\">
-                        <label style=\"font-size:.75rem; opacity:.8\">Equity (USDT)</label>
-                        <input id=\"tb-equity\" type=\"number\" placeholder=\"1000\" value=\"1000\" min=\"10\" title=\"Verfügbares Kontokapital in USDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">Basis für Positionsgröße und Notional-Limits</div>
+
+                <!-- TAB: KONFIGURATION -->
+                <div id=\"tb-tab-config\" style=\"display:none; padding-top:10px;\">
+                    <div style=\"display:flex; gap:6px; flex-wrap:wrap\">
+                        <div style=\"flex:1; min-width:140px\">
+                            <label style=\"font-size:.75rem; opacity:.8\">Symbol</label>
+                            <input id=\"tb-symbol\" placeholder=\"BTCUSDT\" value=\"BTCUSDT\" title=\"Handelspaar, z.B. BTCUSDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        </div>
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">TF</label>
+                            <select id=\"tb-tf\" title=\"Zeiteinheit der Analyse\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option>5m</option><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select>
+                        </div>
+                        <div>
+                            <label style=\"font-size:.75rem; opacity:.8\">Exchange</label>
+                            <select id=\"tb-ex\" title=\"Börse für Orderausführung\" style=\"padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"><option value=\"binance\">Binance</option><option value=\"mexc\">MEXC</option></select>
+                        </div>
                     </div>
-                    <div style=\"min-width:120px\">
-                        <label style=\"font-size:.75rem; opacity:.8\">Risk %</label>
-                        <input id=\"tb-risk\" type=\"number\" step=\"0.1\" placeholder=\"0.5\" value=\"0.5\" title=\"Risikoprozent pro Trade bezogen auf Equity\" style=\"width:120px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                        <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">z. B. 0.5% Risiko pro Trade</div>
+                    <div style=\"display:flex; gap:6px; margin-top:8px; flex-wrap:wrap\">
+                        <div style=\"flex:1; min-width:160px\">
+                            <label style=\"font-size:.75rem; opacity:.8\">Equity (USDT)</label>
+                            <input id=\"tb-equity\" type=\"number\" placeholder=\"1000\" value=\"1000\" min=\"10\" title=\"Verfügbares Kontokapital in USDT\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">Basis für Positionsgröße und Notional-Limits</div>
+                        </div>
+                        <div style=\"min-width:120px\">
+                            <label style=\"font-size:.75rem; opacity:.8\">Risk %</label>
+                            <input id=\"tb-risk\" type=\"number\" step=\"0.1\" placeholder=\"0.5\" value=\"0.5\" title=\"Risikoprozent pro Trade bezogen auf Equity\" style=\"width:120px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                            <div style=\"font-size:.7rem; opacity:.6; margin-top:4px\">z. B. 0.5% Risiko pro Trade</div>
+                        </div>
+                        <label style=\"display:flex; align-items:flex-end; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-paper\" type=\"checkbox\" checked title=\"Paper: simulierte Orders ohne Live-Handel\"/> Paper</label>
                     </div>
-                    <label style=\"display:flex; align-items:flex-end; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-paper\" type=\"checkbox\" checked title=\"Paper: simulierte Orders ohne Live-Handel\"/> Paper</label>
-                </div>
-                <div style=\"display:flex; gap:8px; margin-top:10px\">
-                    <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Einmal ausführen</button>
-                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Aktualisieren</button>
-                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Fortschrittlich</button>
-                </div>
-                        <div id=\"tb-adv\" style=\"display:none; margin-top:10px; padding:10px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
-                            <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px\">
-                                <div>
-                                    <label style=\"font-size:.75rem; opacity:.8\">Min Wahrscheinlichkeit (%)</label>
-                                    <input id=\"tb-minprob\" type=\"number\" step=\"1\" min=\"0\" max=\"100\" value=\"55\" title=\"Mindestwahrscheinlichkeit des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                                    <div style=\"font-size:.7rem; opacity:.6\">z. B. 55%</div>
-                                </div>
-                                <div>
-                                    <label style=\"font-size:.75rem; opacity:.8\">Min RR</label>
-                                    <input id=\"tb-minrr\" type=\"number\" step=\"0.1\" min=\"0.5\" value=\"1.5\" title=\"Mindest Risk/Reward des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                                    <div style=\"font-size:.7rem; opacity:.6\">z. B. 1.5</div>
-                                </div>
-                        <div>
-                            <label style=\"font-size:.75rem; opacity:.8\">Cooldown (min)</label>
-                            <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" value=\"5\" title=\"Mindestzeit zwischen Trades pro Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                            <div style=\"font-size:.7rem; opacity:.6\">Verhindert zu häufiges Traden</div>
+                    <div style=\"display:flex; gap:8px; margin-top:10px\">
+                        <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Einmal ausführen</button>
+                        <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Aktualisieren</button>
+                        <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Fortschrittlich</button>
+                    </div>
+                    <div id=\"tb-adv\" style=\"display:none; margin-top:10px; padding:10px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
+                        <div style=\"display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px\">
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Min Wahrscheinlichkeit (%)</label>
+                                <input id=\"tb-minprob\" type=\"number\" step=\"1\" min=\"0\" max=\"100\" value=\"55\" title=\"Mindestwahrscheinlichkeit des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">z. B. 55%</div>
+                            </div>
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Min RR</label>
+                                <input id=\"tb-minrr\" type=\"number\" step=\"0.1\" min=\"0.5\" value=\"1.5\" title=\"Mindest Risk/Reward des Setups\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">z. B. 1.5</div>
+                            </div>
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Cooldown (min)</label>
+                                <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" value=\"5\" title=\"Mindestzeit zwischen Trades pro Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">Verhindert zu häufiges Traden</div>
+                            </div>
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Max Trades/Tag</label>
+                                <input id=\"tb-daily\" type=\"number\" step=\"1\" min=\"0\" value=\"3\" title=\"Begrenzt Trades pro Tag und Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">0 = kein Limit</div>
+                            </div>
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Max Notional %</label>
+                                <input id=\"tb-maxnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"100\" title=\"Maximale Positionsnotional relativ zur Equity\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">Deckelt Positionsgröße</div>
+                            </div>
+                            <div>
+                                <label style=\"font-size:.75rem; opacity:.8\">Min Notional (USD)</label>
+                                <input id=\"tb-minnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"10\" title=\"Mindestnotional zur Orderplatzierung\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                                <div style=\"font-size:.7rem; opacity:.6\">z. B. Exchange-Limits</div>
+                            </div>
+                            <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\" title=\"Nur traden, wenn Richtung mit MTF-Trend übereinstimmt\"><input id=\"tb-align\" type=\"checkbox\" checked/> Trend-Alignment nötig</label>
                         </div>
-                        <div>
-                            <label style=\"font-size:.75rem; opacity:.8\">Max Trades/Tag</label>
-                            <input id=\"tb-daily\" type=\"number\" step=\"1\" min=\"0\" value=\"3\" title=\"Begrenzt Trades pro Tag und Symbol\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                            <div style=\"font-size:.7rem; opacity:.6\">0 = kein Limit</div>
-                        </div>
-                        <div>
-                            <label style=\"font-size:.75rem; opacity:.8\">Max Notional %</label>
-                            <input id=\"tb-maxnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"100\" title=\"Maximale Positionsnotional relativ zur Equity\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                            <div style=\"font-size:.7rem; opacity:.6\">Deckelt Positionsgröße</div>
-                        </div>
-                        <div>
-                            <label style=\"font-size:.75rem; opacity:.8\">Min Notional (USD)</label>
-                            <input id=\"tb-minnotional\" type=\"number\" step=\"1\" min=\"1\" value=\"10\" title=\"Mindestnotional zur Orderplatzierung\" style=\"width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
-                            <div style=\"font-size:.7rem; opacity:.6\">z. B. Exchange-Limits</div>
-                        </div>
-                        <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\" title=\"Nur traden, wenn Richtung mit MTF-Trend übereinstimmt\"><input id=\"tb-align\" type=\"checkbox\" checked/> Trend-Alignment nötig</label>
                     </div>
                 </div>
-                <div id=\"tb-out\" style=\"margin-top:12px; max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; line-height:1.35\"></div>
+
+                <!-- TAB: LOGS -->
+                <div id=\"tb-tab-logs\" style=\"display:none; padding-top:10px;\">
+                    <div id=\"tb-logs\" style=\"max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; line-height:1.35\">–</div>
+                </div>
             </div>
         </div>
+    </div>
     </div>
 </div>
 <script>
     const TRADING_ENABLED = {{ tradingEnabled | tojson }};
     function fmtTs(ms){ try{ const d=new Date(ms); return d.toLocaleString(); }catch(e){ return ms; } }
+    function tbSetTab(tab){
+        const tabs = ['status','config','logs'];
+        tabs.forEach(t=>{
+            const btn = document.querySelector(`.tb-tab[data-tab="${t}"]`); if(btn){ btn.classList.remove('active'); btn.style.background = (t===tab? 'rgba(255,255,255,0.06)' : 'transparent'); }
+            const el = document.getElementById(`tb-tab-${t}`); if(el) el.style.display = (t===tab? 'block':'none');
+        });
+        const activeBtn = document.querySelector(`.tb-tab[data-tab="${tab}"]`); if(activeBtn){ activeBtn.classList.add('active'); }
+    }
+    function tbBadge(txt,color){ return `<span style=\"display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid ${color}55;background:${color}22;color:${color};font-size:.7rem;font-weight:700\">${txt}<\/span>`; }
     async function tbRefresh(){
-        const st = document.getElementById('tb-status'); const out = document.getElementById('tb-out');
-        if(!st || !out) return;
+        const statusChip = document.getElementById('tb-status-chip');
+        const posEl = document.getElementById('tb-positions');
+        const ordEl = document.getElementById('tb-orders');
+        const chips = document.getElementById('tb-status-chips');
+        if(statusChip){ statusChip.textContent = TRADING_ENABLED ? 'bereit' : 'deaktiviert'; }
         try{
             const [p,o] = await Promise.all([
                 fetch('/api/bot/positions').then(r=>r.json()).catch(()=>({success:false})),
                 fetch('/api/bot/orders?limit=20').then(r=>r.json()).catch(()=>({success:false}))
             ]);
-            let html = '';
-            if(p.success){
-                html += '<div style=\"opacity:.7;margin-bottom:4px\">Positions</div>';
-                const keys = Object.keys(p.positions||{});
-                if(!keys.length) html += '<div style=\"opacity:.6\">Keine offenen Positionen</div>';
-                keys.forEach(k=>{ const v=p.positions[k]; html += `<div>• ${k}: qty=${v.qty} @ ${v.avg_entry}</div>`; });
+            if(posEl){
+                if(p.success){
+                    const keys = Object.keys(p.positions||{});
+                    posEl.innerHTML = keys.length? keys.map(k=>{ const v=p.positions[k]; return `<div>• ${k}: qty=${v.qty} @ ${v.avg_entry}</div>`; }).join('') : '<div style=\"opacity:.6\">Keine offenen Positionen</div>';
+                } else { posEl.innerHTML = '<div style=\"opacity:.6\">–</div>'; }
             }
-            if(o.success){
-                html += '<div style=\"opacity:.7;margin:8px 0 4px\">Letzte Orders</div>';
-                (o.orders||[]).forEach(x=>{ html += `<div>• ${x.side||''} ${x.qty||''} ${x.symbol||''} (${fmtTs(x.ts)}) ${x.dry_run?'[paper]':''}</div>`; });
+            if(ordEl){
+                if(o.success){
+                    ordEl.innerHTML = (o.orders||[]).map(x=>`<div>• ${x.side||''} ${x.qty||''} ${x.symbol||''} (${fmtTs(x.ts)}) ${x.dry_run?'[paper]':''}</div>`).join('') || '<div style=\"opacity:.6\">Keine Orders</div>';
+                } else { ordEl.innerHTML = '<div style=\"opacity:.6\">–</div>'; }
             }
-            out.innerHTML = html || '<div style=\"opacity:.6\">Keine Daten</div>';
-            st.innerText = TRADING_ENABLED ? 'bereit' : 'deaktiviert';
-            const runBtn = document.getElementById('tb-run'); if(runBtn){ runBtn.disabled = !TRADING_ENABLED; if(!TRADING_ENABLED){ runBtn.title = 'Trading ist auf diesem Deployment deaktiviert'; } }
-        }catch(e){ if(out){ out.innerText = 'Fehler beim Laden'; } }
+            if(chips){
+                const ex = (document.getElementById('tb-ex')?.value||'binance').toUpperCase();
+                const tf = (document.getElementById('tb-tf')?.value||'1h').toUpperCase();
+                const paper = !!document.getElementById('tb-paper')?.checked;
+                chips.innerHTML = `${tbBadge(paper?'PAPER':'LIVE', paper?'#36c2ff':'#26c281')} ${tbBadge(ex, '#8b5cf6')} ${tbBadge(tf, '#0d6efd')}`;
+            }
+        }catch(e){ if(posEl) posEl.innerHTML = 'Fehler beim Laden'; }
     }
     async function tbRun(){
         const s = (document.getElementById('tb-symbol').value||'BTCUSDT').toUpperCase();
@@ -3686,7 +4466,7 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
         const eq = parseFloat(document.getElementById('tb-equity').value||'1000');
         const rk = parseFloat(document.getElementById('tb-risk').value||'0.5');
         const pap = !!document.getElementById('tb-paper').checked;
-        const out = document.getElementById('tb-out'); if(out) out.innerText = 'Running…';
+        const logs = document.getElementById('tb-logs'); if(logs) logs.innerText = 'Running…';
         try{
             const adv = {};
             const mp = parseFloat(document.getElementById('tb-minprob')?.value || ''); if(!isNaN(mp)) adv.min_probability = mp;
@@ -3699,32 +4479,44 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
             const payload = Object.assign({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap}, adv);
             const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
             const j = await r.json();
-            if(!j.success){ if(out) out.innerText = 'Fehler: '+(j.error||'unknown'); }
+            if(!j.success){ if(logs) logs.innerText = 'Fehler: '+(j.error||'unknown'); }
             else {
                 const exed = (j.data && j.data.executed) || [];
                 const ctx = (j.data && j.data.context) || {};
-                let html = `<div style=\"opacity:.7\">Ergebnis (max 1 Trade) • ${ex.toUpperCase()} • Paper: ${j.paper?'JA':'NEIN'}</div>`;
-                html += `<div style=\"opacity:.7\">Kontext: decision=${ctx.decision||'-'}, mtf=${ctx.mtf||'-'}, RSI=${ctx.rsi??'-'}, MACD=${ctx.macd||'-'}, AI=${ctx.ai_signal||'-'} (${ctx.ai_confidence??'-'}%)</div>`;
-                if(!exed.length){ html += '<div>Keine Ausführungen (Filter oder Bedingungen nicht erfüllt)</div>'; }
-                exed.forEach((e,i)=>{
+                const tfLabel = (j.data && j.data.timeframe) ? String(j.data.timeframe) : (tf||'-');
+                let html = '';
+                html += `<div style=\"margin:0 0 8px\">${tbBadge(j.paper?'PAPER':'LIVE', j.paper?'#36c2ff':'#26c281')} ${tbBadge(ex.toUpperCase(), '#8b5cf6')} ${tbBadge(ctx.mtf||'-', '#0d6efd')}<\/div>`;
+                html += `<div style=\"opacity:.75;margin-bottom:8px\">Kontext: decision=${ctx.decision||'-'}, RSI(${tfLabel})=${ctx.rsi??'-'}, MACD=${ctx.macd||'-'}, AI=${ctx.ai_signal||'-'} (${ctx.ai_confidence??'-'}%)<\/div>`;
+                if(!exed.length){ html += '<div style=\"opacity:.75\">Keine Ausführungen (Filter oder Bedingungen nicht erfüllt)<\/div>'; }
+                exed.forEach((e)=>{
                     if(e.skipped){
-                        const st = e.setup||{}; const why = e.reason||''; const dir = st.direction||'-'; const rr = st.risk_reward_ratio||st.primary_rr; const prob = st.probability_estimate_pct;
-                        html += `<div>• SKIPPED (${dir}) — Gründe: ${why} • RR=${rr??'-'} • P=${prob??'-'}% • TF=${st.timeframe||'-'} • Strat=${st.strategy||st.label||'-'}</div>`
+                        const st = e.setup||{}; const why = (e.reason||'').split(',').map(x=>x.trim()).filter(Boolean);
+                        const dir = st.direction||'-'; const rr = st.risk_reward_ratio||st.primary_rr; const prob = st.probability_estimate_pct;
+                        html += `<div style=\"margin:6px 0; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08)\">`
+                             + `<div style=\"display:flex;gap:8px;align-items:center;margin-bottom:4px\">${tbBadge('SKIPPED', '#ffc107')} ${tbBadge(dir||'-', dir==='LONG'?'#26c281':'#ff4d4f')} ${tbBadge(st.timeframe||'-', '#0d6efd')} ${tbBadge(st.strategy||st.label||'-', '#8b5cf6')}<\/div>`
+                             + `<div style=\"opacity:.85\">RR=${rr??'-'} • P=${prob??'-'}%<\/div>`
+                             + (why.length? `<div style=\"opacity:.8;margin-top:4px\">Gründe: ${why.map(w=>tbBadge(w.toUpperCase(), '#ffc107')).join(' ')}<\/div>`:'')
+                             + `<\/div>`;
                     } else {
-                        html += `<div>• EXECUTED ${e.direction} ${e.qty} @ ${e.entry} • RR=${e.rr??'-'} • P=${e.probability_estimate_pct??'-'}% • TF=${e.timeframe||'-'} • Strat=${e.strategy||'-'}</div>`
-                        if(e.rationale){ html += `<div style=\"opacity:.7\">   Begründung: ${e.rationale}</div>`; }
+                        html += `<div style=\"margin:6px 0; padding:10px 12px; border-radius:12px; background:rgba(38,194,129,0.08); border:1px solid rgba(38,194,129,0.35)\">`
+                             + `<div style=\"display:flex;gap:8px;align-items:center;margin-bottom:4px\">${tbBadge('EXECUTED', '#26c281')} ${tbBadge(e.direction||'-', e.direction==='LONG'?'#26c281':'#ff4d4f')} ${tbBadge(e.timeframe||'-', '#0d6efd')} ${tbBadge(e.strategy||'-', '#8b5cf6')}<\/div>`
+                             + `<div style=\"opacity:.95\">QTY=${e.qty} • ENTRY=${e.entry}${e.effective_entry?` (eff ${e.effective_entry})`:''} • FILL=${e.fill_price??'-'} • RR=${e.rr??'-'} • P=${e.probability_estimate_pct??'-'}%<\/div>`
+                             + (e.rationale? `<div style=\"opacity:.9;margin-top:4px\">Begründung: ${e.rationale}<\/div>`:'')
+                             + `<\/div>`;
                     }
                 });
-                if(out) out.innerHTML = html;
+                if(logs) logs.innerHTML = html;
+                tbSetTab('logs');
             }
             tbRefresh();
-        }catch(e){ if(out) out.innerText = 'Fehler: '+e; }
+        }catch(e){ if(logs) logs.innerText = 'Fehler: '+e; }
     }
     document.addEventListener('DOMContentLoaded', ()=>{
         const btn = document.getElementById('botToggle'); const modal = document.getElementById('botModal'); const close = document.getElementById('botClose');
-        if(btn && modal){ btn.addEventListener('click', ()=>{ modal.style.display='block'; tbRefresh(); }); }
+        if(btn && modal){ btn.addEventListener('click', ()=>{ modal.style.display='block'; tbSetTab('status'); tbRefresh(); }); }
         if(close && modal){ close.addEventListener('click', ()=>{ modal.style.display='none'; }); }
         if(modal){ modal.addEventListener('click', (e)=>{ if(e.target===modal){ modal.style.display='none'; } }); }
+        document.querySelectorAll('.tb-tab').forEach(b=> b.addEventListener('click', ()=> tbSetTab(b.getAttribute('data-tab'))));
     });
 </script>
 {% endif %}
