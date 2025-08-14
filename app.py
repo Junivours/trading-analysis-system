@@ -34,6 +34,14 @@ from collections import deque
 import json, hashlib, logging, uuid
 import math
 
+# Trading bot components
+try:
+    from core.trading.bot import TradingBot
+    from core.trading.exchange_adapter import ExchangeAdapter
+    from core.trading.storage import TradeStorage
+    TRADING_AVAILABLE = True
+except Exception:
+    TRADING_AVAILABLE = False
 # Orchestration (scoring/validation/trade setups) fully migrated to core.orchestration.master_analyzer
 
 # Initialize Flask app (was previously removed during refactor)
@@ -680,6 +688,32 @@ def api_version():
 @app.route('/health')
 def health():
     return jsonify({'ok':True,'ts': int(time.time()*1000)})
+
+@app.route('/api/bot/run', methods=['POST'])
+def bot_run_once():
+    """Run the trading bot once for a given symbol and timeframe. Paper by default.
+    Body: {symbol: 'BTCUSDT', interval: '1h', equity?: 10000, risk_pct?: 0.5}
+    """
+    if not TRADING_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Trading module not available'}), 400
+    try:
+        payload = request.get_json(force=True) or {}
+        symbol = (payload.get('symbol') or 'BTCUSDT').upper()
+        interval = (payload.get('interval') or '1h').lower()
+        cfg = {
+            'equity': float(payload.get('equity', 10000)),
+            'risk_pct': float(payload.get('risk_pct', 0.5)),
+            'min_probability': float(payload.get('min_probability', 54)),
+            'min_rr': float(payload.get('min_rr', 1.2)),
+        }
+        dry = (os.getenv('BINANCE_API_KEY') is None or os.getenv('BINANCE_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
+        adapter = ExchangeAdapter(dry_run=dry)
+        bot = TradingBot(analyzer=master_analyzer, adapter=adapter, storage=TradeStorage(), config=cfg)
+        result = bot.run_once(symbol, base_interval=interval)
+        return jsonify({'success': True, 'data': result, 'paper': adapter.dry_run})
+    except Exception as e:
+        err_id = log_event('error', 'Bot run failure', error=str(e))
+        return jsonify({'success': False, 'error': str(e), 'log_id': err_id}), 500
 
 @app.route('/api/outcome/pattern', methods=['POST'])
 def pattern_outcome():

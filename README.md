@@ -151,6 +151,18 @@ Advanced setup generation is handled inside `MasterAnalyzer._generate_trade_setu
 
 Each setup includes: normalized risk %, dynamic multi-R targets (1.5R .. 8R + swing extension), probability heuristic, confidence (contradiction & volatility aware), rationale and justification blocks.
 
+## Automated Trading Bot (Paper by default)
+
+- Location: `core/trading/` with `bot.py`, `exchange_adapter.py`, and `storage.py`.
+- By default runs in dry-run (paper) mode unless `BINANCE_API_KEY` and `BINANCE_API_SECRET` are set and you pass `{"paper": false}`.
+- Simple REST to execute once:
+
+POST /api/bot/run
+Body: {"symbol":"BTCUSDT","interval":"1h"}
+
+Response includes selected setups and any executed paper orders. Position sizing uses risk % and ATR-informed stops from the analyzer.
+
+
 `ChartPatternTrader.generate_pattern_trades` adds up to 5 supplemental pattern-centric trades (entry / stop / target / RR) which are merged & ranked with core strategies. Pattern objects include: `quality_grade`, `reliability_score`, `distance_to_trigger_pct` to help filter premature signals.
 
 ## Testing
