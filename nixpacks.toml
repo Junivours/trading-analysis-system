@@ -1,5 +1,5 @@
 [start]
-cmd = "gunicorn app:app --bind 0.0.0.0:$PORT"
+cmd = "sh start.sh"
 
 [build]
 nixpkgs = ["python3", "gcc"]
