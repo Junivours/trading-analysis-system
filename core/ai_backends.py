@@ -247,7 +247,20 @@ class TorchAIAdapter(_BaseAI):
             return out
 
     def get_status(self):
-        return {'initialized': bool(self.initialized), 'mode': self.mode, 'framework': self.framework}
+        # Enrich status with model version and calibration samples for UI
+        status = {
+            'initialized': bool(self.initialized),
+            'mode': self.mode,
+            'framework': self.framework,
+            'model_version': 'Torch-Adapter-v1',
+            'feature_schema_len': len(self.get_feature_schema() or []),
+        }
+        try:
+            cal = self.get_calibration_status() or {}
+            status['samples_collected'] = int(cal.get('count', 0))
+        except Exception:
+            status['samples_collected'] = 0
+        return status
 
     def get_feature_schema(self):
         try:
@@ -360,7 +373,19 @@ class TensorFlowAIAdapter(_BaseAI):
             return out
 
     def get_status(self):
-        return {'initialized': bool(self.initialized), 'mode': self.mode, 'framework': self.framework}
+        status = {
+            'initialized': bool(self.initialized),
+            'mode': self.mode,
+            'framework': self.framework,
+            'model_version': 'TF-Adapter-v1',
+            'feature_schema_len': len(self.get_feature_schema() or []),
+        }
+        try:
+            cal = self.get_calibration_status() or {}
+            status['samples_collected'] = int(cal.get('count', 0))
+        except Exception:
+            status['samples_collected'] = 0
+        return status
 
     def get_feature_schema(self):
         try:
@@ -410,6 +435,12 @@ class EnsembleAI(_BaseAI):
         self.members = [m for m in members if m is not None]
         self._feature_helper = feature_engine or FeatureEngineNeutral()
         self.mode = 'ensemble'
+        # Minimal real calibration state (rolling window)
+        self._calibration = {
+            'samples': [],  # list of {raw_prob: float (0..1 or 0..100), success: bool, ts: int}
+            'updated': None,
+            'max_len': 500
+        }
 
     def prepare_advanced_features(self, tech, patterns, ticker, position, extended, regime_data=None):
         return self._feature_helper.prepare_advanced_features(tech, patterns, ticker, position, extended, regime_data)
@@ -472,22 +503,103 @@ class EnsembleAI(_BaseAI):
 
     def get_status(self):
         details = []
+        samples_total = 0
+        ready = 0
         try:
             for m in self.members:
                 try:
                     d = m.get_status()
                 except Exception:
                     d = {'initialized': False, 'framework': getattr(m, 'framework', 'unknown')}
+                # Normalize and aggregate
+                try:
+                    samples_total += int((d or {}).get('samples_collected', 0))
+                except Exception:
+                    try:
+                        cal = m.get_calibration_status() or {}
+                        samples_total += int(cal.get('count', 0))
+                    except Exception:
+                        pass
+                if d.get('initialized'):
+                    ready += 1
                 details.append(d)
         except Exception:
             pass
+        # Calibration meta
+        try:
+            cal = self.get_calibration_status() or {}
+            samples_total = int(cal.get('count', samples_total))
+            last_train = {'updated': cal.get('last_train', {}).get('updated')}
+        except Exception:
+            last_train = {'updated': None}
         return {
             'initialized': True,
             'mode': 'ensemble',
             'backend': 'ensemble',
+            'model_version': 'Ensemble-v1',
             'members': len(self.members),
-            'details': details
+            'members_ready': ready,
+            'samples_collected': samples_total,
+            'feature_schema_len': len(self.get_feature_schema() or []),
+            'details': details,
+            'last_train': last_train
         }
+
+    # --- Real calibration storage for EnsembleAI ---
+    def add_calibration_observation(self, raw_prob: float, success: bool):
+        try:
+            ts = int(__import__('time').time() * 1000)
+            # Normalize prob: accept 0..100 or 0..1
+            rp = float(raw_prob)
+            if rp > 1.0:
+                rp = max(0.0, min(rp / 100.0, 1.0))
+            else:
+                rp = max(0.0, min(rp, 1.0))
+            self._calibration['samples'].append({'raw_prob': rp, 'success': bool(success), 'ts': ts})
+            if len(self._calibration['samples']) > self._calibration.get('max_len', 500):
+                self._calibration['samples'] = self._calibration['samples'][-self._calibration['max_len']:]
+            self._calibration['updated'] = __import__('datetime').datetime.utcnow().isoformat()
+            return True
+        except Exception:
+            return False
+
+    def get_calibration_status(self):
+        try:
+            cnt = len(self._calibration.get('samples', []))
+            return {
+                'count': cnt,
+                'calibrated': cnt >= 40,
+                'last_train': {'updated': self._calibration.get('updated')}
+            }
+        except Exception:
+            return {'count': 0, 'calibrated': False}
+
+    def save_calibration_state(self, path: str):
+        try:
+            import os, json
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self._calibration, f)
+            return True
+        except Exception:
+            return False
+
+    def load_calibration_state(self, path: str):
+        try:
+            import os, json
+            if not os.path.exists(path):
+                return False
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                self._calibration.update({
+                    'samples': data.get('samples', []),
+                    'updated': data.get('updated'),
+                    'max_len': int(data.get('max_len', 500))
+                })
+            return True
+        except Exception:
+            return False
 
     def get_feature_schema(self):
         try:

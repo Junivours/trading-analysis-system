@@ -510,6 +510,18 @@ def ai_status():
         try:
             if hasattr(master_analyzer, 'ai_system') and master_analyzer.ai_system:
                 status_data = master_analyzer.ai_system.get_status()
+                # Ensure UI fields exist to avoid 'undefined'
+                if isinstance(status_data, dict):
+                    status_data.setdefault('model_version', 'unknown')
+                    # samples_collected might come from calibration status if not present
+                    if 'samples_collected' not in status_data:
+                        try:
+                            cal = master_analyzer.ai_system.get_calibration_status() or {}
+                            status_data['samples_collected'] = int(cal.get('count', 0))
+                        except Exception:
+                            status_data['samples_collected'] = 0
+                    # provide a stable last_train placeholder (can be extended later)
+                    status_data.setdefault('last_train', {'updated': ''})
             else:
                 status_data = {'initialized': False, 'model_version': 'unavailable'}
         except Exception as inner:

@@ -690,6 +690,25 @@ class MasterAnalyzer:
                 if price_ts: freshness_ms = int(now_ms - price_ts)
             except Exception:
                 pass
+            # Next-gen precision refinement: sanitize then re-rank/gate setups
+            try:
+                sanitized_setups = self._sanitize_setups(symbol, trade_setups)
+            except Exception:
+                sanitized_setups = trade_setups
+            try:
+                refined_setups, precision_meta = self._refine_setups_precision(
+                    symbol,
+                    sanitized_setups,
+                    ai_analysis,
+                    tech_analysis,
+                    multi_timeframe,
+                    order_flow_data,
+                    regime_data
+                )
+            except Exception as _e_ref:
+                refined_setups = sanitized_setups
+                precision_meta = {'error': f'refine_failed: {str(_e_ref)}'}
+
             result = make_json_safe({
                 'symbol': symbol,
                 'current_price': float(current_price),
@@ -711,7 +730,8 @@ class MasterAnalyzer:
                 'regime_analysis': regime_data,
                 'liquidation_long': liquidation_long,
                 'liquidation_short': liquidation_short,
-                'trade_setups': trade_setups,
+                'trade_setups': refined_setups,
+                'precision_filter_meta': precision_meta,
                 'trade_filter_meta': ntz_meta,
                 'weights': self.weights,
                 'final_score': safe_final_score,
@@ -773,6 +793,78 @@ class MasterAnalyzer:
             return {'regime': primary_regime,'secondary_regime': secondary,'confidence': min(100, confidence),'rationale': rationale,'regime_scores': regime_scores,'volatility_level': volatility_level,'atr_percentage': atr_pct,'range_percentage': range_pct,'trend_classification': f"{trend_direction} ({trend_strength})"}
         except Exception as e:
             return {'regime':'error','confidence':0,'rationale': f'Regime detection failed: {str(e)}'}
+
+        def _sanitize_setups(self, symbol: str, setups: list) -> list:
+            """Ensure entries/stops/targets are rounded to exchange precision and targets are monotonic.
+            Prevents duplicates and small rounding issues. Low-risk, post-generation cleanup.
+            """
+            try:
+                if not setups:
+                    return setups
+                f = self._get_symbol_filters(symbol)
+                tick = float(f.get('tickSize') or 0.0)
+                def rp(x: float) -> float:
+                    try:
+                        if tick and tick > 0:
+                            return round(self._round_to_step(float(x), tick), 8)
+                        return round(float(x), 2)
+                    except Exception:
+                        try:
+                            return float(x)
+                        except Exception:
+                            return x
+                out = []
+                for s in setups:
+                    try:
+                        s = dict(s)
+                        if 'entry' in s:
+                            s['entry'] = rp(s['entry'])
+                        if 'entry_price' in s:
+                            s['entry_price'] = rp(s['entry_price'])
+                        if 'stop_loss' in s:
+                            s['stop_loss'] = rp(s['stop_loss'])
+                        tps = s.get('targets') or s.get('take_profits')
+                        if isinstance(tps, list) and tps:
+                            # round and dedup + enforce monotonic away from entry
+                            entry = s.get('entry', s.get('entry_price'))
+                            rounded = []
+                            seen = set()
+                            for t in tps:
+                                try:
+                                    price = rp(t.get('price') or t.get('level'))
+                                except Exception:
+                                    price = t.get('price') or t.get('level')
+                                if price is None:
+                                    continue
+                                key = round(float(price), 6)
+                                if key in seen:
+                                    continue
+                                lbl = t.get('label') or t.get('level') or 'TP'
+                                rr = t.get('rr')
+                                rounded.append({'label': lbl, 'price': price, **({'rr': rr} if rr is not None else {})})
+                                seen.add(key)
+                            # monotonic filter
+                            if entry is not None:
+                                try:
+                                    e = float(entry)
+                                    if s.get('direction') == 'LONG':
+                                        rounded = [x for x in rounded if float(x['price']) > e]
+                                        rounded.sort(key=lambda x: x['price'])
+                                    elif s.get('direction') == 'SHORT':
+                                        rounded = [x for x in rounded if float(x['price']) < e]
+                                        rounded.sort(key=lambda x: x['price'], reverse=True)
+                                except Exception:
+                                    pass
+                            if 'targets' in s:
+                                s['targets'] = rounded
+                            else:
+                                s['take_profits'] = rounded
+                        out.append(s)
+                    except Exception:
+                        out.append(s)
+                return out
+            except Exception:
+                return setups
 
     def _generate_rsi_caution_narrative(self, rsi, trend):
         caution_level='none'; narrative=''; confidence_penalty=0; signal_quality='ok'
@@ -2380,3 +2472,128 @@ class MasterAnalyzer:
             if p.get('strategy') == 'Vector Candle Scalp':
                 p['selection_method'] = 'directional_top+vector'
         return pruned
+
+    def _refine_setups_precision(self, symbol, setups, ai_analysis, tech_analysis, multi_timeframe, order_flow, regime_data):
+        """Enterprise-grade precision filter without duplicating generation logic.
+        - Confluence score: MTF alignment, MACD/RSI confirm, pattern presence
+        - AI alignment: ensemble signal vs setup direction; penalize conflicts
+        - Uncertainty gating: entropy/std reduce rank; can demote to HOLD
+        - Regime/context: clamp in ranging/high-vol regimes; use order-flow boost
+        Returns (refined_setups, meta)
+        """
+        meta = {'steps': []}
+        if not setups:
+            return [], {'steps': ['no_setups']}
+        safe = []
+        # Extract AI ensemble context
+        ens = (ai_analysis or {}).get('ensemble', {}) if isinstance(ai_analysis, dict) else {}
+        ai_sig = None
+        try:
+            ai_sig = ens.get('ensemble_signal') or ai_analysis.get('signal')
+        except Exception:
+            ai_sig = (ai_analysis or {}).get('signal') if isinstance(ai_analysis, dict) else None
+        ai_conf = (ai_analysis or {}).get('confidence', 50)
+        unc = (ai_analysis or {}).get('uncertainty') or {}
+        ent = unc.get('entropy'); avg_std = unc.get('avg_std')
+        # Normalize MTF primary
+        mt_primary = (multi_timeframe or {}).get('consensus', {}).get('primary', 'NEUTRAL')
+        macd_curve = tech_analysis.get('macd', {}).get('curve_direction', 'neutral') if isinstance(tech_analysis, dict) else 'neutral'
+        rsi_val = tech_analysis.get('rsi', {}).get('rsi', 50) if isinstance(tech_analysis, dict) else 50
+        of_sent = (order_flow or {}).get('flow_sentiment', 'neutral')
+        regime = (regime_data or {}).get('regime')
+        # Helper: direction label
+        def dir_is_bull(d):
+            return d == 'LONG'
+        # Compute refined rank and apply gates
+        refined = []
+        for s in setups:
+            try:
+                s = dict(s)
+                direction = s.get('direction')
+                conf = int(s.get('confidence', 50))
+                rr = s.get('primary_rr') or (s['targets'][0]['rr'] if s.get('targets') else 1)
+                risk_pct = float(s.get('risk_percent', 2.0))
+                # Confluence: + if MTF and indicators align with direction
+                confl = 0
+                if direction == 'LONG':
+                    if mt_primary == 'BULLISH': confl += 8
+                    if 'bullish' in (macd_curve or ''): confl += 5
+                    if rsi_val >= 55: confl += 3
+                    if of_sent in ('bullish','buy_pressure'): confl += 3
+                elif direction == 'SHORT':
+                    if mt_primary == 'BEARISH': confl += 8
+                    if 'bearish' in (macd_curve or ''): confl += 5
+                    if rsi_val <= 45: confl += 3
+                    if of_sent in ('bearish','sell_pressure'): confl += 3
+                # AI alignment
+                align = 0
+                if isinstance(ai_sig, str):
+                    if dir_is_bull(direction) and 'BUY' in ai_sig:
+                        align = 1
+                    elif not dir_is_bull(direction) and 'SELL' in ai_sig:
+                        align = 1
+                    elif ('BUY' in ai_sig and direction == 'SHORT') or ('SELL' in ai_sig and direction == 'LONG'):
+                        align = -1
+                # Uncertainty penalty
+                pen_unc = 0.0
+                try:
+                    if ent is not None and isinstance(ent, (int, float)):
+                        max_e = math.log(4)
+                        pen_unc += 0.08 * min(1.0, ent/max_e)
+                    if avg_std is not None and avg_std > 0.12:
+                        pen_unc += 0.05 if avg_std <= 0.18 else 0.1
+                except Exception:
+                    pass
+                # Regime modulation
+                mod = 1.0
+                if regime == 'ranging':
+                    mod *= 0.9
+                if isinstance(tech_analysis, dict):
+                    atr_pct = tech_analysis.get('atr', {}).get('percentage') or tech_analysis.get('atr_pct')
+                    if isinstance(atr_pct, (int, float)):
+                        if atr_pct > 4.0: mod *= 0.86
+                        elif atr_pct < 1.0: mod *= 0.92
+                # Base score from existing selection rank
+                base_rank = conf * rr * (1 - min(risk_pct,5)/100.0)
+                # Apply confluence and AI alignment boosts
+                boost = 1.0 + (confl/100.0) + (0.06 if align == 1 else -0.08 if align == -1 else 0)
+                # Apply uncertainty penalty multiplicatively
+                boost *= (1.0 - pen_unc)
+                # Apply regime modulation
+                boost *= mod
+                refined_rank = base_rank * boost
+                # Gate: if AI confidence low and alignment negative, demote by confidence and flag
+                notes = []
+                if align == -1 and ai_conf < 55:
+                    refined_rank *= 0.78
+                    notes.append('ai_conflict_gate')
+                # Gate: excessive risk
+                if risk_pct > 3.2:
+                    refined_rank *= 0.85
+                    notes.append('risk_cut')
+                # Update confidence slightly to reflect confluence, bounded
+                s['confidence'] = max(10, min(95, int(conf + confl*0.4 + (4 if align==1 else -5 if align==-1 else 0) - pen_unc*20)))
+                s['refined_rank'] = round(refined_rank, 2)
+                s.setdefault('conditions', []).append({'t': 'Precision refine', 's': 'ok', 'notes': notes})
+                refined.append(s)
+            except Exception:
+                refined.append(s)
+        # Keep at most top 1 per direction
+        longs = [x for x in refined if x.get('direction') == 'LONG']
+        shorts = [x for x in refined if x.get('direction') == 'SHORT']
+        longs.sort(key=lambda x: x.get('refined_rank', 0), reverse=True)
+        shorts.sort(key=lambda x: x.get('refined_rank', 0), reverse=True)
+        out = []
+        if longs: out.append(longs[0])
+        if shorts: out.append(shorts[0])
+        if not out and refined:
+            out = [sorted(refined, key=lambda x: x.get('refined_rank', 0), reverse=True)[0]]
+        # Meta
+        meta['steps'].append('confluence+ai+uncertainty+regime')
+        meta['kept'] = [{'id': s.get('id'), 'dir': s.get('direction'), 'rank': s.get('refined_rank')} for s in out]
+        meta['mtf_primary'] = mt_primary
+        meta['ai_signal'] = ai_sig
+        meta['ai_confidence'] = ai_conf
+        meta['uncertainty'] = {'entropy': ent, 'avg_std': avg_std}
+        meta['regime'] = regime
+        return out, meta
