@@ -8,6 +8,12 @@ WORKERS=${WORKERS:-3}
 TIMEOUT=${TIMEOUT:-120}
 LOG_LEVEL=${LOG_LEVEL:-info}
 
+# Reduce TensorFlow verbosity and force CPU-only on servers without GPUs
+export TF_CPP_MIN_LOG_LEVEL=${TF_CPP_MIN_LOG_LEVEL:-3}
+export TF_ENABLE_ONEDNN_OPTS=${TF_ENABLE_ONEDNN_OPTS:-0}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}
+export XLA_FLAGS=${XLA_FLAGS:---xla_gpu_cuda_data_dir=}
+
 # Generate version.txt if missing and git available
 if [ ! -f version.txt ]; then
   if command -v git >/dev/null 2>&1; then
@@ -22,6 +28,7 @@ fi
 
 # Show environment summary
 echo "[start.sh] PORT=$PORT WORKERS=$WORKERS TIMEOUT=$TIMEOUT LOG_LEVEL=$LOG_LEVEL"
+echo "[start.sh] TF_CPP_MIN_LOG_LEVEL=$TF_CPP_MIN_LOG_LEVEL TF_ENABLE_ONEDNN_OPTS=$TF_ENABLE_ONEDNN_OPTS"
 
 # Simple pre-flight: python -c import check
 $PYTHON - <<'EOF'

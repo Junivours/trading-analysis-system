@@ -1331,8 +1331,16 @@ DASHBOARD_HTML = """
             <!-- Live Scanner -->
             <div class="glass-card" id="liveScannerCard">
                 <div class="section-title"><span class="icon">⏱️</span> Live Scanner <span class="tag">1m</span></div>
-                <div id="liveScanner" style="display:flex;flex-direction:column;gap:8px;">
-                    <div id="liveScannerStatus" style="font-size:.65rem;color:var(--text-secondary);">Ausgeschaltet. Tippe auf ▶ Live, um 1h & 4h jede Minute zu scannen.</div>
+                <div id="liveScanner" style="display:flex;flex-direction:column;gap:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                        <div id="liveScannerStatus" style="font-size:.65rem;color:var(--text-secondary);"></div>
+                        <div id="liveScannerNext" style="font-size:.55rem;color:var(--text-dim);"></div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:.5rem;">
+                        <span style="background:rgba(38,194,129,0.15);border:1px solid rgba(38,194,129,0.3);color:#26c281;padding:3px 6px;border-radius:10px;">LONG = Grün</span>
+                        <span style="background:rgba(255,77,79,0.15);border:1px solid rgba(255,77,79,0.3);color:#ff4d4f;padding:3px 6px;border-radius:10px;">SHORT = Rot</span>
+                        <span style="background:rgba(255,193,7,0.12);border:1px solid rgba(255,193,7,0.3);color:#ffc107;padding:3px 6px;border-radius:10px;">Neutral = Gelb</span>
+                    </div>
                     <div id="liveScannerEvents" style="display:flex;flex-direction:column;gap:6px;"></div>
                 </div>
             </div>
@@ -1533,14 +1541,13 @@ DASHBOARD_HTML = """
         let liveScanBusy = false;
         let liveScanState = {
             last: {
-                '3m': { patterns: new Set(), setups: new Set() },
-                '5m': { patterns: new Set(), setups: new Set() },
                 '15m': { patterns: new Set(), setups: new Set() },
                 '1h': { patterns: new Set(), setups: new Set() },
                 '4h': { patterns: new Set(), setups: new Set() }
             },
             events: [] // {ts, tf, kind, text}
         };
+        let liveScanNextTs = null; // for countdown
 
         function setTradeSetupFilter(f) {
             tradeSetupFilter = f;
@@ -1587,8 +1594,6 @@ DASHBOARD_HTML = """
                     displayAnalysis(analysisData);
                     // Reset live scan caches for new symbol
                     liveScanState = { last: {
-                        '3m': { patterns: new Set(), setups: new Set() },
-                        '5m': { patterns: new Set(), setups: new Set() },
                         '15m': { patterns: new Set(), setups: new Set() },
                         '1h': { patterns: new Set(), setups: new Set() },
                         '4h': { patterns: new Set(), setups: new Set() }
@@ -1658,6 +1663,16 @@ DASHBOARD_HTML = """
             if(liveScanTimer) clearInterval(liveScanTimer);
             runLiveScanOnce();
             liveScanTimer = setInterval(runLiveScanOnce, 60*1000);
+            if(!window.__liveCountdown){
+                window.__liveCountdown = setInterval(()=>{
+                    if(!liveScanEnabled) return;
+                    const el = document.getElementById('liveScannerNext');
+                    if(!el) return;
+                    if(!liveScanNextTs){ el.textContent = ''; return; }
+                    const secs = Math.max(0, Math.ceil((liveScanNextTs - Date.now())/1000));
+                    el.textContent = `Nächster Scan in ${secs}s`;
+                }, 1000);
+            }
         }
         function stopLiveScan(){
             if(liveScanTimer){ clearInterval(liveScanTimer); liveScanTimer = null; }
@@ -1667,7 +1682,7 @@ DASHBOARD_HTML = """
             if(!currentSymbol){ updateLiveScannerUI('Kein Symbol ausgewählt.'); return; }
             liveScanBusy = true; updateLiveScannerUI();
             try{
-                const tfs = ['3m','5m','15m','1h','4h'];
+                const tfs = ['15m','1h','4h'];
                 const results = await Promise.all(tfs.map(tf=> fetch(`/api/analyze/${currentSymbol}?tf=${tf}`)).map(p=>p.then(r=>r.json()).catch(()=>({success:false,error:'net'}))));
                 results.forEach((res, idx)=>{
                     const tf = tfs[idx];
@@ -1693,6 +1708,7 @@ DASHBOARD_HTML = """
                     liveScanState.last[tf].patterns = patSigs;
                     liveScanState.last[tf].setups = stpSigs;
                 });
+                liveScanNextTs = Date.now() + 60*1000;
             }catch(e){
                 addLiveEvent('all','error',`Scan Fehler: ${e?.message||e}`);
             }finally{
@@ -1732,14 +1748,26 @@ DASHBOARD_HTML = """
             const statusEl = document.getElementById('liveScannerStatus');
             const listEl = document.getElementById('liveScannerEvents');
             if(!statusEl||!listEl) return;
-            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 3m • 5m • 15m • 1h • 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 3m/5m/15m/1h/4h jede Minute zu scannen.';
+            let txt = liveScanEnabled ? (liveScanBusy? 'Scan läuft…' : 'Live aktiv (jede 1m): 15m • 1h • 4h') : 'Ausgeschaltet. Tippe auf ▶ Live, um 15m/1h/4h jede Minute zu scannen.';
             if(extraMsg) txt += ` • ${extraMsg}`;
             statusEl.textContent = txt;
             const colorForKind = k=> k==='pattern'?'#8b5cf6': k==='setup'?'#26c281':'#ffc107';
+            const colorForEvent = (e)=>{
+                const t = (e.text||'').toLowerCase();
+                if(t.includes('short') || t.includes('bearish') || t.includes('sell')) return '#ff4d4f';
+                if(t.includes('long') || t.includes('bullish') || t.includes('buy')) return '#26c281';
+                return '#ffc107';
+            };
             listEl.innerHTML = liveScanState.events.map(e=>{
                 const d = new Date(e.ts).toLocaleTimeString();
-                return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-left:3px solid ${colorForKind(e.kind)};border-radius:10px;">
-                    <div style="font-size:.55rem;color:var(--text-secondary);">[${e.tf}] ${e.text}</div>
+                const evColor = colorForEvent(e);
+                return `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));border:1px solid rgba(255,255,255,0.08);border-left:3px solid ${evColor};border-radius:12px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${evColor};"></span>
+                        <span style="font-size:.55rem;opacity:.8;background:${colorForKind(e.kind)}20;border:1px solid ${colorForKind(e.kind)}55;color:${colorForKind(e.kind)};padding:2px 6px;border-radius:8px;">${e.kind.toUpperCase()}</span>
+                        <span style="font-size:.55rem;opacity:.8;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);padding:2px 6px;border-radius:8px;">${e.tf}</span>
+                        <span style="font-size:.55rem;color:var(--text-secondary);">${e.text}</span>
+                    </div>
                     <div style="font-size:.5rem;opacity:.55;">${d}</div>
                 </div>`;
             }).join('') || '<div style="font-size:.55rem;color:var(--text-dim);">Noch keine Ereignisse.</div>';
@@ -1752,6 +1780,17 @@ DASHBOARD_HTML = """
             if(!diag){ root.innerHTML = '<div style="font-size:.55rem; color:var(--text-dim);">Keine Diagnostics Daten.</div>'; return; }
             if(diag.status==='error'){ root.innerHTML = `<div class='alert alert-danger' style='font-size:.55rem;'>Diagnostics Fehler: ${diag.error||'unknown'}</div>`; return; }
             const badgeColor = diag.readiness==='GOOD' ? '#26c281' : diag.readiness==='ATTENTION' ? '#ffc107' : '#ff4d4f';
+            const sevCounts = (diag.severity_counts||{});
+            const phases = (diag.phases||{});
+            const phaseRows = Object.keys(phases).length? Object.entries(phases).map(([k,v])=>{
+                const ms = (typeof v==='number')? v : (v?.latency_ms||0);
+                const w = Math.min(100, Math.max(5, (ms/ (diag.latency_ms||ms||1)) * 100));
+                return `<div style='display:flex;align-items:center;gap:8px;'>
+                    <div style='flex:0 0 110px;font-size:.5rem;color:var(--text-secondary);'>${k}</div>
+                    <div style='flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:6px;overflow:hidden;'><div style='width:${w}%;height:100%;background:#8b5cf6;opacity:.55;'></div></div>
+                    <div style='flex:0 0 48px;font-size:.5rem;text-align:right;opacity:.7;'>${ms}ms</div>
+                </div>`;
+            }).join('') : '';
             const findingsHtml = (diag.findings||[]).slice(0,12).map(f=>`<div style='display:flex; justify-content:space-between; gap:6px; padding:6px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-left:3px solid ${f.severity==='error'?'#ff4d4f':f.severity==='warn'?'#ffc107':'#0d6efd'}; border-radius:10px;'>
                 <span style='font-size:.52rem; color:var(--text-secondary); line-height:1.1;'>${f.message}</span>
                 <span style='font-size:.45rem; opacity:.55;'>${f.type}</span>
@@ -1762,7 +1801,16 @@ DASHBOARD_HTML = """
                     <h4 style='margin:0; font-size:.7rem; letter-spacing:.5px; display:flex; align-items:center; gap:6px;'>🩺 Diagnostics <span style="background:${badgeColor};color:#000;font-size:.55rem;padding:2px 8px;border-radius:12px;">${diag.readiness}</span></h4>
                     <span style='font-size:.45rem; color:var(--text-dim);'>${diag.latency_ms}ms</span>
                 </div>
+                ${(sevCounts.error||sevCounts.warn||sevCounts.info)?`<div style='display:flex;gap:8px;margin:-4px 0 8px;'>
+                    <span style='font-size:.5rem;background:rgba(255,77,79,0.15);border:1px solid rgba(255,77,79,0.35);color:#ff4d4f;padding:2px 6px;border-radius:8px;'>Error ${sevCounts.error||0}</span>
+                    <span style='font-size:.5rem;background:rgba(255,193,7,0.15);border:1px solid rgba(255,193,7,0.35);color:#ffc107;padding:2px 6px;border-radius:8px;'>Warn ${sevCounts.warn||0}</span>
+                    <span style='font-size:.5rem;background:rgba(13,110,253,0.15);border:1px solid rgba(13,110,253,0.35);color:#8ab4ff;padding:2px 6px;border-radius:8px;'>Info ${sevCounts.info||0}</span>
+                </div>`:''}
                 <div style='display:flex; flex-direction:column; gap:6px; margin-bottom:10px;'>${findingsHtml || '<div style="font-size:.55rem; color:var(--text-dim);">Keine Findings</div>'}</div>
+                ${phaseRows?`<div style='margin:6px 0 0;'>
+                    <div style='font-size:.55rem;font-weight:600;color:#8b5cf6;margin:0 0 4px;'>Phasen Laufzeiten</div>
+                    <div style='display:flex;flex-direction:column;gap:6px;'>${phaseRows}</div>
+                </div>`:''}
                 <div style='margin-top:4px;'>
                     <div style='font-size:.55rem; font-weight:600; color:#0d6efd; letter-spacing:.5px; margin:0 0 4px;'>IDEEN</div>
                     <ul style='margin:0; padding-left:16px; display:flex; flex-direction:column; gap:2px;'>${ideasHtml || '<li style="font-size:.5rem; color:var(--text-dim);">Keine Ideen</li>'}</ul>
@@ -2131,6 +2179,11 @@ DASHBOARD_HTML = """
             const resPot = safeNum(positions.resistance_potential).toFixed(1);
             const supRisk = safeNum(positions.support_risk).toFixed(1);
             const recommendations = Array.isArray(positions.recommendations) ? positions.recommendations : [];
+            const stopAtr = positions.stop_to_atr_ratio;
+            const riskAtr = positions.risk_to_atr_ratio;
+            const proxSR = positions.entry_proximity_to_sr;
+            const trailing = positions.trailing_suggestion;
+            const invalid = positions.invalidation_note;
             let html = '';
             if (positions.error) {
                 html += `<div style="background:rgba(220,53,69,0.15); border:1px solid #dc3545; padding:10px; border-radius:8px; font-size:.65rem; margin-bottom:14px;">⚠️ PositionManager-Fehler: ${positions.error}</div>`;
@@ -2147,7 +2200,16 @@ DASHBOARD_HTML = """
                         <div class="metric-value text-danger">${supRisk}%</div>
                         <div class="metric-label">Support Risk</div>
                     </div>
+                    ${typeof stopAtr==='number'?`<div class="metric-card"><div class="metric-value" style="color:#0d6efd;">${stopAtr.toFixed(2)}x</div><div class="metric-label">Stop vs ATR</div></div>`:''}
+                    ${typeof riskAtr==='number'?`<div class="metric-card"><div class="metric-value" style="color:#17a2b8;">${riskAtr.toFixed(2)}x</div><div class="metric-label">Risk vs ATR</div></div>`:''}
                 </div>`;
+            if (proxSR || trailing || invalid) {
+                html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin:-6px 0 12px;">`
+                    + (proxSR?`<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;font-size:.55rem;"><div style="color:var(--text-dim)">Entry zu S/R</div><div style="font-weight:600;">${proxSR}</div></div>`:'')
+                    + (trailing?`<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;font-size:.55rem;"><div style="color:var(--text-dim)">Trailing</div><div style="font-weight:600;">${trailing}</div></div>`:'')
+                    + (invalid?`<div style="background:rgba(255,77,79,0.08);border:1px solid rgba(255,77,79,0.25);border-radius:10px;padding:8px 10px;font-size:.55rem;"><div style="color:#ff4d4f">Invalidation</div><div style="font-weight:600;color:#ff4d4f;">${invalid}</div></div>`:'')
+                    + `</div>`;
+            }
             if (!recommendations.length) {
                 html += '<div style="font-size:.6rem; color:var(--text-dim);">Keine Empfehlungen verfügbar.</div>';
             } else {
@@ -2428,13 +2490,40 @@ DASHBOARD_HTML = """
                     <span style="background:${alignColor}; color:#000; padding:4px 8px; border-radius:12px; font-size:0.5rem; font-weight:600;">${ens.alignment}</span>
                 </div>`;
             }
+            const rel = (typeof ai.reliability_score==='number')? ai.reliability_score.toFixed(1)+'%' : '-';
+            const unc = ai.uncertainty||{}; const entropy = (typeof unc.entropy==='number')? unc.entropy.toFixed(3) : (typeof ai.entropy==='number'? ai.entropy.toFixed(3): 'n/a'); const avgStd = (typeof unc.avg_std==='number')? unc.avg_std.toFixed(3) : 'n/a';
+            const confColor = ai.confidence>=70?'#26c281': ai.confidence>=55?'#ffc107':'#dc3545';
+            // Compact grouped explainability inside AI panel
+            const explain = data.ai_explainability_meta;
+            let explainBlock = '';
+            try {
+                if (explain && !explain.error) {
+                    const grp = (title, arr, color)=>{
+                        if(!Array.isArray(arr) || !arr.length) return '';
+                        const items = arr.slice(0,5).map(r=>`<li style='margin:0;padding:0;list-style:disc; margin-left:14px; color:var(--text-secondary); line-height:1rem;'>${r}</li>`).join('');
+                        return `<div style='margin-top:6px;'>
+                            <div style='font-size:.55rem;font-weight:700;color:${color};letter-spacing:.4px;margin-bottom:2px;'>${title}</div>
+                            <ul style='margin:0; padding:0;'>${items}</ul>
+                        </div>`;
+                    };
+                    const hdr = `<div style='font-size:.6rem;font-weight:700;color:#8b5cf6;letter-spacing:.4px;margin:8px 0 2px;'>KI-Begründung (kompakt)</div>`;
+                    const meta = `<div style='font-size:.48rem;color:var(--text-dim);margin-bottom:4px;'>Signal: <span style='color:#fff;'>${explain.signal||ai.signal||'-'}</span> • Conf ${explain.confidence?.toFixed?explain.confidence.toFixed(1): (ai.confidence?.toFixed? ai.confidence.toFixed(1): ai.confidence)||0}% • Rel ${explain.reliability?.toFixed?explain.reliability.toFixed(1):(ai.reliability_score||'-')}%</div>`;
+                    explainBlock = `<div style='margin-top:6px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:linear-gradient(135deg, rgba(139,92,246,0.10), rgba(255,255,255,0.02));'>
+                        ${hdr}
+                        ${meta}
+                        ${grp('Unterstützend', explain.reasons_positive, '#26c281')}
+                        ${grp('Widersprechend', explain.reasons_negative, '#ff4d4f')}
+                        ${grp('Neutral', explain.reasons_neutral, '#ffc107')}
+                    </div>`;
+                }
+            } catch(e) { /* safe ignore */ }
             const html = `
                 <div class="metric-card" style="margin-bottom: 15px;">
                     <div class="metric-value ${getSignalColor(ai.signal)}">${ai.signal}</div>
                     <div class="metric-label">AI Signal</div>
                 </div>
                 <div class="metric-card" style="margin-bottom: 15px;">
-                    <div class="metric-value">${ai.confidence.toFixed(1)}%</div>
+                    <div class="metric-value" style="color:${confColor}">${ai.confidence.toFixed(1)}%</div>
                     <div class="metric-label">AI Confidence</div>
                 </div>
                 ${ensBadge}
@@ -2442,13 +2531,16 @@ DASHBOARD_HTML = """
                     <strong>AI Recommendation:</strong><br>
                     ${ai.ai_recommendation}
                 </p>
-                <small style="color: rgba(255,255,255,0.7);">
-                    Model: ${ai.model_version || 'JAX-v2.0'}
-                </small>`;
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                    <span style="font-size:.55rem;background:rgba(255,255,255,0.08);padding:4px 8px;border-radius:8px;">Reliability: <strong>${rel}</strong></span>
+                    <span style="font-size:.55rem;background:rgba(255,255,255,0.08);padding:4px 8px;border-radius:8px;">Uncertainty: entropy <strong>${entropy}</strong>, σ≈<strong>${avgStd}</strong></span>
+                    <span style="font-size:.55rem;background:rgba(255,255,255,0.08);padding:4px 8px;border-radius:8px;">Model: ${ai.model_version || 'JAX-v2.0'}</span>
+                </div>
+                ${explainBlock}`;
             document.getElementById('aiAnalysis').innerHTML = html;
         }
 
-        function displayMultiTimeframe(data) {
+                function displayMultiTimeframe(data) {
             const mt = data.multi_timeframe || {};
             const el = document.getElementById('multiTimeframe');
             if (!mt.timeframes || !mt.timeframes.length) { el.innerHTML = '<small style="color:var(--text-dim)">No data</small>'; return; }
@@ -2465,13 +2557,21 @@ DASHBOARD_HTML = """
             }
             const cons = mt.consensus || {};
             const consColor = cons.primary==='BULLISH'? '#26c281': cons.primary==='BEARISH'? '#ff4d4f':'#f5b041';
+                    const bullScore = (typeof cons.bull_score==='number')? cons.bull_score : 0;
+                    const bearScore = (typeof cons.bear_score==='number')? cons.bear_score : 0;
+                    const sumScore = Math.max(1, bullScore + bearScore);
+                    const bullPct = Math.round((bullScore/sumScore)*100);
+                    const bearPct = Math.round((bearScore/sumScore)*100);
+                    const neuPct = Math.max(0, 100 - bullPct - bearPct);
             let rows = mt.timeframes.map(t => {
                 if (t.error) return `<div style='font-size:0.55rem; color:#ff4d4f; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:6px 8px; border-radius:10px;'>${t.tf}: ${t.error}</div>`;
-                const sigColor = t.signal?.includes('bull')?'#26c281': t.signal?.includes('bear')?'#ff4d4f':'#f5b041';
-                return `<div style=\"display:grid; grid-template-columns:50px 82px 52px 1fr; gap:4px; align-items:center; font-size:0.55rem; background:linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)); border:1px solid rgba(255,255,255,0.06); padding:6px 8px; border-radius:12px; box-shadow:0 2px 4px -1px rgba(0,0,0,0.5);\">
+                        const sigColor = t.signal?.includes('bull')?'#26c281': t.signal?.includes('bear')?'#ff4d4f':'#f5b041';
+                        const macd = t.macd || t.macd_signal || '';
+                        return `<div style=\"display:grid; grid-template-columns:50px 82px 52px 64px 1fr; gap:4px; align-items:center; font-size:0.55rem; background:linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)); border:1px solid rgba(255,255,255,0.06); padding:6px 8px; border-radius:12px; box-shadow:0 2px 4px -1px rgba(0,0,0,0.5);\"> 
                         <div style=\"font-weight:600; letter-spacing:.5px; color:var(--text-secondary);\">${t.tf}</div>
                         <div style=\"color:${sigColor}; font-weight:600;\">${t.signal}</div>
                         <div style=\"opacity:.85;\">RSI ${t.rsi ?? '-'} </div>
+                        <div style=\"opacity:.85;\">MACD ${macd || '-'} </div>
                         <div style=\"opacity:.55; font-style:italic;\">${t.trend || ''}</div>
                     </div>`;
             }).join('');
@@ -2479,6 +2579,11 @@ DASHBOARD_HTML = """
                 <div style=\"font-size:0.6rem; margin-bottom:6px; font-weight:600; letter-spacing:.5px;\">Consensus: <span style=\"color:${consColor}; font-weight:700;\">${cons.primary||'-'}</span>
                     <span style=\"font-size:0.5rem; font-weight:400; color:var(--text-dim);\">(Bull ${cons.bull_score||0} / Bear ${cons.bear_score||0})</span>
                 </div>
+                        <div title=\"Alignment\" style=\"height:12px; width:100%; background:rgba(255,255,255,0.08); border-radius:8px; overflow:hidden; display:flex; margin:6px 0 10px;\">
+                            <div style=\"flex:0 0 ${bullPct}%; background:#26c281;\"></div>
+                            <div style=\"flex:0 0 ${neuPct}%; background:linear-gradient(90deg,#6c757d,#495057);\"></div>
+                            <div style=\"flex:0 0 ${bearPct}%; background:#ff4d4f;\"></div>
+                        </div>
                 ${legend}
                 ${dist}
                 <div style=\"display:flex; flex-direction:column; gap:8px;\">${rows}</div>`;
@@ -2530,19 +2635,18 @@ DASHBOARD_HTML = """
                     
                     const color = regimeColors[regime.regime] || '#6c757d';
                     const icon = regimeIcons[regime.regime] || '❓';
-                    
+                    const conf = typeof regime.confidence==='number' ? regime.confidence : 0;
                     let html = `
-                        <div class="metric-card" style="margin-bottom: 15px; border-left: 4px solid ${color};">
-                            <div class="metric-value" style="color: ${color}">
+                        <div class=\"metric-card\" style=\"margin-bottom: 15px; border-left: 4px solid ${color};\">
+                            <div class=\"metric-value\" style=\"color: ${color}\">
                                 ${icon} ${regime.regime.toUpperCase()}
                             </div>
-                            <div class="metric-label">Market Regime (${regime.confidence}%)</div>
+                            <div class=\"metric-label\">Market Regime (${conf}%)</div>
+                            <div title=\"Confidence\" style=\"height:6px; background:rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; margin-top:6px;\">
+                                <div style=\"height:100%; width:${Math.max(0,Math.min(100,conf))}%; background:${color}; opacity:.6;\"></div>
+                            </div>
                         </div>
-                        
-                        <div style="font-size: 0.65rem; color: var(--text-secondary); margin-bottom: 10px;">
-                            ${regime.rationale}
-                        </div>
-                    `;
+                        <div style=\"font-size: 0.65rem; color: var(--text-secondary); margin-bottom: 10px;\">${regime.rationale}</div>`;
                     
                     if (regime.secondary_regime) {
                         const secColor = regimeColors[regime.secondary_regime] || '#6c757d';
@@ -2567,7 +2671,7 @@ DASHBOARD_HTML = """
                         </div>
                     `;
                     
-                    if (regime.regime_scores) {
+            if (regime.regime_scores) {
                         html += `
                             <div style="margin-top: 10px; font-size: 0.5rem;">
                                 <div style="color: var(--text-dim); margin-bottom: 4px;">Regime Scores:</div>
@@ -2575,7 +2679,7 @@ DASHBOARD_HTML = """
                         `;
                         Object.entries(regime.regime_scores).forEach(([key, score]) => {
                             const color = regimeColors[key] || '#6c757d';
-                            html += `<span style="background: ${color}20; color: ${color}; padding: 2px 5px; border-radius: 4px;">${key}: ${score}</span>`;
+                html += `<span style=\"background: ${color}20; color: ${color}; padding: 2px 6px; border-radius: 8px; border:1px solid ${color}55; letter-spacing:.3px;\">${key}: ${score}</span>`;
                         });
                         html += `</div></div>`;
                     }
