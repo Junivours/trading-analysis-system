@@ -49,13 +49,22 @@ class MEXCExchangeAdapter:
             h["X-MEXC-APIKEY"] = self.api_key
         return h
 
+    def _norm_symbol(self, symbol: str) -> str:
+        """Normalize symbols for MEXC API differences."""
+        s = (symbol or '').upper()
+        # MEXC futures often uses underscore format like BTC_USDT
+        if self.futures and '_' not in s and s.endswith('USDT'):
+            s = s.replace('USDT', '_USDT')
+        # Spot stays as BTCUSDT
+        return s
+
     def get_price(self, symbol: str) -> float:
         """Get current price for symbol"""
         try:
             if self.futures:
                 # MEXC Futures ticker endpoint
                 url = f"{self.base_url}/api/v1/contract/ticker"
-                params = {"symbol": symbol}
+                params = {"symbol": self._norm_symbol(symbol)}
             else:
                 # MEXC Spot ticker endpoint  
                 url = f"{self.base_url}/api/v3/ticker/price"
@@ -78,16 +87,16 @@ class MEXCExchangeAdapter:
     def place_order(self, symbol: str, side: str, qty: float, order_type: str = "MARKET", price: Optional[float] = None, reduce_only: bool = False) -> Dict[str, Any]:
         """Place order on MEXC"""
         ts = int(time.time() * 1000)
-        
+
         if self.dry_run:
             return {
-                "dry_run": True, 
-                "symbol": symbol, 
-                "side": side, 
-                "qty": qty, 
-                "type": order_type, 
-                "price": price, 
-                "ts": ts, 
+                "dry_run": True,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "type": order_type,
+                "price": price,
+                "ts": ts,
                 "reduceOnly": reduce_only,
                 "exchange": "MEXC"
             }
@@ -97,49 +106,39 @@ class MEXCExchangeAdapter:
                 # MEXC Futures order endpoint
                 endpoint = "/api/v1/private/order/submit"
                 url = f"{self.base_url}{endpoint}"
-                
                 params = {
-                    "symbol": symbol,
-                    "side": 1 if side.upper() == "BUY" else 2,  # MEXC uses 1=BUY, 2=SELL
+                    "symbol": self._norm_symbol(symbol),
+                    "side": 1 if side.upper() == "BUY" else 2,  # 1=BUY, 2=SELL
                     "type": 1 if order_type.upper() == "MARKET" else 2,  # 1=MARKET, 2=LIMIT
                     "vol": qty,
                     "timestamp": ts
                 }
-                
                 if order_type.upper() == "LIMIT" and price is not None:
                     params["price"] = price
-                    
                 if reduce_only:
                     params["reduceOnly"] = True
-                    
             else:
                 # MEXC Spot order endpoint
                 endpoint = "/api/v3/order"
                 url = f"{self.base_url}{endpoint}"
-                
                 params = {
-                    "symbol": symbol,
+                    "symbol": symbol.upper(),
                     "side": side.upper(),
                     "type": order_type.upper(),
                     "quantity": qty,
                     "timestamp": ts
                 }
-                
                 if order_type.upper() == "LIMIT" and price is not None:
                     params["price"] = price
                     params["timeInForce"] = "GTC"
 
-            # Sign the request
+            # Sign and send
             params = self._sign(params)
-            
-            # Make the request
             r = requests.post(url, headers=self._headers(), data=params, timeout=15)
-            
             try:
                 return r.json()
             except Exception:
                 return {"error": r.text, "status_code": r.status_code}
-                
         except Exception as e:
             return {"error": f"Order placement failed: {str(e)}"}
 
@@ -173,7 +172,7 @@ class MEXCExchangeAdapter:
         try:
             if self.futures:
                 url = f"{self.base_url}/api/v1/contract/detail"
-                params = {"symbol": symbol}
+                params = {"symbol": self._norm_symbol(symbol)}
             else:
                 url = f"{self.base_url}/api/v3/exchangeInfo"
                 params = {}

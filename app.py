@@ -875,7 +875,8 @@ def bot_run_once():
         if exchange == 'mexc':
             dry = (os.getenv('MEXC_API_KEY') is None or os.getenv('MEXC_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
             from core.trading.mexc_adapter import MEXCExchangeAdapter
-            adapter = MEXCExchangeAdapter(dry_run=dry)
+            # Use MEXC Spot by default for simpler live trading (futures often needs extra params like leverage/openType)
+            adapter = MEXCExchangeAdapter(futures=False, dry_run=dry)
         else:  # Default to Binance
             dry = (os.getenv('BINANCE_API_KEY') is None or os.getenv('BINANCE_API_SECRET') is None or str(payload.get('paper','true')).lower() in ('true','1','yes'))
             adapter = ExchangeAdapter(dry_run=dry)
