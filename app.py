@@ -844,6 +844,9 @@ def bot_run_once():
         interval = (payload.get('interval') or '1h').lower()
         exchange = (payload.get('exchange') or 'binance').lower()
         
+        def _bool(v):
+            return str(v).strip().lower() in ('true','1','yes','y','on')
+
         cfg = {
             'equity': float(payload.get('equity', 10000)),
             'risk_pct': float(payload.get('risk_pct', 0.5)),
@@ -851,6 +854,22 @@ def bot_run_once():
             'min_rr': float(payload.get('min_rr', 1.2)),
             'exchange': exchange
         }
+        # Optional advanced safety/config
+        if payload.get('cooldown_minutes') is not None:
+            try: cfg['cooldown_minutes'] = float(payload.get('cooldown_minutes'))
+            except: pass
+        if payload.get('max_trades_per_day') is not None:
+            try: cfg['max_trades_per_day'] = int(payload.get('max_trades_per_day'))
+            except: pass
+        if payload.get('require_trend_alignment') is not None:
+            try: cfg['require_trend_alignment'] = _bool(payload.get('require_trend_alignment'))
+            except: pass
+        if payload.get('max_notional_pct') is not None:
+            try: cfg['max_notional_pct'] = float(payload.get('max_notional_pct'))
+            except: pass
+        if payload.get('min_notional') is not None:
+            try: cfg['min_notional'] = float(payload.get('min_notional'))
+            except: pass
         
         # Determine paper mode based on exchange and API keys
         if exchange == 'mexc':
@@ -3573,6 +3592,16 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
                 <div style=\"display:flex; gap:8px; margin-top:10px\">
                     <button id=\"tb-run\" style=\"flex:1; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#1e293b; color:#fff; cursor:pointer\" onclick=\"tbRun()\">Run once</button>
                     <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0f172a; color:#fff; cursor:pointer\" onclick=\"tbRefresh()\">Refresh</button>
+                    <button style=\"padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background:#0b1220; color:#fff; cursor:pointer\" onclick=\"document.getElementById('tb-adv').style.display = (document.getElementById('tb-adv').style.display==='none'?'block':'none')\">Advanced</button>
+                </div>
+                <div id=\"tb-adv\" style=\"display:none; margin-top:8px; padding:8px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; background:rgba(255,255,255,0.03)\">
+                    <div style=\"display:flex; gap:6px; flex-wrap:wrap\">
+                        <input id=\"tb-cooldown\" type=\"number\" step=\"1\" min=\"0\" placeholder=\"Cooldown (min)\" value=\"5\" style=\"width:130px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <input id=\"tb-daily\" type=\"number\" step=\"1\" min=\"0\" placeholder=\"Max Trades/Tag\" value=\"3\" style=\"width:150px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <input id=\"tb-maxnotional\" type=\"number\" step=\"1\" min=\"1\" placeholder=\"Max Notional % Equity\" value=\"100\" style=\"width:180px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <input id=\"tb-minnotional\" type=\"number\" step=\"1\" min=\"1\" placeholder=\"Min Notional (USD)\" value=\"10\" style=\"width:170px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#fff\"/>
+                        <label style=\"display:flex; align-items:center; gap:6px; font-size:.9rem; opacity:.9\"><input id=\"tb-align\" type=\"checkbox\" checked/> Trend-Alignment nötig</label>
+                    </div>
                 </div>
             <div id=\"tb-out\" style=\"margin-top:10px; max-height:260px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; line-height:1.35\"></div>
             </div>
@@ -3613,7 +3642,14 @@ DASHBOARD_HTML = DASHBOARD_HTML.replace(
                 const pap = !!document.getElementById('tb-paper').checked;
                 const out = document.getElementById('tb-out'); out.innerText = 'Running…';
                 try{
-                    const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap})});
+                    const adv = {};
+                    const cd = parseFloat(document.getElementById('tb-cooldown')?.value || ''); if(!isNaN(cd)) adv.cooldown_minutes = cd;
+                    const dl = parseInt(document.getElementById('tb-daily')?.value || ''); if(!isNaN(dl)) adv.max_trades_per_day = dl;
+                    const mn = parseFloat(document.getElementById('tb-maxnotional')?.value || ''); if(!isNaN(mn)) adv.max_notional_pct = mn;
+                    const mi = parseFloat(document.getElementById('tb-minnotional')?.value || ''); if(!isNaN(mi)) adv.min_notional = mi;
+                    const al = document.getElementById('tb-align')?.checked; if(typeof al==='boolean') adv.require_trend_alignment = al;
+                    const payload = Object.assign({symbol:s, interval: tf, exchange: ex, equity: eq, risk_pct: rk, paper: pap}, adv);
+                    const r = await fetch('/api/bot/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
                     const j = await r.json();
                     if(!j.success){ out.innerText = 'Fehler: '+(j.error||'unknown'); }
                     else {
