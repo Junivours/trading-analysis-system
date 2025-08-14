@@ -1910,6 +1910,7 @@ DASHBOARD_HTML = """
             const container = document.getElementById('tradeSetupsContent');
             const status = document.getElementById('tradeSetupsStatus');
             const all = Array.isArray(data.trade_setups) ? data.trade_setups : [];
+            const prec = data.precision_filter_meta || {};
             if (all.length === 0) {
                 container.innerHTML = '';
                 status.textContent = 'Keine Setups generiert (Bedingungen nicht erfüllt).';
@@ -1942,11 +1943,13 @@ DASHBOARD_HTML = """
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
                         <div class="setup-title">${s.direction} <span class="setup-badge pattern-badge ${s.direction==='LONG'?'long':'short'}" style="background:linear-gradient(45deg,#FFD700,#FFA500); color:#000;">${s.pattern_name || s.strategy}</span>
                             <span style="margin-left:6px; font-size:.5rem; opacity:.75; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px;">${s.timeframe || s.pattern_timeframe || '1h'}</span>
+                            ${typeof s.refined_rank === 'number' ? `<span class="setup-badge" style="margin-left:6px; background:#0d6efd;">Precision ${s.refined_rank}</span>` : ''}
                         </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry_price || s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
                         ${s.risk_percent || s.risk_reward_ratio ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent || s.risk_reward_ratio}%</span></div>` : ''}
                         ${s.risk_reward_ratio ? `<div class="setup-line"><span>R/R</span><span style="color:#28a745;">${s.risk_reward_ratio}</span></div>`:''}
+                        ${typeof s.refined_rank === 'number' ? `<div class="setup-line"><span>Refined</span><span>${s.refined_rank}</span></div>` : ''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
                         ${s.rationale ? `<div style="margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:.75rem;">${s.rationale}</div>` : ''}
@@ -1965,11 +1968,13 @@ DASHBOARD_HTML = """
                         <div class="confidence-chip ${confClass}">${s.confidence}%</div>
                         <div class="setup-title">${s.direction} <span class="setup-badge ${s.direction==='LONG'?'long':'short'}">${s.strategy}</span>
                             <span style="margin-left:6px; font-size:.5rem; opacity:.75; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px;">${s.timeframe || '1h'}</span>
+                            ${typeof s.refined_rank === 'number' ? `<span class="setup-badge" style="margin-left:6px; background:#0d6efd;">Precision ${s.refined_rank}</span>` : ''}
                         </div>
                         <div class="setup-line"><span>Entry</span><span>${s.entry}</span></div>
                         <div class="setup-line"><span>Stop</span><span>${s.stop_loss}</span></div>
                         ${s.risk_percent ? `<div class="setup-line"><span>Risk%</span><span>${s.risk_percent}%</span></div>`:''}
                         ${s.primary_rr ? `<div class="setup-line"><span>R/R</span><span style=\"color:#28a745;\">${s.primary_rr}R</span></div>`:''}
+                        ${typeof s.refined_rank === 'number' ? `<div class="setup-line"><span>Refined</span><span>${s.refined_rank}</span></div>` : ''}
                         <div class="setup-sep"></div>
                         <div class="targets">${targets}</div>
                         ${s.rationale ? `<div style=\"margin-top:6px; font-size:.55rem; color:rgba(255,255,255,0.55); line-height:.75rem;\">${s.rationale}</div>`:''}
@@ -1977,7 +1982,9 @@ DASHBOARD_HTML = """
                 }).join('') + '</div>';
             }
             container.innerHTML = html || '<div style="font-size:.65rem; color:var(--text-dim);">Keine passenden Setups nach Filter.</div>';
-            status.textContent = `Zeige ${limited.length} von ${filtered.length} (${all.length} gesamt) | Filter: ${tradeSetupFilter} | Limit: ${tradeSetupMax===2?'2':'ALLE'}`;
+            const steps = Array.isArray(prec.steps) ? prec.steps.join(' + ') : null;
+            status.innerHTML = `Zeige ${limited.length} von ${filtered.length} (${all.length} gesamt) | Filter: ${tradeSetupFilter} | Limit: ${tradeSetupMax===2?'2':'ALLE'} ` +
+                `<span style="margin-left:6px; font-size:.55rem; background:rgba(13,110,253,0.15); color:#8ab4ff; padding:2px 6px; border-radius:8px;">Precision: ON${steps?` (${steps})`:''}</span>`;
         }
 
         // Display position management recommendations
